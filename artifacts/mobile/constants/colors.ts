@@ -1,0 +1,30 @@
+const colors = {
+  light: {
+    text: '#0D1B3E',
+    tint: '#1A56DB',
+    background: '#F8FAFE',
+    foreground: '#0D1B3E',
+    card: '#FFFFFF',
+    cardForeground: '#0D1B3E',
+    primary: '#1A56DB',
+    primaryForeground: '#FFFFFF',
+    secondary: '#0EA5E9',
+    secondaryForeground: '#FFFFFF',
+    muted: '#EEF3FB',
+    mutedForeground: '#6B7DB3',
+    accent: '#E8F0FD',
+    accentForeground: '#1A56DB',
+    destructive: '#EF4444',
+    destructiveForeground: '#FFFFFF',
+    success: '#22C55E',
+    successForeground: '#FFFFFF',
+    warning: '#F59E0B',
+    warningForeground: '#FFFFFF',
+    border: '#D4E0F5',
+    input: '#E8F0FD',
+    shadow: 'rgba(26, 86, 219, 0.12)',
+  },
+  radius: 12,
+};
+
+export default colors;

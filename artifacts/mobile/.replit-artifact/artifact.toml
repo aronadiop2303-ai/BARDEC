@@ -1,0 +1,23 @@
+kind = "mobile"
+previewPath = "/"
+title = "BARDEC Mobile"
+version = "1.0.0"
+id = "artifacts/mobile"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/" ]
+localPort = 18115
+
+[services.development]
+run = "pnpm --filter @workspace/mobile run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mobile", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/mobile", "run", "serve" ]
+
+[services.env]
+PORT = "18115"
+BASE_PATH = "/"
