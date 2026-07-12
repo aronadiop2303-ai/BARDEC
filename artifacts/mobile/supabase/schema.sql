@@ -18,6 +18,7 @@ CREATE TYPE order_status AS ENUM (
 CREATE TYPE kyc_status AS ENUM ('pending', 'approved', 'rejected', 'incomplete');
 CREATE TYPE dispute_status AS ENUM ('open', 'investigating', 'resolved', 'closed');
 CREATE TYPE payment_method AS ENUM ('card', 'paypal', 'net30', 'bank_transfer');
+CREATE TYPE delivery_type AS ENUM ('home', 'drone', 'relay_point', 'store_pickup');
 
 -- ─────────────────────────────────────────────
 -- COMPANIES (B2B organizations)
@@ -101,6 +102,9 @@ CREATE TABLE orders (
   delivery_photo_url    TEXT,
   signature_url         TEXT,
   notes                 TEXT,
+  delivery_type         delivery_type DEFAULT 'home',
+  delivery_relay_point  JSONB,   -- { id, name, address, hours } si relay_point
+  delivery_store        JSONB,   -- { id, name, address, hours, contact } si store_pickup
   created_at            TIMESTAMPTZ DEFAULT NOW(),
   updated_at            TIMESTAMPTZ DEFAULT NOW()
 );
