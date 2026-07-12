@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "BARDEC",
-    "slug": "mobile",
+    "slug": "bardec",
+    "owner": "aronadiop",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -15,14 +16,14 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.bardec.marketplace"
+      "bundleIdentifier": "com.bardec.app"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#1A56DB"
       },
-      "package": "com.bardec.marketplace"
+      "package": "com.bardec.app"
     },
     "web": {
       "favicon": "./assets/images/icon.png"
