@@ -23,7 +23,11 @@
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#1A56DB"
       },
-      "package": "com.bardec.app"
+      "package": "com.bardec.app",
+      "permissions": [
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
     },
     "web": {
       "favicon": "./assets/images/icon.png"
@@ -50,6 +54,11 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "add24569-1fb2-44fa-b98b-2f1dbbb3e400"
+      }
     }
   }
 }
