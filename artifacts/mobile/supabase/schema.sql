@@ -17,7 +17,15 @@ CREATE TYPE order_status AS ENUM (
 );
 CREATE TYPE kyc_status AS ENUM ('pending', 'approved', 'rejected', 'incomplete');
 CREATE TYPE dispute_status AS ENUM ('open', 'investigating', 'resolved', 'closed');
-CREATE TYPE payment_method AS ENUM ('card', 'paypal', 'net30', 'bank_transfer');
+CREATE TYPE payment_method AS ENUM (
+  'wave', 'orange_money', 'mtn_momo',
+  'cash_on_delivery',
+  'net30', 'bank_transfer',
+  'card', 'paypal'
+);
+CREATE TYPE payment_status AS ENUM (
+  'pending', 'awaiting_verification', 'paid', 'failed', 'refunded'
+);
 CREATE TYPE delivery_type AS ENUM ('home', 'drone', 'relay_point', 'store_pickup');
 
 -- ─────────────────────────────────────────────
@@ -103,8 +111,16 @@ CREATE TABLE orders (
   signature_url         TEXT,
   notes                 TEXT,
   delivery_type         delivery_type DEFAULT 'home',
-  delivery_relay_point  JSONB,   -- { id, name, address, hours } si relay_point
-  delivery_store        JSONB,   -- { id, name, address, hours, contact } si store_pickup
+  delivery_relay_point  JSONB,        -- { id, name, address, hours } si relay_point
+  delivery_store        JSONB,        -- { id, name, address, hours, contact } si store_pickup
+  -- ── Payment tracking ────────────────────────────────────────────────────────
+  payment_status        payment_status DEFAULT 'pending',
+  payment_proof_url     TEXT,         -- URL Supabase Storage de la preuve mobile money
+  payment_currency      TEXT DEFAULT 'XOF',
+  payment_amount_xof    NUMERIC(14, 0), -- montant exact en FCFA
+  verified_by           UUID REFERENCES users(id),  -- admin qui a validé
+  verified_at           TIMESTAMPTZ,
+  payment_notes         TEXT,         -- motif rejet ou commentaire admin
   created_at            TIMESTAMPTZ DEFAULT NOW(),
   updated_at            TIMESTAMPTZ DEFAULT NOW()
 );
