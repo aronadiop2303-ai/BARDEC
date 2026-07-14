@@ -11,10 +11,8 @@ import {
   Inter_700Bold,
   useFonts,
 } from '@expo-google-fonts/inter';
-// Explicitly import icon sets used throughout the app so Metro bundles their
-// .ttf files and Expo Font loads them before any icon renders.
-// Without this, pnpm symlink resolution can silently skip the font assets.
-import { Feather } from '@expo/vector-icons';
+// No direct Feather import needed here — font is loaded below via a local
+// asset path to avoid pnpm symlink resolution issues with Expo Go on Android.
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider } from '@/context/AuthContext';
@@ -51,9 +49,12 @@ export default function RootLayout() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
-    // Load Feather icon font explicitly — required in pnpm monorepos where
-    // Metro may not auto-discover font assets through symlinks.
-    ...Feather.font,
+    // 'feather' (lowercase) is the exact family name used by createIconSet
+    // inside @expo/vector-icons/Feather. Android font matching is case-sensitive,
+    // so the key here MUST match. We load from a local asset copy to bypass
+    // pnpm symlink resolution issues that cause Feather.font to return null.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    feather: require('../assets/fonts/Feather.ttf'),
   });
 
   useEffect(() => {
