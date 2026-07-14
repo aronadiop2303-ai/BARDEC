@@ -8,7 +8,13 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<{ error?: string }>;
-  register: (email: string, password: string, name: string, role: UserRole) => Promise<{ error?: string }>;
+  register: (
+    email: string,
+    password: string,
+    name: string,
+    role: UserRole,
+    company?: string,
+  ) => Promise<{ error?: string }>;
   logout: () => Promise<void>;
   switchDemoRole: (role: UserRole) => void;
   isDemoMode: boolean;
@@ -106,36 +112,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     password: string,
     name: string,
     role: UserRole,
+    company?: string,
   ): Promise<{ error?: string }> {
+    const isB2B = role === 'BUYER' || role === 'VENDOR';
+
     if (isDemoMode) {
       // Demo mode: create a local user immediately
-      const newUser: User = {
-        id: `demo_${Date.now()}`,
-        name,
-        email,
-        role,
-      };
+      const newUser: User = { id: `demo_${Date.now()}`, name, email, role, company };
       setUser(newUser);
       await AsyncStorage.setItem('bardec_demo_user', JSON.stringify(newUser));
       return {};
     }
 
-    // Real Supabase sign-up
-    const { data, error } = await supabase!.auth.signUp({ email, password });
+    // ── Step 1: Create the Supabase Auth account ──────────────────────────
+    // Pass metadata in options.data so it's available in auth.users.raw_user_meta_data
+    // and in Supabase Auth webhooks/triggers without an extra DB query.
+    const { data, error } = await supabase!.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          display_name: name,
+          role,
+          ...(isB2B && company ? { company_name: company } : {}),
+        },
+      },
+    });
     if (error) return { error: error.message };
     if (!data.user) return { error: 'Erreur lors de la création du compte.' };
 
-    // Insert the user profile into the public users table
-    const { error: profileError } = await supabase!
-      .from('users')
-      .insert({ id: data.user.id, email, display_name: name, role });
+    // ── Step 2 (B2B only): create the company row first ───────────────────
+    let companyId: string | undefined;
+    if (isB2B && company) {
+      const { data: companyRow, error: companyErr } = await supabase!
+        .from('companies')
+        .insert({
+          name: company,
+          is_approved: false, // pending admin validation
+        })
+        .select('id')
+        .single();
 
-    if (profileError) {
-      // Profile insert failed — clean up auth user if possible, return error
-      return { error: profileError.message };
+      if (companyErr) {
+        // Non-blocking: log but don't abort account creation
+        console.warn('[register] companies insert failed:', companyErr.message);
+      } else {
+        companyId = companyRow?.id;
+      }
     }
 
-    // If Supabase requires email confirmation, data.session will be null
+    // ── Step 3: insert the user profile row ───────────────────────────────
+    const userRow: Record<string, unknown> = {
+      id: data.user.id,
+      email,
+      display_name: name,
+      role,
+      // VENDORs need KYC validation before accessing the platform
+      is_approved: role !== 'VENDOR',
+    };
+    if (companyId) userRow.company_id = companyId;
+
+    const { error: profileError } = await supabase!.from('users').insert(userRow);
+    if (profileError) return { error: profileError.message };
+
+    // ── Step 4: check for email confirmation requirement ──────────────────
+    // data.session is null when Supabase requires email verification.
     if (!data.session) {
       return { error: 'CONFIRM_EMAIL' };
     }

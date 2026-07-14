@@ -43,7 +43,13 @@ export default function RegisterScreen() {
     }
 
     setLoading(true);
-    const { error } = await register(email.trim().toLowerCase(), password, name.trim(), selectedRole);
+    const { error } = await register(
+      email.trim().toLowerCase(),
+      password,
+      name.trim(),
+      selectedRole,
+      company.trim() || undefined,
+    );
     setLoading(false);
 
     if (error === 'CONFIRM_EMAIL') {
