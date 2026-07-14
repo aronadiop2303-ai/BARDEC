@@ -11,6 +11,10 @@ import {
   Inter_700Bold,
   useFonts,
 } from '@expo-google-fonts/inter';
+// Explicitly import icon sets used throughout the app so Metro bundles their
+// .ttf files and Expo Font loads them before any icon renders.
+// Without this, pnpm symlink resolution can silently skip the font assets.
+import { Feather } from '@expo/vector-icons';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider } from '@/context/AuthContext';
@@ -47,6 +51,9 @@ export default function RootLayout() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
+    // Load Feather icon font explicitly — required in pnpm monorepos where
+    // Metro may not auto-discover font assets through symlinks.
+    ...Feather.font,
   });
 
   useEffect(() => {
