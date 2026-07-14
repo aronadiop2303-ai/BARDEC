@@ -75,31 +75,37 @@ export default function ProfileScreen() {
         </View>
       )}
 
-      {/* Demo mode role switcher */}
-      {isDemoMode && (
-        <View style={[styles.section, { borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Mode Démo — Changer de rôle</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {(['CUSTOMER', 'BUYER', 'APPROVER', 'VENDOR', 'ADMIN'] as UserRole[]).map(role => (
-              <TouchableOpacity
-                key={role}
-                style={[
-                  styles.roleSwitchBtn,
-                  {
-                    backgroundColor: user?.role === role ? colors.primary : colors.card,
-                    borderColor: user?.role === role ? colors.primary : colors.border,
-                  },
-                ]}
-                onPress={() => switchDemoRole(role)}
-              >
-                <Text style={[styles.roleSwitchText, { color: user?.role === role ? 'white' : colors.foreground }]}>
-                  {role}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+      {/* Role switcher — always visible for multi-role testing */}
+      <View style={[styles.section, { borderColor: colors.border }]}>
+        <View style={styles.roleSwitchHeader}>
+          <Feather name="refresh-cw" size={13} color={colors.mutedForeground} />
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Changer de rôle</Text>
+          {!isDemoMode && (
+            <View style={[styles.liveTag, { backgroundColor: '#FEF3C7' }]}>
+              <Text style={[styles.liveTagText, { color: '#D97706' }]}>test</Text>
+            </View>
+          )}
         </View>
-      )}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {(['CUSTOMER', 'BUYER', 'APPROVER', 'VENDOR', 'ADMIN'] as UserRole[]).map(role => (
+            <TouchableOpacity
+              key={role}
+              style={[
+                styles.roleSwitchBtn,
+                {
+                  backgroundColor: user?.role === role ? colors.primary : colors.card,
+                  borderColor:     user?.role === role ? colors.primary : colors.border,
+                },
+              ]}
+              onPress={() => switchDemoRole(role)}
+            >
+              <Text style={[styles.roleSwitchText, { color: user?.role === role ? 'white' : colors.foreground }]}>
+                {role}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       {/* Menu */}
       <View style={[styles.menuSection, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -241,6 +247,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   sectionTitle: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  roleSwitchHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  liveTag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  liveTagText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
   roleSwitchBtn: {
     paddingHorizontal: 14,
     paddingVertical: 7,

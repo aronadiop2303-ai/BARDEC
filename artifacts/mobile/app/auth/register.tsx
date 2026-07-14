@@ -9,26 +9,28 @@ import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
+import { UserRole } from '@/constants/mockData';
 
-const ROLES = [
-  { id: 'CUSTOMER', label: 'Client (B2C)', desc: 'Achats personnels, prix public' },
-  { id: 'BUYER', label: 'Acheteur B2B', desc: 'Prix de gros, Net30, bons de commande' },
-  { id: 'VENDOR', label: 'Vendeur', desc: 'Gérez vos produits et commandes' },
+const ROLES: { id: UserRole; label: string; desc: string }[] = [
+  { id: 'CUSTOMER', label: 'Client (B2C)',   desc: 'Achats personnels, prix public' },
+  { id: 'BUYER',    label: 'Acheteur B2B',   desc: 'Prix de gros, Net30, bons de commande' },
+  { id: 'VENDOR',   label: 'Vendeur',        desc: 'Gérez vos produits et commandes' },
 ];
 
 export default function RegisterScreen() {
   const colors = useColors();
   const { t } = useLanguage();
-  const { login } = useAuth();
+  const { register } = useAuth();
   const insets = useSafeAreaInsets();
 
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [company, setCompany] = useState('');
-  const [selectedRole, setSelectedRole] = useState('CUSTOMER');
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [name,           setName]           = useState('');
+  const [email,          setEmail]          = useState('');
+  const [password,       setPassword]       = useState('');
+  const [company,        setCompany]        = useState('');
+  const [selectedRole,   setSelectedRole]   = useState<UserRole>('CUSTOMER');
+  const [showPassword,   setShowPassword]   = useState(false);
+  const [loading,        setLoading]        = useState(false);
+  const [emailSent,      setEmailSent]      = useState(false);
 
   async function handleRegister() {
     if (!name || !email || !password) {
@@ -39,17 +41,56 @@ export default function RegisterScreen() {
       Alert.alert('Erreur', 'Le mot de passe doit contenir au moins 6 caractères');
       return;
     }
+
     setLoading(true);
-    // In demo mode, just login with the provided email
-    const { error } = await login(email, password);
+    const { error } = await register(email.trim().toLowerCase(), password, name.trim(), selectedRole);
     setLoading(false);
-    if (error) {
-      Alert.alert('Erreur', error);
-    } else {
-      router.replace('/');
+
+    if (error === 'CONFIRM_EMAIL') {
+      // Supabase requires email confirmation — show a message instead of navigating
+      setEmailSent(true);
+      return;
     }
+    if (error) {
+      Alert.alert('Erreur d\'inscription', error);
+      return;
+    }
+    // Account created and session active → go to home
+    router.replace('/');
   }
 
+  // ── Email confirmation screen ──────────────────────────────────────────────
+  if (emailSent) {
+    return (
+      <KeyboardAvoidingView style={[styles.container, { backgroundColor: colors.background }]}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 40, alignItems: 'center' }]}
+        >
+          <View style={[styles.confirmIcon, { backgroundColor: colors.accent }]}>
+            <Feather name="mail" size={48} color={colors.primary} />
+          </View>
+          <Text style={[styles.title, { color: colors.primary, textAlign: 'center' }]}>BARDEC ∞</Text>
+          <Text style={[styles.subtitle, { color: colors.foreground, textAlign: 'center' }]}>
+            Confirmez votre e-mail
+          </Text>
+          <Text style={[styles.confirmText, { color: colors.mutedForeground }]}>
+            Un lien de confirmation a été envoyé à{'\n'}
+            <Text style={{ color: colors.primary, fontWeight: '700' }}>{email}</Text>
+            {'\n\n'}Cliquez sur le lien dans le mail pour activer votre compte, puis connectez-vous.
+          </Text>
+          <TouchableOpacity
+            style={[styles.registerBtn, { backgroundColor: colors.primary, marginTop: 20 }]}
+            onPress={() => router.replace('/auth/login')}
+          >
+            <Feather name="log-in" size={18} color="white" />
+            <Text style={styles.registerBtnText}>Aller à la connexion</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  // ── Registration form ──────────────────────────────────────────────────────
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: colors.background }]}
@@ -84,16 +125,13 @@ export default function RegisterScreen() {
                 styles.roleCard,
                 {
                   backgroundColor: selectedRole === role.id ? colors.accent : colors.card,
-                  borderColor: selectedRole === role.id ? colors.primary : colors.border,
+                  borderColor:     selectedRole === role.id ? colors.primary : colors.border,
                 },
               ]}
               onPress={() => setSelectedRole(role.id)}
             >
               <View style={styles.roleCheck}>
-                <View style={[
-                  styles.radio,
-                  { borderColor: selectedRole === role.id ? colors.primary : colors.border },
-                ]}>
+                <View style={[styles.radio, { borderColor: selectedRole === role.id ? colors.primary : colors.border }]}>
                   {selectedRole === role.id && (
                     <View style={[styles.radioDot, { backgroundColor: colors.primary }]} />
                   )}
@@ -107,7 +145,7 @@ export default function RegisterScreen() {
           ))}
         </View>
 
-        {/* Form */}
+        {/* Form fields */}
         <View style={styles.form}>
           <Text style={[styles.sectionLabel, { color: colors.foreground }]}>Informations</Text>
 
@@ -132,6 +170,7 @@ export default function RegisterScreen() {
               onChangeText={setEmail}
               keyboardType="email-address"
               autoCapitalize="none"
+              autoCorrect={false}
             />
           </View>
 
@@ -139,7 +178,7 @@ export default function RegisterScreen() {
             <Feather name="lock" size={18} color={colors.mutedForeground} />
             <TextInput
               style={[styles.input, { color: colors.foreground }]}
-              placeholder={t('password') + ' *'}
+              placeholder={t('password') + ' * (min. 6 caractères)'}
               placeholderTextColor={colors.mutedForeground}
               value={password}
               onChangeText={setPassword}
@@ -194,52 +233,54 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { paddingHorizontal: 24, gap: 20 },
-  backBtn: { width: 40, height: 40, justifyContent: 'center' },
-  header: { gap: 4 },
-  title: { fontSize: 26, fontWeight: '900', letterSpacing: 1 },
-  subtitle: { fontSize: 20, fontWeight: '700' },
-  desc: { fontSize: 14 },
-  section: { gap: 10 },
-  sectionLabel: { fontSize: 15, fontWeight: '700' },
+  container:      { flex: 1 },
+  content:        { paddingHorizontal: 24, gap: 20 },
+  backBtn:        { width: 40, height: 40, justifyContent: 'center' },
+  header:         { gap: 4 },
+  title:          { fontSize: 26, fontWeight: '900', letterSpacing: 1 },
+  subtitle:       { fontSize: 20, fontWeight: '700' },
+  desc:           { fontSize: 14 },
+  section:        { gap: 10 },
+  sectionLabel:   { fontSize: 15, fontWeight: '700' },
   roleCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 14,
-    borderWidth: 2,
-    padding: 14,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center',
+    borderRadius: 14, borderWidth: 2, padding: 14, gap: 12,
   },
-  roleCheck: {},
+  roleCheck:      {},
   radio: {
     width: 20, height: 20, borderRadius: 10, borderWidth: 2,
     justifyContent: 'center', alignItems: 'center',
   },
-  radioDot: { width: 10, height: 10, borderRadius: 5 },
-  roleText: { flex: 1 },
-  roleName: { fontSize: 14, fontWeight: '700' },
-  roleDesc: { fontSize: 12, marginTop: 2 },
-  form: { gap: 12 },
+  radioDot:       { width: 10, height: 10, borderRadius: 5 },
+  roleText:       { flex: 1 },
+  roleName:       { fontSize: 14, fontWeight: '700' },
+  roleDesc:       { fontSize: 12, marginTop: 2 },
+  form:           { gap: 12 },
   inputGroup: {
     flexDirection: 'row', alignItems: 'center',
     borderRadius: 14, borderWidth: 1,
     paddingHorizontal: 16, paddingVertical: 14, gap: 12,
   },
-  input: { flex: 1, fontSize: 15 },
+  input:          { flex: 1, fontSize: 15 },
   kycNote: {
     flexDirection: 'row', alignItems: 'flex-start',
     gap: 10, padding: 14, borderRadius: 12, borderWidth: 1,
   },
-  kycText: { flex: 1, fontSize: 13, lineHeight: 18 },
+  kycText:        { flex: 1, fontSize: 13, lineHeight: 18 },
   registerBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 10, paddingVertical: 16, borderRadius: 14,
     shadowColor: '#1A56DB', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 8, elevation: 4,
   },
-  registerBtnText: { color: 'white', fontSize: 16, fontWeight: '700' },
-  loginRow: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
-  loginText: { fontSize: 14 },
-  loginLink: { fontSize: 14, fontWeight: '700' },
+  registerBtnText:{ color: 'white', fontSize: 16, fontWeight: '700' },
+  loginRow:       { flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  loginText:      { fontSize: 14 },
+  loginLink:      { fontSize: 14, fontWeight: '700' },
+  // Email confirmation screen
+  confirmIcon: {
+    width: 100, height: 100, borderRadius: 50,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 8,
+  },
+  confirmText:    { fontSize: 15, textAlign: 'center', lineHeight: 24 },
 });

@@ -4,25 +4,28 @@ import { useColors } from '@/hooks/useColors';
 import { Feather } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { Tabs } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 
+// NOTE: expo-symbols (SF Symbols) is iOS-only and its native module is
+// unavailable on Android — importing it crashes the tab layout on Android.
+// We use @expo/vector-icons (Feather) everywhere for cross-platform safety.
+
 export default function TabLayout() {
-  const colors = useColors();
+  const colors  = useColors();
   const { totalItems } = useCart();
   const { user } = useAuth();
-  const { t } = useLanguage();
-  const isIOS = Platform.OS === 'ios';
-  const isWeb = Platform.OS === 'web';
+  const { t }   = useLanguage();
+  const isIOS   = Platform.OS === 'ios';
+  const isWeb   = Platform.OS === 'web';
   const isVendor = user?.role === 'VENDOR';
-  const isAdmin = user?.role === 'ADMIN';
+  const isAdmin  = user?.role === 'ADMIN';
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: colors.primary,
+        tabBarActiveTintColor:   colors.primary,
         tabBarInactiveTintColor: colors.mutedForeground,
         headerShown: false,
         tabBarStyle: {
@@ -31,7 +34,7 @@ export default function TabLayout() {
           borderTopWidth: 1,
           borderTopColor: colors.border,
           elevation: 0,
-          height: isWeb ? 84 : Platform.OS === 'android' ? 62 : 60,
+          height:      isWeb ? 84 : Platform.OS === 'android' ? 62 : 60,
           paddingBottom: isWeb ? 24 : Platform.OS === 'android' ? 6 : 8,
         },
         tabBarBackground: () =>
@@ -49,10 +52,7 @@ export default function TabLayout() {
         options={{
           title: t('home'),
           href: !isVendor && !isAdmin ? undefined : null,
-          tabBarIcon: ({ color }) =>
-            isIOS
-              ? <SymbolView name="house" tintColor={color} size={22} />
-              : <Feather name="home" size={22} color={color} />,
+          tabBarIcon: ({ color }) => <Feather name="home" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -60,10 +60,7 @@ export default function TabLayout() {
         options={{
           title: t('search'),
           href: !isVendor && !isAdmin ? undefined : null,
-          tabBarIcon: ({ color }) =>
-            isIOS
-              ? <SymbolView name="magnifyingglass" tintColor={color} size={22} />
-              : <Feather name="search" size={22} color={color} />,
+          tabBarIcon: ({ color }) => <Feather name="search" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -73,10 +70,7 @@ export default function TabLayout() {
           href: !isVendor && !isAdmin ? undefined : null,
           tabBarBadge: totalItems > 0 ? totalItems : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.primary, fontSize: 10 },
-          tabBarIcon: ({ color }) =>
-            isIOS
-              ? <SymbolView name="cart" tintColor={color} size={22} />
-              : <Feather name="shopping-cart" size={22} color={color} />,
+          tabBarIcon: ({ color }) => <Feather name="shopping-cart" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -84,10 +78,7 @@ export default function TabLayout() {
         options={{
           title: t('orders'),
           href: !isVendor && !isAdmin ? undefined : null,
-          tabBarIcon: ({ color }) =>
-            isIOS
-              ? <SymbolView name="list.bullet" tintColor={color} size={22} />
-              : <Feather name="list" size={22} color={color} />,
+          tabBarIcon: ({ color }) => <Feather name="list" size={22} color={color} />,
         }}
       />
 
@@ -116,10 +107,7 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: t('profile'),
-          tabBarIcon: ({ color }) =>
-            isIOS
-              ? <SymbolView name="person" tintColor={color} size={22} />
-              : <Feather name="user" size={22} color={color} />,
+          tabBarIcon: ({ color }) => <Feather name="user" size={22} color={color} />,
         }}
       />
     </Tabs>

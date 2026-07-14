@@ -8,6 +8,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<{ error?: string }>;
+  register: (email: string, password: string, name: string, role: UserRole) => Promise<{ error?: string }>;
   logout: () => Promise<void>;
   switchDemoRole: (role: UserRole) => void;
   isDemoMode: boolean;
@@ -18,6 +19,7 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
   isAuthenticated: false,
   login: async () => ({}),
+  register: async () => ({}),
   logout: async () => {},
   switchDemoRole: () => {},
   isDemoMode: true,
@@ -37,9 +39,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       if (isDemoMode) {
         const stored = await AsyncStorage.getItem('bardec_demo_user');
-        if (stored) {
-          setUser(JSON.parse(stored));
-        }
+        if (stored) setUser(JSON.parse(stored));
         setIsLoading(false);
         return;
       }
@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const dbUser = await fetchUserProfile(session.user.id);
         setUser(dbUser);
       }
-      supabase!.auth.onAuthStateChange(async (event, session) => {
+      supabase!.auth.onAuthStateChange(async (_event, session) => {
         if (session?.user) {
           const dbUser = await fetchUserProfile(session.user.id);
           setUser(dbUser);
@@ -67,9 +67,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function fetchUserProfile(userId: string): Promise<User | null> {
     if (!supabase) return null;
     const { data } = await supabase.from('users').select('*').eq('id', userId).single();
-    return data as User | null;
+    if (!data) return null;
+    return {
+      id: data.id,
+      name: data.display_name ?? data.email,
+      email: data.email,
+      role: data.role as UserRole,
+      company: data.company_id ?? undefined,
+      creditLimit: data.credit_limit ?? undefined,
+      creditBalance: data.net30_balance ?? undefined,
+    };
   }
 
+  // ── Login ──────────────────────────────────────────────────────────────────
   async function login(email: string, password: string): Promise<{ error?: string }> {
     if (isDemoMode) {
       const found = DEMO_USERS.find(u => u.email === email.toLowerCase());
@@ -78,8 +88,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.setItem('bardec_demo_user', JSON.stringify(found));
         return {};
       }
-      // Accept any login in demo mode with first user
-      const defaultUser = { ...DEMO_USERS[0], email, name: email.split('@')[0] };
+      // Accept any credentials in demo mode — default to CUSTOMER role
+      const defaultUser: User = { ...DEMO_USERS[0], email, name: email.split('@')[0] };
       setUser(defaultUser);
       await AsyncStorage.setItem('bardec_demo_user', JSON.stringify(defaultUser));
       return {};
@@ -90,6 +100,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return {};
   }
 
+  // ── Register ───────────────────────────────────────────────────────────────
+  async function register(
+    email: string,
+    password: string,
+    name: string,
+    role: UserRole,
+  ): Promise<{ error?: string }> {
+    if (isDemoMode) {
+      // Demo mode: create a local user immediately
+      const newUser: User = {
+        id: `demo_${Date.now()}`,
+        name,
+        email,
+        role,
+      };
+      setUser(newUser);
+      await AsyncStorage.setItem('bardec_demo_user', JSON.stringify(newUser));
+      return {};
+    }
+
+    // Real Supabase sign-up
+    const { data, error } = await supabase!.auth.signUp({ email, password });
+    if (error) return { error: error.message };
+    if (!data.user) return { error: 'Erreur lors de la création du compte.' };
+
+    // Insert the user profile into the public users table
+    const { error: profileError } = await supabase!
+      .from('users')
+      .insert({ id: data.user.id, email, display_name: name, role });
+
+    if (profileError) {
+      // Profile insert failed — clean up auth user if possible, return error
+      return { error: profileError.message };
+    }
+
+    // If Supabase requires email confirmation, data.session will be null
+    if (!data.session) {
+      return { error: 'CONFIRM_EMAIL' };
+    }
+
+    return {};
+  }
+
+  // ── Logout ─────────────────────────────────────────────────────────────────
   async function logout() {
     if (isDemoMode) {
       await AsyncStorage.removeItem('bardec_demo_user');
@@ -100,16 +154,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }
 
+  // ── Role switcher (always available — needed for multi-role testing) ────────
   function switchDemoRole(role: UserRole) {
+    // Try to find an exact demo user for this role
     const found = DEMO_USERS.find(u => u.role === role);
     if (found) {
       setUser(found);
       AsyncStorage.setItem('bardec_demo_user', JSON.stringify(found));
+      return;
+    }
+    // Fallback: keep current user data but override the role locally
+    if (user) {
+      const overridden: User = { ...user, role };
+      setUser(overridden);
+      AsyncStorage.setItem('bardec_demo_user', JSON.stringify(overridden));
     }
   }
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, login, logout, switchDemoRole, isDemoMode }}>
+    <AuthContext.Provider value={{
+      user, isLoading, isAuthenticated: !!user,
+      login, register, logout, switchDemoRole, isDemoMode,
+    }}>
       {children}
     </AuthContext.Provider>
   );
