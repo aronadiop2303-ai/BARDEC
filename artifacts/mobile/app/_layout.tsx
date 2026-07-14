@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import { Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -12,7 +11,6 @@ import {
   Inter_700Bold,
   useFonts,
 } from '@expo-google-fonts/inter';
-import * as Font from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider } from '@/context/AuthContext';
@@ -44,33 +42,14 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
+  // Icons use lucide-react-native (SVG) — no Feather TTF font loading needed.
+  // Only Inter text fonts need to be loaded here.
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
   });
-
-  useEffect(() => {
-    // createIconSet (vendored react-native-vector-icons) picks the font family name
-    // differently per platform:
-    //   iOS / default → fontFamily arg  = 'feather'  (lowercase)
-    //   Android       → fontBasename    = 'Feather'  (TTF filename without extension)
-    //
-    // We register both names from a local copy to bypass pnpm symlink resolution.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const featherAsset = require('../assets/fonts/Feather.ttf') as number;
-    Font.loadAsync({
-      feather: featherAsset,   // iOS / default path
-      Feather: featherAsset,   // Android path  (fontBasename from filename)
-    })
-      .then(() =>
-        console.log(`[BARDEC] Feather font loaded ✓ (platform: ${Platform.OS})`)
-      )
-      .catch((e: Error) =>
-        console.warn(`[BARDEC] Feather font load FAILED on ${Platform.OS}:`, e.message)
-      );
-  }, []);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {

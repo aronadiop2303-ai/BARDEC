@@ -1,7 +1,7 @@
 import React from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import { useColors } from '@/hooks/useColors';
-import { Feather } from '@expo/vector-icons';
+import { Feather } from '@/components/Icon';
 import { BlurView } from 'expo-blur';
 import { Tabs } from 'expo-router';
 import { useCart } from '@/context/CartContext';

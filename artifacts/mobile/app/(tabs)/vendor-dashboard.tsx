@@ -3,7 +3,7 @@ import {
   Alert, Dimensions, ScrollView, StyleSheet, Text,
   TouchableOpacity, View, Switch,
 } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Feather } from '@/components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';

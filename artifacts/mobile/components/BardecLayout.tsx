@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useAuth } from '@/context/AuthContext';
-import { Feather } from '@expo/vector-icons';
+import { Feather } from '@/components/Icon';
 import OfflineBanner from './OfflineBanner';
 
 interface BardecLayoutProps {
