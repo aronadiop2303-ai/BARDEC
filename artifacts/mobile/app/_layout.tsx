@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -11,8 +12,7 @@ import {
   Inter_700Bold,
   useFonts,
 } from '@expo-google-fonts/inter';
-// No direct Feather import needed here — font is loaded below via a local
-// asset path to avoid pnpm symlink resolution issues with Expo Go on Android.
+import * as Font from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider } from '@/context/AuthContext';
@@ -49,13 +49,28 @@ export default function RootLayout() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
-    // 'feather' (lowercase) is the exact family name used by createIconSet
-    // inside @expo/vector-icons/Feather. Android font matching is case-sensitive,
-    // so the key here MUST match. We load from a local asset copy to bypass
-    // pnpm symlink resolution issues that cause Feather.font to return null.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    feather: require('../assets/fonts/Feather.ttf'),
   });
+
+  useEffect(() => {
+    // createIconSet (vendored react-native-vector-icons) picks the font family name
+    // differently per platform:
+    //   iOS / default → fontFamily arg  = 'feather'  (lowercase)
+    //   Android       → fontBasename    = 'Feather'  (TTF filename without extension)
+    //
+    // We register both names from a local copy to bypass pnpm symlink resolution.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const featherAsset = require('../assets/fonts/Feather.ttf') as number;
+    Font.loadAsync({
+      feather: featherAsset,   // iOS / default path
+      Feather: featherAsset,   // Android path  (fontBasename from filename)
+    })
+      .then(() =>
+        console.log(`[BARDEC] Feather font loaded ✓ (platform: ${Platform.OS})`)
+      )
+      .catch((e: Error) =>
+        console.warn(`[BARDEC] Feather font load FAILED on ${Platform.OS}:`, e.message)
+      );
+  }, []);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
