@@ -1,0 +1,1 @@
+- [Expo web splash/font block](expo-web-splash-fix.md) — never use SplashScreen or `return null` on web; gate both with Platform.OS !== 'web'.

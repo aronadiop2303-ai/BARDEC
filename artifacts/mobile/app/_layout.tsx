@@ -1,4 +1,5 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -18,7 +19,11 @@ import { LanguageProvider } from '@/context/LanguageContext';
 import { CartProvider } from '@/context/CartContext';
 import { ProximityCartProvider } from '@/context/ProximityCartContext';
 
-SplashScreen.preventAutoHideAsync();
+// On web, expo-splash-screen creates a white overlay that never reliably clears.
+// Only use it on native where it controls the OS-level splash screen.
+if (Platform.OS !== 'web') {
+  try { SplashScreen.preventAutoHideAsync(); } catch { /* ignore */ }
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -52,13 +57,18 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
+  // On native: hide the OS splash screen once fonts have resolved.
+  // On web:    never block rendering — fonts load in the background and
+  //            text falls back to the system font until Inter is ready.
   useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
+    if ((fontsLoaded || fontError) && Platform.OS !== 'web') {
+      try { SplashScreen.hideAsync(); } catch { /* ignore */ }
     }
   }, [fontsLoaded, fontError]);
 
-  if (!fontsLoaded && !fontError) return null;
+  // Block render ONLY on native while the OS splash is still shown.
+  // Web must never return null here (fonts block indefinitely in the proxy).
+  if (!fontsLoaded && !fontError && Platform.OS !== 'web') return null;
 
   return (
     <SafeAreaProvider>
