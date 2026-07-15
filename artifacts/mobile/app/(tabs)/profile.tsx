@@ -161,6 +161,18 @@ export default function ProfileScreen() {
         </View>
 
         <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+        <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>Commerce de proximité</Text>
+
+        <TouchableOpacity style={styles.menuRow} onPress={() => router.push('/proximity/my-shop' as any)}>
+          <Feather name="store" size={18} color="#22C55E" />
+          <View style={styles.menuRowText}>
+            <Text style={[styles.menuLabel, { color: colors.foreground }]}>Ma boutique de quartier</Text>
+            <Text style={[styles.menuValue, { color: colors.mutedForeground }]}>Gérer votre commerce local</Text>
+          </View>
+          <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+        </TouchableOpacity>
+
+        <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
         <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>Application</Text>
 
         <MenuItem icon="headphones" label={t('support')} colors={colors} />

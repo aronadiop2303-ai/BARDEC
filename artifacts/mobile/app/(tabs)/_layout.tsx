@@ -102,6 +102,15 @@ export default function TabLayout() {
         }}
       />
 
+      {/* PROXIMITY — visible for all */}
+      <Tabs.Screen
+        name="nearby"
+        options={{
+          title: 'Près de moi',
+          tabBarIcon: ({ color }) => <Feather name="map-pin" size={22} color={color} />,
+        }}
+      />
+
       {/* PROFILE — always visible */}
       <Tabs.Screen
         name="profile"

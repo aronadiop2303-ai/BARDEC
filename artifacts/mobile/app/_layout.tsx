@@ -16,6 +16,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider } from '@/context/AuthContext';
 import { LanguageProvider } from '@/context/LanguageContext';
 import { CartProvider } from '@/context/CartContext';
+import { ProximityCartProvider } from '@/context/ProximityCartContext';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -68,7 +69,9 @@ export default function RootLayout() {
               <LanguageProvider>
                 <AuthProvider>
                   <CartProvider>
-                    <RootLayoutNav />
+                    <ProximityCartProvider>
+                      <RootLayoutNav />
+                    </ProximityCartProvider>
                   </CartProvider>
                 </AuthProvider>
               </LanguageProvider>
