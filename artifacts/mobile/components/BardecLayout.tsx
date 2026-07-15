@@ -62,6 +62,11 @@ export default function BardecLayout({
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
+  // Tab bar base height (without safe-area inset, which is already in bottomPad)
+  const TAB_H = Platform.OS === 'android' ? 62 : Platform.OS === 'web' ? 84 : 60;
+  // FAB must sit clearly above the tab bar
+  const fabOffset = TAB_H + bottomPad + 12;
+
   const initials = user?.name
     ? user.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
     : 'U';
@@ -91,7 +96,7 @@ export default function BardecLayout({
     <View
       style={[
         styles.footer,
-        { paddingBottom: bottomPad + 80 },
+        { paddingBottom: fabOffset },
       ]}
       pointerEvents="box-none"
     >
@@ -132,7 +137,7 @@ export default function BardecLayout({
       {header}
       <ScrollView
         style={styles.flex}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 140 + bottomPad }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: fabOffset + 74 }]}
         refreshControl={
           onRefresh ? (
             <RefreshControl

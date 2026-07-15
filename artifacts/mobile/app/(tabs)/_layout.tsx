@@ -1,5 +1,6 @@
 import React from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@/components/Icon';
 import { BlurView } from 'expo-blur';
@@ -14,13 +15,20 @@ import { useLanguage } from '@/context/LanguageContext';
 
 export default function TabLayout() {
   const colors  = useColors();
+  const insets  = useSafeAreaInsets();
   const { totalItems } = useCart();
   const { user } = useAuth();
   const { t }   = useLanguage();
   const isIOS   = Platform.OS === 'ios';
   const isWeb   = Platform.OS === 'web';
+  const isAndroid = Platform.OS === 'android';
   const isVendor = user?.role === 'VENDOR';
   const isAdmin  = user?.role === 'ADMIN';
+
+  // Properly account for the gesture-navigation bar on Android and home-indicator on iOS.
+  // Without this, tab icons overlap the system gesture area on modern Android phones.
+  const tabBarPaddingBottom = isWeb ? 24 : insets.bottom + (isAndroid ? 6 : 8);
+  const tabBarHeight = isWeb ? 84 : (isAndroid ? 62 : 60) + insets.bottom;
 
   return (
     <Tabs
@@ -34,8 +42,8 @@ export default function TabLayout() {
           borderTopWidth: 1,
           borderTopColor: colors.border,
           elevation: 0,
-          height:      isWeb ? 84 : Platform.OS === 'android' ? 62 : 60,
-          paddingBottom: isWeb ? 24 : Platform.OS === 'android' ? 6 : 8,
+          height:        tabBarHeight,
+          paddingBottom: tabBarPaddingBottom,
         },
         tabBarBackground: () =>
           isIOS ? (
