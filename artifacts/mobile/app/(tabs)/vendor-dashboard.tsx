@@ -10,6 +10,7 @@ import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
 import BardecLayout from '@/components/BardecLayout';
 import { SkeletonBox } from '@/components/SkeletonCard';
+import { router } from 'expo-router';
 import { MOCK_ORDERS, MOCK_PRODUCTS, VENDOR_STATS } from '@/constants/mockData';
 
 const { width } = Dimensions.get('window');
@@ -161,6 +162,21 @@ export default function VendorDashboardScreen() {
             </View>
           </View>
 
+          {/* Proximity orders banner */}
+          <TouchableOpacity
+            style={[styles.proximityBanner, { backgroundColor: '#F0FDF4', borderColor: '#22C55E' }]}
+            onPress={() => router.push('/proximity/my-shop/orders')}
+          >
+            <View style={[styles.proximityIconBox, { backgroundColor: '#22C55E' }]}>
+              <Feather name="map-pin" size={20} color="white" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.proximityTitle, { color: '#166534' }]}>Commandes de proximité</Text>
+              <Text style={[styles.proximityDesc, { color: '#16a34a' }]}>Voir et gérer les commandes de votre boutique locale</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color="#22C55E" />
+          </TouchableOpacity>
+
           {/* Quick actions */}
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Actions rapides</Text>
           <View style={styles.actionsGrid}>
@@ -176,9 +192,12 @@ export default function VendorDashboardScreen() {
               <Feather name="download" size={22} color={colors.primary} />
               <Text style={[styles.actionLabel, { color: colors.foreground }]}>Exporter</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionCard, { backgroundColor: colors.accent, borderColor: colors.border }]}>
-              <Feather name="settings" size={22} color={colors.primary} />
-              <Text style={[styles.actionLabel, { color: colors.foreground }]}>Paramètres</Text>
+            <TouchableOpacity
+              style={[styles.actionCard, { backgroundColor: colors.accent, borderColor: colors.border }]}
+              onPress={() => router.push('/proximity/my-shop/orders')}
+            >
+              <Feather name="map-pin" size={22} color="#22C55E" />
+              <Text style={[styles.actionLabel, { color: colors.foreground }]}>Commandes locales</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -369,6 +388,23 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   actionLabel: { fontSize: 13, fontWeight: '600' },
+  proximityBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    padding: 14,
+  },
+  proximityIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  proximityTitle: { fontSize: 14, fontWeight: '700' },
+  proximityDesc: { fontSize: 12, marginTop: 2, lineHeight: 16 },
   orderRow: {
     flexDirection: 'row',
     alignItems: 'center',

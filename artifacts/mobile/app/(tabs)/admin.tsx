@@ -11,7 +11,61 @@ import BardecLayout from '@/components/BardecLayout';
 import { ADMIN_STATS, DEMO_USERS, MOCK_ORDERS } from '@/constants/mockData';
 
 const { width } = Dimensions.get('window');
-type AdminTab = 'dashboard' | 'users' | 'vendors' | 'orders' | 'disputes' | 'payments' | 'settings';
+type AdminTab = 'dashboard' | 'users' | 'vendors' | 'orders' | 'disputes' | 'payments' | 'settings' | 'apikeys';
+
+// ── Mock API keys ─────────────────────────────────────────────────────────────
+const ALL_PERMISSIONS = [
+  { id: 'products.read',  label: 'Produits — lecture'   },
+  { id: 'products.write', label: 'Produits — écriture'  },
+  { id: 'orders.read',    label: 'Commandes — lecture'  },
+  { id: 'orders.write',   label: 'Commandes — écriture' },
+  { id: 'messages.read',  label: 'Messages — lecture'   },
+  { id: 'messages.write', label: 'Messages — écriture'  },
+];
+
+interface MockApiKey {
+  id: string;
+  name: string;
+  key: string;       // full key — only shown once at creation
+  preview: string;   // first 8 chars + "..."
+  permissions: string[];
+  active: boolean;
+  created_at: string;
+  last_used: string | null;
+}
+
+const MOCK_API_KEYS: MockApiKey[] = [
+  {
+    id: 'k1', name: 'Claude Desktop — Full access',
+    key: 'bdc_a1b2c3d4e5f6g7h8i9j0k1l2', preview: 'bdc_a1b2...',
+    permissions: ['products.read', 'orders.read', 'orders.write', 'messages.read', 'messages.write'],
+    active: true, created_at: '12 juil. 2026', last_used: 'Aujourd\'hui 09:42',
+  },
+  {
+    id: 'k2', name: 'Zapier — Lecture seule',
+    key: 'bdc_zapier123456789abcdef', preview: 'bdc_zapi...',
+    permissions: ['products.read', 'orders.read'],
+    active: true, created_at: '5 juil. 2026', last_used: 'Hier 17:18',
+  },
+  {
+    id: 'k3', name: 'Ancien agent n8n (révoqué)',
+    key: 'bdc_n8n_old_revoked_key_xyz', preview: 'bdc_n8n_...',
+    permissions: ['orders.read', 'orders.write'],
+    active: false, created_at: '1 juin 2026', last_used: '28 juin 2026',
+  },
+];
+
+interface MockAuditEntry {
+  id: string; action: string; key_name: string; created_at: string; success: boolean;
+}
+const MOCK_AUDIT: MockAuditEntry[] = [
+  { id: 'a1', action: 'mcp.list_orders_by_customer', key_name: 'Claude Desktop — Full access', created_at: 'Aujourd\'hui 09:42', success: true },
+  { id: 'a2', action: 'mcp.update_order_status',     key_name: 'Claude Desktop — Full access', created_at: 'Aujourd\'hui 09:41', success: true },
+  { id: 'a3', action: 'mcp.get_order_status',        key_name: 'Zapier — Lecture seule',       created_at: 'Hier 17:18',        success: true },
+  { id: 'a4', action: 'mcp.search_products',         key_name: 'Zapier — Lecture seule',       created_at: 'Hier 16:55',        success: true },
+  { id: 'a5', action: 'mcp.process_refund',          key_name: 'Claude Desktop — Full access', created_at: 'Hier 14:23',        success: false },
+  { id: 'a6', action: 'mcp.nearby_shops',            key_name: 'Zapier — Lecture seule',       created_at: 'Hier 11:07',        success: true },
+];
 
 // ── XOF formatter (same as checkout) ─────────────────────────────────────────
 const XOF_RATE = 656;
@@ -123,6 +177,62 @@ export default function AdminScreen() {
 
   const pendingCount = payments.filter(p => p.status === 'awaiting_verification').length;
 
+  // ── API keys state ──────────────────────────────────────────────────────────
+  const [apiKeys, setApiKeys] = useState<MockApiKey[]>(MOCK_API_KEYS);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [newKeyPerms, setNewKeyPerms] = useState<Record<string, boolean>>({});
+  const [justCreatedKey, setJustCreatedKey] = useState<string | null>(null); // shown once
+  const [auditFilter, setAuditFilter] = useState<string | null>(null); // filter by key id
+
+  function togglePerm(permId: string) {
+    setNewKeyPerms(p => ({ ...p, [permId]: !p[permId] }));
+  }
+
+  function createApiKey() {
+    if (!newKeyName.trim()) {
+      Alert.alert('Nom requis', 'Donnez un nom à cette clé avant de la créer.');
+      return;
+    }
+    const selectedPerms = ALL_PERMISSIONS.filter(p => newKeyPerms[p.id]).map(p => p.id);
+    if (selectedPerms.length === 0) {
+      Alert.alert('Permissions requises', 'Sélectionnez au moins une permission.');
+      return;
+    }
+    const rawKey = 'bdc_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    const newKey: MockApiKey = {
+      id: 'k' + Date.now(),
+      name: newKeyName.trim(),
+      key: rawKey,
+      preview: rawKey.slice(0, 8) + '...',
+      permissions: selectedPerms,
+      active: true,
+      created_at: 'Aujourd\'hui',
+      last_used: null,
+    };
+    setApiKeys(ks => [newKey, ...ks]);
+    setJustCreatedKey(rawKey);
+    setShowCreateForm(false);
+    setNewKeyName('');
+    setNewKeyPerms({});
+  }
+
+  function revokeKey(id: string) {
+    const key = apiKeys.find(k => k.id === id);
+    Alert.alert(
+      'Révoquer la clé',
+      `Révoquer "${key?.name}" ? Elle ne fonctionnera plus immédiatement.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Révoquer', style: 'destructive', onPress: () => setApiKeys(ks => ks.map(k => k.id === id ? { ...k, active: false } : k)) },
+      ]
+    );
+  }
+
+  const filteredAudit = auditFilter
+    ? MOCK_AUDIT.filter(a => apiKeys.find(k => k.id === auditFilter)?.name === a.key_name)
+    : MOCK_AUDIT;
+
   function validatePayment(id: string) {
     Alert.alert(
       'Valider le paiement',
@@ -153,6 +263,7 @@ export default function AdminScreen() {
     { id: 'orders',    label: 'Commandes',     icon: 'shopping-cart' },
     { id: 'disputes',  label: 'Litiges',       icon: 'alert-triangle'},
     { id: 'payments',  label: 'Paiements',     icon: 'credit-card',  badge: pendingCount },
+    { id: 'apikeys',   label: 'Clés API / MCP', icon: 'key'         },
     { id: 'settings',  label: 'Paramètres',   icon: 'settings'      },
   ];
 
@@ -502,6 +613,204 @@ export default function AdminScreen() {
         </View>
       )}
 
+      {/* API KEYS / MCP */}
+      {activeTab === 'apikeys' && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Clés API / MCP</Text>
+          <Text style={[styles.apiKeysSubtitle, { color: colors.mutedForeground }]}>
+            Gérez les clés utilisées par des agents IA externes (Claude, Zapier, n8n, LangChain…).
+          </Text>
+
+          {/* Key shown once after creation */}
+          {justCreatedKey && (
+            <View style={[styles.newKeyAlert, { backgroundColor: '#ECFDF5', borderColor: '#22C55E' }]}>
+              <View style={styles.newKeyAlertHeader}>
+                <Feather name="check-circle" size={16} color="#059669" />
+                <Text style={[styles.newKeyAlertTitle, { color: '#065F46' }]}>Clé créée — copiez-la maintenant !</Text>
+                <TouchableOpacity onPress={() => setJustCreatedKey(null)}>
+                  <Feather name="x" size={16} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+              <Text style={[styles.newKeyAlertWarning, { color: '#92400E', backgroundColor: '#FEF3C7', borderColor: '#FCD34D' }]}>
+                ⚠️ Cette clé ne sera plus jamais affichée après avoir fermé ce message.
+              </Text>
+              <View style={[styles.newKeyBox, { backgroundColor: '#F0FDF4', borderColor: '#86EFAC' }]}>
+                <Text style={[styles.newKeyValue, { color: '#065F46' }]} selectable>{justCreatedKey}</Text>
+                <TouchableOpacity onPress={() => Alert.alert('Copié !', 'Clé copiée dans le presse-papiers.')}>
+                  <Feather name="copy" size={16} color="#059669" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Create new key button / form */}
+          {!showCreateForm ? (
+            <TouchableOpacity
+              style={[styles.createKeyBtn, { backgroundColor: colors.primary }]}
+              onPress={() => { setShowCreateForm(true); setJustCreatedKey(null); }}
+            >
+              <Feather name="plus" size={16} color="white" />
+              <Text style={styles.createKeyBtnText}>Créer une nouvelle clé</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.createKeyForm, { backgroundColor: colors.card, borderColor: colors.primary }]}>
+              <Text style={[styles.formTitle, { color: colors.foreground }]}>Nouvelle clé MCP</Text>
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Nom de la clé *</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="Ex: Claude Desktop, Zapier, n8n…"
+                placeholderTextColor={colors.mutedForeground}
+                value={newKeyName}
+                onChangeText={setNewKeyName}
+              />
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Permissions *</Text>
+              <View style={styles.permsGrid}>
+                {ALL_PERMISSIONS.map(perm => (
+                  <TouchableOpacity
+                    key={perm.id}
+                    style={[styles.permChip, {
+                      backgroundColor: newKeyPerms[perm.id] ? colors.primary + '18' : colors.background,
+                      borderColor: newKeyPerms[perm.id] ? colors.primary : colors.border,
+                    }]}
+                    onPress={() => togglePerm(perm.id)}
+                  >
+                    <View style={[styles.permCheckbox, {
+                      backgroundColor: newKeyPerms[perm.id] ? colors.primary : 'transparent',
+                      borderColor: newKeyPerms[perm.id] ? colors.primary : colors.mutedForeground,
+                    }]}>
+                      {newKeyPerms[perm.id] && <Feather name="check" size={10} color="white" />}
+                    </View>
+                    <Text style={[styles.permLabel, { color: colors.foreground }]}>{perm.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.formActions}>
+                <TouchableOpacity
+                  style={[styles.formCancelBtn, { borderColor: colors.border }]}
+                  onPress={() => { setShowCreateForm(false); setNewKeyName(''); setNewKeyPerms({}); }}
+                >
+                  <Text style={[styles.formCancelText, { color: colors.mutedForeground }]}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.formConfirmBtn, { backgroundColor: colors.primary }]}
+                  onPress={createApiKey}
+                >
+                  <Feather name="key" size={14} color="white" />
+                  <Text style={styles.formConfirmText}>Générer la clé</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Keys list */}
+          <Text style={[styles.keysListTitle, { color: colors.foreground }]}>
+            Clés existantes ({apiKeys.length})
+          </Text>
+          {apiKeys.map(k => (
+            <View
+              key={k.id}
+              style={[styles.keyCard, {
+                backgroundColor: colors.card,
+                borderColor: k.active ? colors.border : '#FEE2E2',
+                opacity: k.active ? 1 : 0.75,
+              }]}
+            >
+              <View style={styles.keyCardHeader}>
+                <View style={[styles.keyIconBox, { backgroundColor: k.active ? colors.primary + '18' : '#FEE2E2' }]}>
+                  <Feather name="key" size={16} color={k.active ? colors.primary : '#DC2626'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.keyName, { color: colors.foreground }]}>{k.name}</Text>
+                  <Text style={[styles.keyPreview, { color: colors.mutedForeground }]}>{k.preview}</Text>
+                </View>
+                <View style={[styles.keyActiveBadge, {
+                  backgroundColor: k.active ? '#D1FAE5' : '#FEE2E2',
+                }]}>
+                  <Text style={[styles.keyActiveText, { color: k.active ? '#059669' : '#DC2626' }]}>
+                    {k.active ? 'Active' : 'Révoquée'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Permissions pills */}
+              <View style={styles.permsPills}>
+                {k.permissions.map(p => (
+                  <View key={p} style={[styles.permPill, { backgroundColor: colors.primary + '15', borderColor: colors.primary + '40' }]}>
+                    <Text style={[styles.permPillText, { color: colors.primary }]}>{p}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Dates */}
+              <View style={styles.keyDates}>
+                <View style={styles.keyDateItem}>
+                  <Feather name="calendar" size={11} color={colors.mutedForeground} />
+                  <Text style={[styles.keyDateText, { color: colors.mutedForeground }]}>Créée : {k.created_at}</Text>
+                </View>
+                <View style={styles.keyDateItem}>
+                  <Feather name="clock" size={11} color={colors.mutedForeground} />
+                  <Text style={[styles.keyDateText, { color: colors.mutedForeground }]}>
+                    Utilisée : {k.last_used ?? 'jamais'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Actions */}
+              {k.active && (
+                <View style={styles.keyActions}>
+                  <TouchableOpacity
+                    style={[styles.keyAuditBtn, { borderColor: colors.border }]}
+                    onPress={() => setAuditFilter(auditFilter === k.id ? null : k.id)}
+                  >
+                    <Feather name="list" size={13} color={colors.primary} />
+                    <Text style={[styles.keyAuditText, { color: colors.primary }]}>
+                      {auditFilter === k.id ? 'Masquer logs' : 'Voir logs'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.keyRevokeBtn, { borderColor: '#EF4444' }]}
+                    onPress={() => revokeKey(k.id)}
+                  >
+                    <Feather name="slash" size={13} color="#DC2626" />
+                    <Text style={[styles.keyRevokeText]}>Révoquer</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          ))}
+
+          {/* Audit log */}
+          <Text style={[styles.keysListTitle, { color: colors.foreground }]}>
+            Dernières requêtes MCP {auditFilter ? `(${apiKeys.find(k => k.id === auditFilter)?.name})` : '— toutes les clés'}
+          </Text>
+          {auditFilter && (
+            <TouchableOpacity onPress={() => setAuditFilter(null)} style={styles.auditFilterClear}>
+              <Feather name="x-circle" size={13} color={colors.mutedForeground} />
+              <Text style={[styles.auditFilterClearText, { color: colors.mutedForeground }]}>Effacer le filtre</Text>
+            </TouchableOpacity>
+          )}
+          {filteredAudit.map(entry => (
+            <View key={entry.id} style={[styles.auditRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={[styles.auditDot, { backgroundColor: entry.success ? '#22C55E' : '#EF4444' }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.auditAction, { color: colors.foreground }]}>{entry.action}</Text>
+                <Text style={[styles.auditKey, { color: colors.mutedForeground }]}>{entry.key_name}</Text>
+              </View>
+              <Text style={[styles.auditTime, { color: colors.mutedForeground }]}>{entry.created_at}</Text>
+            </View>
+          ))}
+          {filteredAudit.length === 0 && (
+            <View style={[styles.auditEmpty, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Feather name="inbox" size={28} color={colors.mutedForeground} />
+              <Text style={[styles.auditEmptyText, { color: colors.mutedForeground }]}>Aucun appel MCP pour cette clé.</Text>
+            </View>
+          )}
+        </View>
+      )}
+
       {/* SETTINGS */}
       {activeTab === 'settings' && (
         <View style={styles.section}>
@@ -847,4 +1156,99 @@ const styles = StyleSheet.create({
   },
   pmtEmptyTitle: { fontSize: 16, fontWeight: '700' },
   pmtEmptySubtitle: { fontSize: 13, textAlign: 'center' },
+
+  // ── API Keys tab ────────────────────────────────────────────────────────────
+  apiKeysSubtitle: { fontSize: 13, lineHeight: 18, marginTop: -4 },
+  newKeyAlert: {
+    borderRadius: 14, borderWidth: 1.5, padding: 14, gap: 10,
+  },
+  newKeyAlertHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  newKeyAlertTitle: { flex: 1, fontSize: 13, fontWeight: '700' },
+  newKeyAlertWarning: {
+    fontSize: 12, padding: 10, borderRadius: 8, borderWidth: 1, lineHeight: 17,
+  },
+  newKeyBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderRadius: 10, borderWidth: 1, padding: 10,
+  },
+  newKeyValue: { flex: 1, fontFamily: 'monospace', fontSize: 12, letterSpacing: 0.5 },
+  createKeyBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 12, borderRadius: 12,
+  },
+  createKeyBtnText: { color: 'white', fontSize: 14, fontWeight: '700' },
+  createKeyForm: { borderRadius: 14, borderWidth: 1.5, padding: 16, gap: 12 },
+  formTitle: { fontSize: 15, fontWeight: '700' },
+  formLabel: { fontSize: 13, fontWeight: '600', marginBottom: -4 },
+  formInput: {
+    borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 13,
+  },
+  permsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  permChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, borderWidth: 1,
+  },
+  permCheckbox: {
+    width: 18, height: 18, borderRadius: 4, borderWidth: 1.5,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  permLabel: { fontSize: 12, fontWeight: '500' },
+  formActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  formCancelBtn: {
+    flex: 1, alignItems: 'center', paddingVertical: 10,
+    borderRadius: 10, borderWidth: 1,
+  },
+  formCancelText: { fontSize: 13, fontWeight: '600' },
+  formConfirmBtn: {
+    flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 10, borderRadius: 10,
+  },
+  formConfirmText: { color: 'white', fontSize: 13, fontWeight: '700' },
+  keysListTitle: { fontSize: 14, fontWeight: '700', marginTop: 4 },
+  keyCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 10 },
+  keyCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  keyIconBox: {
+    width: 38, height: 38, borderRadius: 10,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  keyName: { fontSize: 13, fontWeight: '700' },
+  keyPreview: { fontFamily: 'monospace', fontSize: 12, marginTop: 2 },
+  keyActiveBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  keyActiveText: { fontSize: 11, fontWeight: '700' },
+  permsPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
+  permPill: {
+    paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, borderWidth: 1,
+  },
+  permPillText: { fontSize: 10, fontWeight: '600' },
+  keyDates: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  keyDateItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  keyDateText: { fontSize: 11 },
+  keyActions: { flexDirection: 'row', gap: 8, marginTop: 2 },
+  keyAuditBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 5, paddingVertical: 8, borderRadius: 8, borderWidth: 1,
+  },
+  keyAuditText: { fontSize: 12, fontWeight: '600' },
+  keyRevokeBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 5, paddingVertical: 8, borderRadius: 8, borderWidth: 1,
+  },
+  keyRevokeText: { fontSize: 12, fontWeight: '600', color: '#DC2626' },
+  auditFilterClear: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: -6,
+  },
+  auditFilterClearText: { fontSize: 12 },
+  auditRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderRadius: 10, borderWidth: 1, padding: 12,
+  },
+  auditDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  auditAction: { fontSize: 12, fontWeight: '600', fontFamily: 'monospace' },
+  auditKey: { fontSize: 11, marginTop: 2 },
+  auditTime: { fontSize: 11, flexShrink: 0 },
+  auditEmpty: {
+    alignItems: 'center', gap: 8, padding: 24,
+    borderRadius: 12, borderWidth: 1,
+  },
+  auditEmptyText: { fontSize: 13 },
 });
