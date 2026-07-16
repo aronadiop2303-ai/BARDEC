@@ -48,8 +48,104 @@ CREATE TABLE IF NOT EXISTS proximity_products (
   created_at  timestamptz DEFAULT now()
 );
 
--- 4. Champ proximity_shop_id sur la table orders
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS proximity_shop_id uuid REFERENCES proximity_shops(id);
+-- 4. Table dédiée aux commandes de proximité
+--    (table séparée pour éviter tout conflit avec le type order_status du schéma B2B)
+CREATE TABLE IF NOT EXISTS proximity_orders (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  proximity_shop_id uuid NOT NULL REFERENCES proximity_shops(id) ON DELETE CASCADE,
+  customer_id       uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  customer_name     text,
+  customer_phone    text,
+  items             jsonb NOT NULL DEFAULT '[]'::jsonb,
+  subtotal          float8 NOT NULL DEFAULT 0,
+  total             float8 NOT NULL DEFAULT 0,
+  status            text NOT NULL DEFAULT 'pending'
+                      CHECK (status IN ('pending','confirmed','delivered','cancelled')),
+  notes             text,
+  created_at        timestamptz DEFAULT now(),
+  updated_at        timestamptz DEFAULT now()
+);
+
+-- Trigger : updated_at automatique
+CREATE OR REPLACE FUNCTION proximity_orders_set_updated_at()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN NEW.updated_at = now(); RETURN NEW; END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_proximity_orders_updated_at ON proximity_orders;
+CREATE TRIGGER trg_proximity_orders_updated_at
+  BEFORE UPDATE ON proximity_orders
+  FOR EACH ROW EXECUTE FUNCTION proximity_orders_set_updated_at();
+
+-- Fonction SECURITY DEFINER pour que le vendeur ne puisse changer QUE le statut
+-- (protège items, total, customer_id, etc. contre toute modification)
+CREATE OR REPLACE FUNCTION update_proximity_order_status(
+  p_order_id uuid,
+  p_status   text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_shop_owner uuid;
+BEGIN
+  -- Valider la valeur de statut
+  IF p_status NOT IN ('pending','confirmed','delivered','cancelled') THEN
+    RAISE EXCEPTION 'Statut invalide : %', p_status;
+  END IF;
+
+  -- Vérifier que l'appelant est le propriétaire de la boutique concernée
+  SELECT s.owner_id INTO v_shop_owner
+    FROM proximity_orders o
+    JOIN proximity_shops   s ON s.id = o.proximity_shop_id
+   WHERE o.id = p_order_id;
+
+  IF v_shop_owner IS DISTINCT FROM auth.uid() THEN
+    RAISE EXCEPTION 'Accès refusé : vous n''êtes pas propriétaire de cette boutique';
+  END IF;
+
+  -- Mettre à jour uniquement le statut
+  UPDATE proximity_orders
+     SET status = p_status
+   WHERE id = p_order_id;
+END;
+$$;
+
+-- Index pour les requêtes vendeur et client
+CREATE INDEX IF NOT EXISTS idx_proximity_orders_shop
+  ON proximity_orders (proximity_shop_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_proximity_orders_customer
+  ON proximity_orders (customer_id);
+
+-- Row Level Security
+ALTER TABLE proximity_orders ENABLE ROW LEVEL SECURITY;
+
+-- Le client peut voir ses propres commandes
+CREATE POLICY "customer can read own proximity orders"
+  ON proximity_orders FOR SELECT
+  USING (customer_id = auth.uid());
+
+-- Le client peut passer une commande
+CREATE POLICY "customer can insert proximity order"
+  ON proximity_orders FOR INSERT
+  WITH CHECK (customer_id = auth.uid());
+
+-- Le vendeur peut voir les commandes de sa boutique
+CREATE POLICY "vendor can read shop proximity orders"
+  ON proximity_orders FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM proximity_shops s
+      WHERE s.id = proximity_orders.proximity_shop_id
+        AND s.owner_id = auth.uid()
+    )
+  );
+
+-- Pas de policy UPDATE directe pour les vendeurs :
+-- ils passent par update_proximity_order_status() (SECURITY DEFINER).
 
 -- 5. Index pour les requêtes géographiques et propriétaire
 CREATE INDEX IF NOT EXISTS idx_proximity_shops_lat_lng

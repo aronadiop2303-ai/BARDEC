@@ -137,6 +137,14 @@ export default function MyShopScreen() {
         {/* Actions */}
         <View style={styles.actionsSection}>
           <ActionRow
+            icon="shopping-bag"
+            label="Commandes reçues"
+            desc="Voir et gérer les commandes clients"
+            color="#F59E0B"
+            colors={colors}
+            onPress={() => router.push('/proximity/my-shop/orders' as any)}
+          />
+          <ActionRow
             icon="package"
             label="Gérer mes produits"
             desc={`${products.length} produit${products.length !== 1 ? 's' : ''} en catalogue`}
