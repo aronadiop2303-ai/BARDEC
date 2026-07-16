@@ -243,5 +243,92 @@ LANGUAGE sql STABLE AS $$
   ORDER BY distance_km ASC;
 $$;
 
--- 8. Bucket Storage (à créer manuellement dans Storage > New bucket)
+-- 8. Table des avis clients (proximity_reviews)
+CREATE TABLE IF NOT EXISTS proximity_reviews (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop_id    uuid NOT NULL REFERENCES proximity_shops(id) ON DELETE CASCADE,
+  user_id    uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  rating     smallint NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment    text,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE (shop_id, user_id)  -- un seul avis par utilisateur par commerce
+);
+
+-- Index pour les requêtes par commerce
+CREATE INDEX IF NOT EXISTS idx_proximity_reviews_shop
+  ON proximity_reviews (shop_id, created_at DESC);
+
+-- Trigger : recalculer la note moyenne après chaque INSERT / UPDATE / DELETE
+-- Cette fonction est le seul endroit qui touche aux agrégats du commerce,
+-- ce qui garantit la cohérence quelle que soit la voie d'écriture.
+CREATE OR REPLACE FUNCTION proximity_reviews_recalc_rating()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  v_shop_id uuid;
+BEGIN
+  -- Identifier le commerce concerné (INSERT/UPDATE → NEW, DELETE → OLD)
+  v_shop_id := COALESCE(NEW.shop_id, OLD.shop_id);
+
+  UPDATE proximity_shops
+     SET rating       = COALESCE(
+                          (SELECT ROUND(AVG(r.rating)::numeric, 1)::float4
+                             FROM proximity_reviews r
+                            WHERE r.shop_id = v_shop_id),
+                          0
+                        ),
+         rating_count = (SELECT COUNT(*)
+                           FROM proximity_reviews r
+                          WHERE r.shop_id = v_shop_id)
+   WHERE id = v_shop_id;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_proximity_reviews_recalc ON proximity_reviews;
+CREATE TRIGGER trg_proximity_reviews_recalc
+  AFTER INSERT OR UPDATE OR DELETE ON proximity_reviews
+  FOR EACH ROW EXECUTE FUNCTION proximity_reviews_recalc_rating();
+
+-- Row Level Security
+-- Seule la lecture directe est autorisée. Toutes les écritures passent
+-- par submit_proximity_review() (SECURITY DEFINER) qui contourne le RLS
+-- et garantit : user_id = auth.uid(), shop_id immuable, recalcul atomique.
+ALTER TABLE proximity_reviews ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "anyone can read reviews"
+  ON proximity_reviews FOR SELECT USING (true);
+
+-- Pas de policy INSERT/UPDATE directe pour les utilisateurs :
+-- ils passent obligatoirement par submit_proximity_review() (SECURITY DEFINER).
+
+-- Fonction RPC : soumettre ou mettre à jour un avis (voie d'écriture unique)
+CREATE OR REPLACE FUNCTION submit_proximity_review(
+  p_shop_id uuid,
+  p_rating  smallint,
+  p_comment text DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- Valider la note
+  IF p_rating NOT BETWEEN 1 AND 5 THEN
+    RAISE EXCEPTION 'La note doit être comprise entre 1 et 5';
+  END IF;
+
+  -- Insérer ou mettre à jour l'avis (une seule entrée par user+shop)
+  -- Le trigger trg_proximity_reviews_recalc recalcule la moyenne automatiquement.
+  INSERT INTO proximity_reviews (shop_id, user_id, rating, comment)
+    VALUES (p_shop_id, auth.uid(), p_rating, p_comment)
+    ON CONFLICT (shop_id, user_id)
+    DO UPDATE SET rating     = EXCLUDED.rating,
+                  comment    = EXCLUDED.comment,
+                  created_at = now();
+END;
+$$;
+
+-- 9. Bucket Storage (à créer manuellement dans Storage > New bucket)
 -- Nom: proximity-shop-photos | Public: true

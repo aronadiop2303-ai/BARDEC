@@ -181,6 +181,40 @@ export const DEMO_SHOPS: ProximityShop[] = [
   },
 ];
 
+export interface ProximityReview {
+  id: string;
+  shop_id: string;
+  user_id: string;
+  user_name: string;
+  rating: number;
+  comment?: string;
+  created_at: string;
+}
+
+/** Avis fictifs pour le mode démo */
+export const DEMO_REVIEWS: Record<string, ProximityReview[]> = {
+  'demo-1': [
+    { id: 'r1-1', shop_id: 'demo-1', user_id: 'u1', user_name: 'Aminata D.', rating: 5, comment: 'Pain toujours frais, livraison rapide !', created_at: '2024-06-01T08:00:00Z' },
+    { id: 'r1-2', shop_id: 'demo-1', user_id: 'u2', user_name: 'Moussa K.', rating: 4, comment: 'Très bonne boulangerie, je recommande.', created_at: '2024-05-20T09:30:00Z' },
+    { id: 'r1-3', shop_id: 'demo-1', user_id: 'u3', user_name: 'Fatou B.', rating: 4, comment: 'Les croissants sont délicieux.', created_at: '2024-05-10T07:45:00Z' },
+  ],
+  'demo-2': [
+    { id: 'r2-1', shop_id: 'demo-2', user_id: 'u4', user_name: 'Ibrahima S.', rating: 5, comment: 'Pharmacien très professionnel et disponible.', created_at: '2024-06-02T10:00:00Z' },
+    { id: 'r2-2', shop_id: 'demo-2', user_id: 'u5', user_name: 'Mariama T.', rating: 5, comment: 'Stock complet, prix corrects.', created_at: '2024-05-25T11:00:00Z' },
+  ],
+  'demo-3': [
+    { id: 'r3-1', shop_id: 'demo-3', user_id: 'u6', user_name: 'Omar F.', rating: 4, comment: 'Meilleur thiébou de la ville !', created_at: '2024-06-01T14:00:00Z' },
+    { id: 'r3-2', shop_id: 'demo-3', user_id: 'u7', user_name: 'Aïssatou N.', rating: 4, comment: 'Dibi bien mariné, servi chaud.', created_at: '2024-05-18T13:00:00Z' },
+  ],
+  'demo-4': [
+    { id: 'r4-1', shop_id: 'demo-4', user_id: 'u8', user_name: 'Khadija M.', rating: 4, comment: 'Tresses soignées, ambiance agréable.', created_at: '2024-06-03T15:00:00Z' },
+  ],
+  'demo-5': [
+    { id: 'r5-1', shop_id: 'demo-5', user_id: 'u9', user_name: 'Cheikh A.', rating: 4, comment: 'Rapide et efficace pour les recharges.', created_at: '2024-05-30T09:00:00Z' },
+    { id: 'r5-2', shop_id: 'demo-5', user_id: 'u10', user_name: 'Ndéye L.', rating: 3, comment: 'Correct mais parfois en rupture.', created_at: '2024-05-22T10:30:00Z' },
+  ],
+};
+
 export const DEMO_PRODUCTS: Record<string, ProximityProduct[]> = {
   'demo-1': [
     { id: 'p1-1', shop_id: 'demo-1', name: 'Baguette tradition', price: 200, unit: 'pièce', in_stock: true },
