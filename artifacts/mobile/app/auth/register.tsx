@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert, KeyboardAvoidingView, Platform, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View,
@@ -23,14 +23,23 @@ export default function RegisterScreen() {
   const { register } = useAuth();
   const insets = useSafeAreaInsets();
 
-  const [name,           setName]           = useState('');
-  const [email,          setEmail]          = useState('');
-  const [password,       setPassword]       = useState('');
-  const [company,        setCompany]        = useState('');
-  const [selectedRole,   setSelectedRole]   = useState<UserRole>('CUSTOMER');
-  const [showPassword,   setShowPassword]   = useState(false);
-  const [loading,        setLoading]        = useState(false);
-  const [emailSent,      setEmailSent]      = useState(false);
+  const [name,         setName]         = useState('');
+  const [email,        setEmail]        = useState('');
+  const [password,     setPassword]     = useState('');
+  const [company,      setCompany]      = useState('');
+  const [selectedRole, setSelectedRole] = useState<UserRole>('CUSTOMER');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading,      setLoading]      = useState(false);
+  const [emailSent,    setEmailSent]    = useState(false);
+  // Success state — shown briefly before navigating to the app
+  const [successName,  setSuccessName]  = useState<string | null>(null);
+
+  // Auto-redirect 2 s after showing the success screen
+  useEffect(() => {
+    if (!successName) return;
+    const timer = setTimeout(() => router.replace('/'), 2000);
+    return () => clearTimeout(timer);
+  }, [successName]);
 
   async function handleRegister() {
     if (!name || !email || !password) {
@@ -53,7 +62,6 @@ export default function RegisterScreen() {
     setLoading(false);
 
     if (error === 'CONFIRM_EMAIL') {
-      // Supabase requires email confirmation — show a message instead of navigating
       setEmailSent(true);
       return;
     }
@@ -61,8 +69,32 @@ export default function RegisterScreen() {
       Alert.alert('Erreur d\'inscription', error);
       return;
     }
-    // Account created and session active → go to home
-    router.replace('/');
+
+    // ✅ Account created and session active — show success screen then navigate
+    setSuccessName(name.trim());
+  }
+
+  // ── Success screen ─────────────────────────────────────────────────────────
+  if (successName) {
+    return (
+      <View style={[styles.container, styles.successContainer, { backgroundColor: colors.background }]}>
+        <View style={[styles.successIconCircle, { backgroundColor: '#D1FAE5' }]}>
+          <Feather name="check-circle" size={64} color="#10B981" />
+        </View>
+        <Text style={[styles.successTitle, { color: colors.foreground }]}>
+          Bienvenue, {successName} ! 🎉
+        </Text>
+        <Text style={[styles.successDesc, { color: colors.mutedForeground }]}>
+          Votre compte a été créé avec succès.{'\n'}Vous êtes maintenant connecté.
+        </Text>
+        <View style={[styles.successBadge, { backgroundColor: colors.accent, borderColor: colors.primary + '30' }]}>
+          <Feather name="loader" size={14} color={colors.primary} />
+          <Text style={[styles.successBadgeText, { color: colors.primary }]}>
+            Redirection vers l'accueil…
+          </Text>
+        </View>
+      </View>
+    );
   }
 
   // ── Email confirmation screen ──────────────────────────────────────────────
@@ -70,7 +102,10 @@ export default function RegisterScreen() {
     return (
       <KeyboardAvoidingView style={[styles.container, { backgroundColor: colors.background }]}>
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 40, alignItems: 'center' }]}
+          contentContainerStyle={[
+            styles.content,
+            { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 40, alignItems: 'center' },
+          ]}
         >
           <View style={[styles.confirmIcon, { backgroundColor: colors.accent }]}>
             <Feather name="mail" size={48} color={colors.primary} />
@@ -103,7 +138,10 @@ export default function RegisterScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 40 }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 40 },
+        ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -279,14 +317,34 @@ const styles = StyleSheet.create({
     shadowColor: '#1A56DB', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 8, elevation: 4,
   },
-  registerBtnText:{ color: 'white', fontSize: 16, fontWeight: '700' },
-  loginRow:       { flexDirection: 'row', justifyContent: 'center', gap: 6 },
-  loginText:      { fontSize: 14 },
-  loginLink:      { fontSize: 14, fontWeight: '700' },
+  registerBtnText: { color: 'white', fontSize: 16, fontWeight: '700' },
+  loginRow:        { flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  loginText:       { fontSize: 14 },
+  loginLink:       { fontSize: 14, fontWeight: '700' },
   // Email confirmation screen
   confirmIcon: {
     width: 100, height: 100, borderRadius: 50,
     justifyContent: 'center', alignItems: 'center', marginBottom: 8,
   },
   confirmText:    { fontSize: 15, textAlign: 'center', lineHeight: 24 },
+  // Success screen
+  successContainer: {
+    justifyContent: 'center', alignItems: 'center', gap: 20, padding: 32,
+  },
+  successIconCircle: {
+    width: 120, height: 120, borderRadius: 60,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  successTitle: {
+    fontSize: 24, fontWeight: '800', textAlign: 'center',
+  },
+  successDesc: {
+    fontSize: 15, textAlign: 'center', lineHeight: 24,
+  },
+  successBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 16, paddingVertical: 10,
+    borderRadius: 20, borderWidth: 1, marginTop: 8,
+  },
+  successBadgeText: { fontSize: 14, fontWeight: '600' },
 });

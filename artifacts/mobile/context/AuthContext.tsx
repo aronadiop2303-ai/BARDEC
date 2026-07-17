@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DEMO_USERS, User, UserRole } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
@@ -37,6 +37,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isDemoMode = !isSupabaseConfigured;
 
+  // Track whether we are inside the register() flow so onAuthStateChange
+  // does not race with the users-row INSERT that happens right after signUp().
+  const isRegistering = useRef(false);
+
   useEffect(() => {
     initAuth();
   }, []);
@@ -50,18 +54,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // Restore session persisted by AsyncStorage (survives app restarts).
       const { data: { session } } = await supabase!.auth.getSession();
       if (session?.user) {
         const dbUser = await fetchUserProfile(session.user.id);
-        setUser(dbUser);
+        if (dbUser) setUser(dbUser);
       }
+
       supabase!.auth.onAuthStateChange(async (_event, session) => {
-        if (session?.user) {
-          const dbUser = await fetchUserProfile(session.user.id);
-          setUser(dbUser);
-        } else {
-          setUser(null);
+        if (!session?.user) {
+          // Only clear user on explicit sign-out; never during register flow.
+          if (!isRegistering.current) setUser(null);
+          return;
         }
+
+        // During register() the users row does not exist yet when this fires —
+        // skip the fetch; register() will call setUser() directly after INSERT.
+        if (isRegistering.current) return;
+
+        const dbUser = await fetchUserProfile(session.user.id);
+        // Only update state when we actually find the profile row.
+        // A null here means the row hasn't been inserted yet (race condition
+        // during signUp); register() handles that case explicitly.
+        if (dbUser) setUser(dbUser);
       });
     } catch {
       // ignore
@@ -124,64 +139,89 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return {};
     }
 
-    // ── Step 1: Create the Supabase Auth account ──────────────────────────
-    // Pass metadata in options.data so it's available in auth.users.raw_user_meta_data
-    // and in Supabase Auth webhooks/triggers without an extra DB query.
-    const { data, error } = await supabase!.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          display_name: name,
-          role,
-          ...(isB2B && company ? { company_name: company } : {}),
+    // Guard onAuthStateChange so it doesn't race with our DB inserts below.
+    isRegistering.current = true;
+
+    try {
+      // ── Step 1: Create the Supabase Auth account ─────────────────────────
+      const { data, error } = await supabase!.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            display_name: name,
+            role,
+            ...(isB2B && company ? { company_name: company } : {}),
+          },
         },
-      },
-    });
-    if (error) return { error: error.message };
-    if (!data.user) return { error: 'Erreur lors de la création du compte.' };
+      });
+      if (error) return { error: error.message };
+      if (!data.user) return { error: 'Erreur lors de la création du compte.' };
 
-    // ── Step 2 (B2B only): create the company row first ───────────────────
-    let companyId: string | undefined;
-    if (isB2B && company) {
-      const { data: companyRow, error: companyErr } = await supabase!
-        .from('companies')
-        .insert({
-          name: company,
-          is_approved: false, // pending admin validation
-        })
-        .select('id')
-        .single();
-
-      if (companyErr) {
-        // Non-blocking: log but don't abort account creation
-        console.warn('[register] companies insert failed:', companyErr.message);
-      } else {
-        companyId = companyRow?.id;
+      // ── Step 2 (B2B only): create the company row first ──────────────────
+      let companyId: string | undefined;
+      if (isB2B && company) {
+        const { data: companyRow, error: companyErr } = await supabase!
+          .from('companies')
+          .insert({ name: company, is_approved: false })
+          .select('id')
+          .single();
+        if (companyErr) {
+          console.warn('[register] companies insert failed:', companyErr.message);
+        } else {
+          companyId = companyRow?.id;
+        }
       }
+
+      // ── Step 3: insert the user profile row ──────────────────────────────
+      const userRow: Record<string, unknown> = {
+        id: data.user.id,
+        email,
+        display_name: name,
+        role,
+        is_approved: role !== 'VENDOR',
+      };
+      if (companyId) userRow.company_id = companyId;
+
+      const { error: profileError } = await supabase!.from('users').insert(userRow);
+      if (profileError) return { error: profileError.message };
+
+      // ── Step 4: set user state immediately — do NOT wait for onAuthStateChange ──
+      // This is the key fix: onAuthStateChange fires before the users row exists
+      // (race condition), so we set state here right after the INSERT succeeds.
+      const newUser: User = {
+        id: data.user.id,
+        name,
+        email,
+        role,
+        company: companyId,
+      };
+      setUser(newUser);
+
+      // ── Step 5: ensure we have an active session ──────────────────────────
+      // Supabase returns the session at the root of the signUp response body
+      // (not nested under "session"), so data.session may be null even when
+      // the account was auto-confirmed. Attempt an explicit signIn as fallback.
+      if (!data.session) {
+        const isConfirmed = !!(data.user as any).email_confirmed_at;
+        if (isConfirmed) {
+          // Auto-confirmed but SDK did not surface the session — sign in explicitly.
+          const { error: signInError } = await supabase!.auth.signInWithPassword({ email, password });
+          if (signInError) {
+            // Edge case: confirmed but sign-in failed — ask user to use login screen.
+            return { error: 'CONFIRM_EMAIL' };
+          }
+        } else {
+          // Genuine email confirmation required.
+          return { error: 'CONFIRM_EMAIL' };
+        }
+      }
+
+      return {};
+    } finally {
+      // Always release the guard so onAuthStateChange works normally afterwards.
+      isRegistering.current = false;
     }
-
-    // ── Step 3: insert the user profile row ───────────────────────────────
-    const userRow: Record<string, unknown> = {
-      id: data.user.id,
-      email,
-      display_name: name,
-      role,
-      // VENDORs need KYC validation before accessing the platform
-      is_approved: role !== 'VENDOR',
-    };
-    if (companyId) userRow.company_id = companyId;
-
-    const { error: profileError } = await supabase!.from('users').insert(userRow);
-    if (profileError) return { error: profileError.message };
-
-    // ── Step 4: check for email confirmation requirement ──────────────────
-    // data.session is null when Supabase requires email verification.
-    if (!data.session) {
-      return { error: 'CONFIRM_EMAIL' };
-    }
-
-    return {};
   }
 
   // ── Logout ─────────────────────────────────────────────────────────────────
@@ -197,14 +237,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ── Role switcher (always available — needed for multi-role testing) ────────
   function switchDemoRole(role: UserRole) {
-    // Try to find an exact demo user for this role
     const found = DEMO_USERS.find(u => u.role === role);
     if (found) {
       setUser(found);
       AsyncStorage.setItem('bardec_demo_user', JSON.stringify(found));
       return;
     }
-    // Fallback: keep current user data but override the role locally
     if (user) {
       const overridden: User = { ...user, role };
       setUser(overridden);
