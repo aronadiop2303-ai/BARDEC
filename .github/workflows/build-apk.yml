@@ -32,4 +32,5 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Build Android APK (EAS preview profile)
+        working-directory: artifacts/mobile
         run: eas build --platform android --profile preview --non-interactive --no-wait
