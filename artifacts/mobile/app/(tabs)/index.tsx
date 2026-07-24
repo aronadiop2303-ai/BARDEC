@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   FlatList,
   ScrollView,
@@ -70,14 +70,16 @@ export default function HomeScreen() {
     );
   }
 
-  if (isVendor) {
-    router.replace('/vendor-dashboard');
-    return null;
-  }
-  if (isAdmin) {
-    router.replace('/admin');
-    return null;
-  }
+  // Route guards must live in useEffect — calling router.replace() synchronously
+  // during render triggers "Cannot update a component (ForwardRef...)" because
+  // it sets navigation state while another component is still rendering.
+  useEffect(() => {
+    if (isVendor) router.replace('/vendor-dashboard');
+    else if (isAdmin) router.replace('/admin');
+  }, [isVendor, isAdmin]);
+
+  // Show nothing while the redirect is in flight.
+  if (isVendor || isAdmin) return null;
 
   return (
     <BardecLayout onRefresh={onRefresh} refreshing={refreshing}>

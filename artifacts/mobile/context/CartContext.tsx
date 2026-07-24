@@ -70,7 +70,10 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     persist([]);
   }
 
-  const totalItems = items.reduce((sum, i) => sum + i.quantity, 0);
+  // Badge shows number of distinct product lines (not total units).
+  // B2B orders can have quantities like 5000 — summing units would make
+  // the badge meaningless. Use item count instead.
+  const totalItems = items.length;
   const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
   return (

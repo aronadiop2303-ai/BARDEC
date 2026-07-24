@@ -25,13 +25,24 @@ import {
 } from '@/constants/proximityData';
 import ProximityMap from '@/components/proximity/ProximityMap';
 import ShopBottomSheet from '@/components/proximity/ShopBottomSheet';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useMyProximityShop } from '@/hooks/useMyProximityShop';
 
 const GREEN = '#22C55E';
 const TAB_H = Platform.OS === 'android' ? 62 : Platform.OS === 'web' ? 84 : 60;
 const SCREEN_H = Dimensions.get('window').height;
 
+// Wrap with a per-screen ErrorBoundary so a crash in ProximityMap or the
+// location hooks shows an actionable error UI instead of a blank white screen.
 export default function NearbyScreen() {
+  return (
+    <ErrorBoundary>
+      <NearbyScreenInner />
+    </ErrorBoundary>
+  );
+}
+
+function NearbyScreenInner() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;

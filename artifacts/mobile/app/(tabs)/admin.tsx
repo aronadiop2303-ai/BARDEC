@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
 import BardecLayout from '@/components/BardecLayout';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ADMIN_STATS, DEMO_USERS, MOCK_ORDERS } from '@/constants/mockData';
 
 const { width } = Dimensions.get('window');
@@ -130,7 +131,18 @@ function MiniBarChart({ values, color }: { values: number[]; color: string }) {
   );
 }
 
+// Per-screen ErrorBoundary: catches rendering crashes in any tab section
+// (e.g. the apikeys tab or disputes table) and shows a recoverable error UI
+// instead of a blank white screen.
 export default function AdminScreen() {
+  return (
+    <ErrorBoundary>
+      <AdminScreenInner />
+    </ErrorBoundary>
+  );
+}
+
+function AdminScreenInner() {
   const colors = useColors();
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');

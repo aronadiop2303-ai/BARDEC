@@ -69,7 +69,10 @@ export default function VendorDashboardScreen() {
   ];
 
   const recentOrders = MOCK_ORDERS.slice(0, 4);
-  const myProducts = MOCK_PRODUCTS.filter(p => p.vendorId === 'v1').concat(MOCK_PRODUCTS.slice(0, 3));
+  // Deduplicate: concat may repeat products already matched by vendorId filter.
+  const _vendorProds = MOCK_PRODUCTS.filter(p => p.vendorId === 'v1');
+  const _vendorIds   = new Set(_vendorProds.map(p => p.id));
+  const myProducts   = [..._vendorProds, ...MOCK_PRODUCTS.slice(0, 3).filter(p => !_vendorIds.has(p.id))];
 
   return (
     <BardecLayout onRefresh={onRefresh} refreshing={refreshing}>
@@ -180,15 +183,32 @@ export default function VendorDashboardScreen() {
           {/* Quick actions */}
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Actions rapides</Text>
           <View style={styles.actionsGrid}>
-            <TouchableOpacity style={[styles.actionCard, { backgroundColor: colors.accent, borderColor: colors.border }]}>
+            <TouchableOpacity
+              style={[styles.actionCard, { backgroundColor: colors.accent, borderColor: colors.border }]}
+              onPress={() => setActiveTab('products')}
+            >
               <Feather name="plus-circle" size={22} color={colors.primary} />
               <Text style={[styles.actionLabel, { color: colors.foreground }]}>Ajouter produit</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionCard, { backgroundColor: colors.accent, borderColor: colors.border }]}>
+            <TouchableOpacity
+              style={[styles.actionCard, { backgroundColor: colors.accent, borderColor: colors.border }]}
+              onPress={() => Alert.alert(
+                'Importer CSV',
+                'Importez votre catalogue via un fichier CSV (colonnes : nom, prix, stock, description).\n\nFonctionnalité disponible dans la prochaine version.',
+                [{ text: 'OK' }],
+              )}
+            >
               <Feather name="upload" size={22} color={colors.primary} />
               <Text style={[styles.actionLabel, { color: colors.foreground }]}>Importer CSV</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionCard, { backgroundColor: colors.accent, borderColor: colors.border }]}>
+            <TouchableOpacity
+              style={[styles.actionCard, { backgroundColor: colors.accent, borderColor: colors.border }]}
+              onPress={() => Alert.alert(
+                'Exporter les données',
+                'Exportez vos commandes et produits au format CSV ou PDF.\n\nFonctionnalité disponible dans la prochaine version.',
+                [{ text: 'OK' }],
+              )}
+            >
               <Feather name="download" size={22} color={colors.primary} />
               <Text style={[styles.actionLabel, { color: colors.foreground }]}>Exporter</Text>
             </TouchableOpacity>
