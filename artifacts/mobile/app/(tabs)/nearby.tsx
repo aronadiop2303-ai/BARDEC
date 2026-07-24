@@ -1,12 +1,14 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Dimensions,
   FlatList,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -53,6 +55,10 @@ function NearbyScreenInner() {
   const [selectedCat, setSelectedCat] = useState<ProximityCategory | null>(null);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [selectedShop, setSelectedShop] = useState<ProximityShop | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchAnim = useRef(new Animated.Value(0)).current;
+  const searchInputRef = useRef<TextInput>(null);
 
   const { shop: myShop } = useMyProximityShop();
 
@@ -61,6 +67,35 @@ function NearbyScreenInner() {
     lng: userLoc?.lng ?? null,
     category: selectedCat,
   });
+
+  // ── Text search filter (client-side) ───────────────────────────────────────
+  const q = searchQuery.trim().toLowerCase();
+  const filteredShops = q
+    ? shops.filter(s =>
+        s.name.toLowerCase().includes(q) ||
+        (s.description ?? '').toLowerCase().includes(q) ||
+        (s.subcategory ?? '').toLowerCase().includes(q) ||
+        (s.address ?? '').toLowerCase().includes(q),
+      )
+    : shops;
+
+  function toggleSearch() {
+    const toOpen = !searchOpen;
+    setSearchOpen(toOpen);
+    Animated.timing(searchAnim, {
+      toValue: toOpen ? 1 : 0,
+      duration: 220,
+      useNativeDriver: false,
+    }).start(() => {
+      if (toOpen) searchInputRef.current?.focus();
+    });
+    if (!toOpen) setSearchQuery('');
+  }
+
+  function clearSearch() {
+    setSearchQuery('');
+    searchInputRef.current?.focus();
+  }
 
   useEffect(() => { init(); }, []);
 
@@ -96,7 +131,7 @@ function NearbyScreenInner() {
   const handleMarkerPress = useCallback((shopId: string) => {
     const found = shops.find(s => s.id === shopId);
     if (found) setSelectedShop(found);
-  }, [shops]);
+  }, [shops]); // intentionally uses full `shops` so tapping a visible pin always works
 
   const headerH = topPad + 52;
   const chipsH = 52;
@@ -151,7 +186,7 @@ function NearbyScreenInner() {
           <Text style={[styles.headerTitle, { color: colors.foreground }]}>Près de moi</Text>
           {shops.length > 0 && (
             <View style={[styles.countBadge, { backgroundColor: GREEN }]}>
-              <Text style={styles.countText}>{shops.length}</Text>
+              <Text style={styles.countText}>{filteredShops.length}</Text>
             </View>
           )}
         </View>
@@ -166,6 +201,19 @@ function NearbyScreenInner() {
               {myShop ? 'Ma boutique' : 'Ouvrir'}
             </Text>
           </TouchableOpacity>
+          {/* Search toggle */}
+          <TouchableOpacity
+            style={[
+              styles.toggleBtn,
+              {
+                backgroundColor: searchOpen ? GREEN + '18' : colors.muted,
+                borderColor: searchOpen ? GREEN : colors.border,
+              },
+            ]}
+            onPress={toggleSearch}
+          >
+            <Feather name="search" size={16} color={searchOpen ? GREEN : colors.foreground} />
+          </TouchableOpacity>
           {/* Map/List toggle */}
           <TouchableOpacity
             style={[styles.toggleBtn, { backgroundColor: colors.muted, borderColor: colors.border }]}
@@ -175,6 +223,41 @@ function NearbyScreenInner() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Collapsible search bar */}
+      <Animated.View
+        style={[
+          styles.searchBar,
+          {
+            backgroundColor: colors.background,
+            borderBottomColor: colors.border,
+            maxHeight: searchAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 56] }),
+            opacity: searchAnim,
+            overflow: 'hidden',
+          },
+        ]}
+      >
+        <View style={[styles.searchInputRow, { backgroundColor: colors.muted, borderColor: colors.border }]}>
+          <Feather name="search" size={15} color={colors.mutedForeground} />
+          <TextInput
+            ref={searchInputRef}
+            style={[styles.searchInput, { color: colors.foreground }]}
+            placeholder="Rechercher un commerce, produit…"
+            placeholderTextColor={colors.mutedForeground}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+            clearButtonMode="never"
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={clearSearch} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Feather name="x-circle" size={15} color={colors.mutedForeground} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </Animated.View>
 
       {/* Category chips */}
       <ScrollView
@@ -210,14 +293,14 @@ function NearbyScreenInner() {
       {/* Map view */}
       {viewMode === 'map' && (
         <View style={{ flex: 1 }}>
-          {isLoading && shops.length === 0 ? (
+          {isLoading && filteredShops.length === 0 ? (
             <View style={styles.center}>
               <ActivityIndicator color={GREEN} />
             </View>
           ) : (
             <ProximityMap
               center={mapCenter}
-              markers={shops}
+              markers={filteredShops}
               userLocation={userLoc ?? undefined}
               onMarkerPress={handleMarkerPress}
               height={mapHeight}
@@ -229,7 +312,7 @@ function NearbyScreenInner() {
       {/* List view */}
       {viewMode === 'list' && (
         <FlatList
-          data={shops}
+          data={filteredShops}
           keyExtractor={item => item.id}
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: bottomPad + 16, paddingHorizontal: 16, paddingTop: 12 }}
@@ -238,9 +321,11 @@ function NearbyScreenInner() {
               {isLoading
                 ? <ActivityIndicator color={GREEN} />
                 : <>
-                    <Feather name="map-pin" size={40} color={colors.mutedForeground} />
+                    <Feather name={q ? 'search' : 'map-pin'} size={40} color={colors.mutedForeground} />
                     <Text style={[styles.emptyTxt, { color: colors.mutedForeground }]}>
-                      Aucun commerce trouvé dans ce rayon.
+                      {q
+                        ? `Aucun résultat pour « ${searchQuery.trim()} »`
+                        : 'Aucun commerce trouvé dans ce rayon.'}
                     </Text>
                   </>
               }
@@ -311,6 +396,9 @@ const styles = StyleSheet.create({
   chipsContent: { paddingHorizontal: 14, paddingVertical: 9, gap: 8, flexDirection: 'row', alignItems: 'center' },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
   chipTxt: { fontSize: 12, fontWeight: '600' },
+  searchBar: { borderBottomWidth: 1, paddingHorizontal: 14, paddingVertical: 8 },
+  searchInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
+  searchInput: { flex: 1, fontSize: 14, padding: 0, margin: 0 },
   emptyState: { paddingTop: 60, alignItems: 'center', gap: 12 },
   emptyTxt: { fontSize: 15, textAlign: 'center' },
   listRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, gap: 12 },
