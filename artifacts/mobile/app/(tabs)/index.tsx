@@ -45,6 +45,17 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, []);
 
+  // ── Route guard (MUST be before any conditional return) ──────────────────
+  // Rules of Hooks: every hook must be called on every render, in the same
+  // order. Placing this useEffect after the `if (!isAuthenticated)` early
+  // return caused "Rendered more hooks than during the previous render" on
+  // role switches because the hook count differed between renders.
+  useEffect(() => {
+    if (isVendor) router.replace('/vendor-dashboard');
+    else if (isAdmin) router.replace('/admin');
+  }, [isVendor, isAdmin]);
+
+  // ── Conditional returns (safe now — all hooks are above) ─────────────────
   if (!isAuthenticated) {
     return (
       <View style={[styles.loginPrompt, { backgroundColor: colors.background }]}>
@@ -69,14 +80,6 @@ export default function HomeScreen() {
       </View>
     );
   }
-
-  // Route guards must live in useEffect — calling router.replace() synchronously
-  // during render triggers "Cannot update a component (ForwardRef...)" because
-  // it sets navigation state while another component is still rendering.
-  useEffect(() => {
-    if (isVendor) router.replace('/vendor-dashboard');
-    else if (isAdmin) router.replace('/admin');
-  }, [isVendor, isAdmin]);
 
   // Show nothing while the redirect is in flight.
   if (isVendor || isAdmin) return null;
