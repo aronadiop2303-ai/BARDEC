@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "pnpm install --no-frozen-lockfile",
+  "buildCommand": "echo 'BARDEC static/marketing deploy — skip full monorepo build'",
+  "rewrites": [
+    { "source": "/reseaux", "destination": "/reseaux.html" }
+  ]
+}
