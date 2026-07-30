@@ -1,0 +1,15 @@
+{
+  "rewrites": [
+    { "source": "/((?!_expo|assets|favicon).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/_expo/static/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    },
+    {
+      "source": "/index.html",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
+    }
+  ]
+}
