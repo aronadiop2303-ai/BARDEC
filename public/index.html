@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BARDEC ∞ — Le marché sans limites</title>
+<meta name="description" content="BARDEC connecte particuliers, entreprises et vendeurs d'Afrique de l'Ouest sur une seule marketplace B2B/B2C, avec paiement mobile money et livraison flexible.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{--primary:#1A56DB;--secondary:#0EA5E9;--bg:#F8FAFE;--ink:#0B1220;--ink-soft:#4B5875;--amber:#F2A63A;--green:#16A34A;--line:#E2E8F5;--white:#FFFFFF;--radius:18px;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html{scroll-behavior:smooth;}
+  body{background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;line-height:1.5;overflow-x:hidden;}
+  h1,h2,h3,.display{font-family:'Space Grotesk',sans-serif;font-weight:700;letter-spacing:-0.02em;}
+  a{color:inherit;text-decoration:none;}
+  .wrap{max-width:1160px;margin:0 auto;padding:0 28px;}
+  nav{position:sticky;top:0;z-index:50;background:rgba(248,250,254,0.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:76px;}
+  .brand{display:flex;align-items:center;gap:10px;font-family:'Space Grotesk';font-weight:700;font-size:20px;}
+  .brand .badge{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--primary),var(--secondary));display:flex;align-items:center;justify-content:center;color:white;font-size:18px;overflow:hidden;}
+  .brand .badge img{width:100%;height:100%;object-fit:cover;}
+  .hero-logo{display:block;width:120px;height:120px;margin:0 auto 20px;border-radius:28px;box-shadow:0 20px 50px -16px #1a56db55;}
+  nav ul{display:flex;gap:32px;list-style:none;}
+  nav ul a{font-size:14px;font-weight:500;color:var(--ink-soft);}
+  .nav-cta{background:var(--primary);color:white;padding:10px 20px;border-radius:100px;font-size:14px;font-weight:600;}
+  @media (max-width:760px){nav ul{display:none;}}
+  .hero{padding:88px 0 60px;}
+  .hero-grid{display:grid;grid-template-columns:1.1fr 0.9fr;gap:56px;align-items:center;}
+  @media (max-width:900px){.hero-grid{grid-template-columns:1fr;}}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:'IBM Plex Mono';font-size:12.5px;color:var(--primary);background:#EAF1FF;border:1px solid #D3E1FC;padding:6px 14px;border-radius:100px;margin-bottom:24px;}
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--green);}
+  .hero h1{font-size:clamp(36px,5vw,58px);line-height:1.04;margin-bottom:22px;}
+  .hero h1 .accent{color:var(--primary);}
+  .hero p.lead{font-size:18px;color:var(--ink-soft);max-width:480px;margin-bottom:34px;}
+  .cta-row{display:flex;gap:14px;flex-wrap:wrap;}
+  .btn{padding:15px 26px;border-radius:100px;font-weight:600;font-size:15px;display:inline-flex;align-items:center;gap:10px;border:none;cursor:pointer;}
+  .btn-primary{background:var(--primary);color:white;}
+  .btn-ghost{background:white;color:var(--ink);border:1px solid var(--line);}
+  .stat-row{display:flex;gap:36px;margin-top:48px;flex-wrap:wrap;}
+  .stat b{display:block;font-family:'Space Grotesk';font-size:26px;}
+  .stat span{font-size:13px;color:var(--ink-soft);}
+  .infinity-wrap{display:flex;align-items:center;justify-content:center;min-height:380px;flex-direction:column;}
+  .section{padding:96px 0;}
+  .section-head{max-width:600px;margin-bottom:56px;}
+  .section-head h2{font-size:clamp(28px,3.4vw,38px);margin-bottom:14px;}
+  .section-head p{color:var(--ink-soft);font-size:16px;}
+  .roles-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;}
+  @media (max-width:1080px){.roles-grid{grid-template-columns:repeat(3,1fr);}}
+  @media (max-width:980px){.roles-grid{grid-template-columns:repeat(2,1fr);}}
+  @media (max-width:520px){.roles-grid{grid-template-columns:1fr;}}
+  .role-card{background:white;border:1px solid var(--line);border-radius:var(--radius);padding:26px 20px;}
+  .role-num{font-family:'IBM Plex Mono';font-size:12px;color:var(--secondary);margin-bottom:14px;display:block;}
+  .role-card h3{font-size:16px;margin-bottom:8px;}
+  .role-card p{font-size:13.5px;color:var(--ink-soft);}
+  .pay-section{background:var(--ink);color:white;border-radius:32px;margin:0 28px;padding:64px 48px;}
+  .pay-section .section-head p{color:#AAB6D6;}
+  .pay-section .section-head h2{color:white;}
+  .pay-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+  @media (max-width:900px){.pay-grid{grid-template-columns:repeat(2,1fr);}}
+  .pay-chip{background:#141F38;border:1px solid #263255;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:10px;}
+  .pay-chip .icon{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--secondary),var(--primary));display:flex;align-items:center;justify-content:center;font-weight:700;}
+  .pay-chip b{font-size:14.5px;}
+  .pay-chip span{font-size:12px;color:#8492B8;}
+  .tag-soon{font-family:'IBM Plex Mono';font-size:10px;color:var(--amber);border:1px solid #4A3A1E;background:#2A2110;padding:2px 8px;border-radius:100px;width:fit-content;}
+  .tag-live{font-family:'IBM Plex Mono';font-size:10px;color:var(--green);border:1px solid #1E4A2E;background:#0F2A18;padding:2px 8px;border-radius:100px;width:fit-content;}
+  .delivery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+  @media (max-width:900px){.delivery-grid{grid-template-columns:repeat(2,1fr);}}
+  .delivery-card{background:white;border:1px solid var(--line);border-radius:var(--radius);padding:24px;}
+  .delivery-card .glyph{font-size:26px;margin-bottom:16px;display:block;}
+  .delivery-card h3{font-size:15.5px;margin-bottom:6px;}
+  .delivery-card p{font-size:13px;color:var(--ink-soft);}
+  .trust-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;}
+  @media (max-width:860px){.trust-grid{grid-template-columns:1fr;}}
+  .trust-list{list-style:none;display:flex;flex-direction:column;gap:22px;}
+  .trust-list li{display:flex;gap:16px;align-items:flex-start;}
+  .trust-list .mark{width:30px;height:30px;border-radius:9px;background:#EAF1FF;color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;font-weight:700;}
+  .trust-list h4{font-size:15px;margin-bottom:4px;}
+  .trust-list p{font-size:13.5px;color:var(--ink-soft);}
+  .trust-visual{background:linear-gradient(160deg,#EAF1FF,#F8FAFE);border:1px solid var(--line);border-radius:24px;padding:36px;text-align:center;}
+  .trust-visual .big-inf{font-size:64px;color:var(--primary);line-height:1;}
+  .trust-visual p{color:var(--ink-soft);font-size:13.5px;margin-top:10px;}
+  .lang-cloud{display:flex;flex-wrap:wrap;gap:10px;}
+  .lang-chip{background:white;border:1px solid var(--line);border-radius:100px;padding:9px 16px;font-size:13px;font-weight:500;color:var(--ink-soft);}
+  .download{background:linear-gradient(135deg,var(--primary),#123f9e);border-radius:32px;margin:0 28px;padding:72px 48px;text-align:center;color:white;}
+  .download h2{font-size:clamp(28px,4vw,42px);margin-bottom:16px;}
+  .download p{color:#CFE0FF;max-width:520px;margin:0 auto 34px;font-size:16px;}
+  .download .btn-primary{background:white;color:var(--primary);}
+  .download .version-tag{font-family:'IBM Plex Mono';font-size:12px;color:#CFE0FF;margin-top:22px;display:block;}
+  .changelog{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:16px;padding:20px 24px;margin:28px auto 0;max-width:480px;text-align:left;}
+  .changelog b{display:block;margin-bottom:10px;font-size:13px;color:white;}
+  .changelog ul{list-style:none;display:flex;flex-direction:column;gap:6px;}
+  .changelog li{font-size:12.5px;color:#CFE0FF;}
+  footer{padding:56px 0 40px;border-top:1px solid var(--line);margin-top:40px;}
+  .footer-grid{display:flex;justify-content:space-between;flex-wrap:wrap;gap:24px;align-items:center;}
+  footer .foot-links{display:flex;gap:26px;list-style:none;flex-wrap:wrap;}
+  footer .foot-links a{font-size:13.5px;color:var(--ink-soft);}
+  footer .copy{font-size:12.5px;color:#9AA6C2;}
+</style>
+</head>
+<body>
+<nav><div class="wrap">
+  <div class="brand"><span class="badge">∞</span> BARDEC</div>
+  <ul><li><a href="#roles">Rôles</a></li><li><a href="#ia">ABFINI</a></li><li><a href="#paiements">Paiements</a></li><li><a href="#livraison">Livraison</a></li><li><a href="#confiance">Confiance</a></li><li><a href="#langues">Langues</a></li></ul>
+  <a href="#telecharger" class="nav-cta">Télécharger l'app</a>
+</div></nav>
+<section class="hero"><div class="wrap hero-grid">
+  <div>
+    <div class="eyebrow"><span class="dot"></span> VERSION 2 DISPONIBLE — SÉNÉGAL</div>
+    <h1>Le commerce d'Afrique de l'Ouest,<br><span class="accent">sans limites.</span></h1>
+    <p class="lead">BARDEC relie particuliers, entreprises et vendeurs sur une seule marketplace — prix de gros négociés, paiement par mobile money, livraison jusqu'à votre porte ou au drone près.</p>
+    <div class="cta-row">
+      <a href="#telecharger" class="btn btn-primary">↓ Télécharger l'APK v2</a>
+      <a href="/app" class="btn btn-ghost">🌐 Essayer sur le web</a>
+    </div>
+    <div class="stat-row"><div class="stat"><b>5</b><span>rôles connectés</span></div><div class="stat"><b>20</b><span>langues disponibles</span></div><div class="stat"><b>4</b><span>modes de livraison</span></div></div>
+  </div>
+  <div class="infinity-wrap"><div style="font-size:120px;">∞</div></div>
+</div></section>
+<section class="section" id="roles"><div class="wrap">
+  <div class="section-head"><div class="eyebrow">01 — ÉCOSYSTÈME</div><h2>Une app, six façons de faire du commerce</h2><p>Chaque rôle a son propre parcours.</p></div>
+  <div class="roles-grid">
+    <div class="role-card"><span class="role-num">01</span><h3>Customer</h3><p>Achat simple, prix public, paiement immédiat.</p></div>
+    <div class="role-card"><span class="role-num">02</span><h3>Buyer (B2B)</h3><p>Prix de gros négociés, commandes soumises à approbation.</p></div>
+    <div class="role-card"><span class="role-num">03</span><h3>Approver</h3><p>Valide ou rejette les commandes de son entreprise.</p></div>
+    <div class="role-card"><span class="role-num">04</span><h3>Vendor</h3><p>Gère produits, stock et commandes.</p></div>
+    <div class="role-card"><span class="role-num">05</span><h3>Admin</h3><p>Supervise toute la plateforme.</p></div>
+    <div class="role-card"><span class="role-num">06</span><h3>Commerçant de quartier</h3><p>Ouvre sa boutique de proximité et vend aux clients proches.</p></div>
+  </div>
+</div></section>
+<section class="section" id="ia"><div class="wrap"><div class="trust-grid">
+  <div class="trust-visual" style="order:2;"><div class="big-inf">🤖</div><p style="font-weight:600;color:var(--ink);font-size:16px;margin-top:6px;">ABFINI</p><p>Votre assistant de commerce intelligent, disponible 24/7.</p></div>
+  <ul class="trust-list">
+    <li><div class="mark">💬</div><div><h4>Support 24/7</h4><p>Répond à vos questions à tout moment.</p></div></li>
+    <li><div class="mark">📦</div><div><h4>Suivi intelligent</h4><p>Prédit les délais de livraison.</p></div></li>
+    <li><div class="mark">🔎</div><div><h4>Sourcing B2B</h4><p>Trouve les meilleurs fournisseurs.</p></div></li>
+    <li><div class="mark">🔗</div><div><h4>Connecté à vos données</h4><p>Analyse en temps réel votre activité.</p></div></li>
+  </ul>
+</div></div></section>
+<section class="section" id="paiements"><div class="wrap"><div class="pay-section">
+  <div class="section-head"><div class="eyebrow" style="color:var(--secondary);background:#0EA5E922;border-color:#0EA5E944;">02 — PAIEMENTS</div><h2>Payez comme vous le faites déjà</h2></div>
+  <div class="pay-grid">
+    <div class="pay-chip"><div class="icon">W</div><b>Wave</b><span>Mobile money</span><div class="tag-live">DISPONIBLE</div></div>
+    <div class="pay-chip"><div class="icon">O</div><b>Orange Money</b><span>Mobile money</span><div class="tag-live">DISPONIBLE</div></div>
+    <div class="pay-chip"><div class="icon">M</div><b>MTN MoMo</b><span>Mobile money</span><div class="tag-live">DISPONIBLE</div></div>
+    <div class="pay-chip"><div class="icon">₣</div><b>À la livraison</b><span>Espèces</span><div class="tag-live">DISPONIBLE</div></div>
+    <div class="pay-chip"><div class="icon">B</div><b>Net30</b><span>Comptes B2B</span><div class="tag-live">DISPONIBLE</div></div>
+    <div class="pay-chip"><div class="icon">C</div><b>Carte bancaire</b><span>Visa/Mastercard</span><div class="tag-soon">BIENTÔT</div></div>
+    <div class="pay-chip"><div class="icon">P</div><b>PayPal</b><span>International</span><div class="tag-soon">BIENTÔT</div></div>
+    <div class="pay-chip"><div class="icon">✓</div><b>Vérification manuelle</b><span>Preuve + validation</span><div class="tag-live">ACTIF</div></div>
+  </div>
+</div></div></section>
+<section class="section" id="livraison"><div class="wrap">
+  <div class="section-head"><div class="eyebrow">03 — LIVRAISON</div><h2>Choisissez comment ça arrive</h2></div>
+  <div class="delivery-grid">
+    <div class="delivery-card"><span class="glyph">🏠</span><h3>À domicile</h3><p>Standard, Express ou Nuit.</p></div>
+    <div class="delivery-card"><span class="glyph">🚁</span><h3>Par drone</h3><p>Zones éligibles.</p></div>
+    <div class="delivery-card"><span class="glyph">📍</span><h3>Point relais</h3><p>Point de dépôt partenaire.</p></div>
+    <div class="delivery-card"><span class="glyph">🏬</span><h3>Retrait magasin</h3><p>Chez le vendeur.</p></div>
+  </div>
+</div></section>
+<section class="section" id="confiance"><div class="wrap">
+  <div class="section-head"><div class="eyebrow">04 — CONFIANCE</div><h2>Chaque transaction est protégée</h2></div>
+  <div class="trust-grid">
+    <ul class="trust-list">
+      <li><div class="mark">✓</div><div><h4>Trade Assurance</h4><p>Fonds retenus jusqu'à confirmation.</p></div></li>
+      <li><div class="mark">🔒</div><div><h4>Vendeurs vérifiés (KYC)</h4><p>Validation de documents.</p></div></li>
+      <li><div class="mark">⚡</div><div><h4>Authentification biométrique</h4><p>Connexion sécurisée.</p></div></li>
+      <li><div class="mark">📋</div><div><h4>Audit complet</h4><p>Actions sensibles tracées.</p></div></li>
+    </ul>
+    <div class="trust-visual"><div class="big-inf" style="font-size:110px;">∞</div><p>Unlimited Benefits — avantages membres fidèles.</p></div>
+  </div>
+</div></section>
+<section class="section" id="langues"><div class="wrap">
+  <div class="section-head"><div class="eyebrow">05 — LANGUES</div><h2>Votre langue, détectée automatiquement</h2></div>
+  <div class="lang-cloud">
+    <span class="lang-chip"><b>Français</b></span><span class="lang-chip"><b>Wolof</b></span><span class="lang-chip"><b>Anglais</b></span><span class="lang-chip"><b>Arabe</b></span><span class="lang-chip"><b>Hausa</b></span><span class="lang-chip"><b>Swahili</b></span><span class="lang-chip"><b>Amharique</b></span><span class="lang-chip"><b>Yoruba</b></span><span class="lang-chip"><b>Igbo</b></span><span class="lang-chip"><b>Zoulou</b></span><span class="lang-chip">Espagnol</span><span class="lang-chip">Portugais</span><span class="lang-chip">Chinois</span><span class="lang-chip">Hindi</span><span class="lang-chip">Japonais</span><span class="lang-chip">Coréen</span><span class="lang-chip">Allemand</span><span class="lang-chip">Russe</span><span class="lang-chip">Italien</span><span class="lang-chip">Turc</span>
+  </div>
+</div></section>
+<section class="section" id="telecharger"><div class="wrap"><div class="download">
+  <h2>Prêt à rejoindre BARDEC ?</h2>
+  <p>Téléchargez la version 2 de l'application Android, ou essayez-la directement dans votre navigateur.</p>
+  <a class="btn btn-primary" href="https://expo.dev/artifacts/eas/P3TihNUCD0jozQaaSCBhzAdmjyAoNvQQ-RCSiGhRbcA.apk">⬇ Télécharger l'APK v2 (Android)</a>
+  <a class="btn btn-ghost" href="/app" style="margin-left:12px;background:rgba(255,255,255,0.15);color:white;border-color:rgba(255,255,255,0.3);">🌐 Ou essayer sur le web</a>
+  <span class="version-tag">v2.0.0 · Android · build du 26/07/2026</span>
+  <div class="changelog"><b>Nouveautés de la v2 :</b><ul>
+    <li>Commerces de proximité avec carte et géolocalisation</li>
+    <li>Paiement Wave, Orange Money, MTN MoMo</li>
+    <li>4 modes de livraison</li>
+    <li>Correction du crash au changement de rôle</li>
+    <li>Icônes, session et navigation stabilisées</li>
+  </ul></div>
+</div></div></section>
+<footer><div class="wrap footer-grid">
+  <div class="brand"><span class="badge">∞</span> BARDEC</div>
+  <ul class="foot-links"><li><a href="#roles">Rôles</a></li><li><a href="#paiements">Paiements</a></li><li><a href="#livraison">Livraison</a></li><li><a href="#confiance">Confiance</a></li></ul>
+  <span class="copy">© 2026 BARDEC — Marketplace B2B/B2C, Afrique de l'Ouest.</span>
+</div></footer>
+<section style="text-align:center;padding:24px 16px;margin-top:32px;border-top:1px solid #e5e7eb;">
+  <p style="margin:0 0 12px;font-weight:600;color:#111;">Suivez BARDEC</p>
+  <div style="display:flex;flex-wrap:wrap;gap:14px;justify-content:center;font-size:14px;">
+    <a href="https://www.instagram.com/bar_dec_" target="_blank" rel="noopener" style="color:#1A56DB;">Instagram</a>
+    <a href="https://www.facebook.com/share/1QC4hNJgz1/" target="_blank" rel="noopener" style="color:#1A56DB;">Facebook</a>
+    <a href="https://x.com/bardec_cofficie" target="_blank" rel="noopener" style="color:#1A56DB;">X</a>
+    <a href="https://youtube.com/@bardec-officiel" target="_blank" rel="noopener" style="color:#1A56DB;">YouTube</a>
+    <a href="https://t.me/B_ARDEC" target="_blank" rel="noopener" style="color:#1A56DB;">Telegram</a>
+  </div>
+</section>
+</body>
+</html>
