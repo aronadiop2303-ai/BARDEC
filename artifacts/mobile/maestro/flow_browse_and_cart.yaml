@@ -1,0 +1,51 @@
+appId: com.bardec.app
+# ─────────────────────────────────────────────────────────────────
+# FLOW 2 — Navigation accueil → recherche → fiche produit → panier
+# ─────────────────────────────────────────────────────────────────
+name: "BARDEC · Parcourir & Panier"
+tags:
+  - catalog
+  - cart
+
+env:
+  SEARCH_QUERY: "riz"
+
+---
+
+- launchApp:
+    clearState: false   # conserver la session
+
+# ── Vérifier que l'accueil se charge ────────────────────────────
+- assertVisible: "Accueil"
+- assertVisible: "Produits Tendances"
+
+# ── Recherche d'un produit ──────────────────────────────────────
+- tapOn:
+    text: "Rechercher produits, vendeurs..."
+- inputText: ${SEARCH_QUERY}
+- pressKey: Enter
+
+# L'onglet Recherche doit lister des résultats (MOCK_PRODUCTS)
+- assertVisible: "Recherche"
+
+# Ouvrir le premier résultat (taper sur la première carte visible)
+- tapOn:
+    index: 0
+    text: "Ajouter au Panier"   # bouton sur chaque carte produit
+
+# Si un bottom-sheet de détail s'affiche d'abord, trouver le bouton là
+- runFlow:
+    when:
+      visible: "Description"
+    file: ./_helpers/add_from_product_detail.yaml
+
+# ── Vérifier le badge du panier ─────────────────────────────────
+# Le badge sur l'onglet Panier doit afficher "1"
+- assertVisible:
+    id: "cart-badge"        # testID absent → test dégradé par texte
+- tapOn: "Panier"
+
+# ── Vérifier que le produit est dans le panier ──────────────────
+- assertVisible: "Sous-total"
+- assertVisible: "Commander"
+- assertNotVisible: "Panier vide"

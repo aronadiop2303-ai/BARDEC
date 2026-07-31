@@ -1,0 +1,87 @@
+appId: com.bardec.app
+# ─────────────────────────────────────────────────────────────────
+# FLOW 3 — Checkout complet (Cash on Delivery)
+# Produit ajouté au panier par flow_browse_and_cart.yaml en amont
+# ─────────────────────────────────────────────────────────────────
+name: "BARDEC · Checkout complet"
+tags:
+  - checkout
+  - supabase-NOT-CONNECTED   # checkout.tsx n'insère rien en DB
+
+env:
+  FULL_NAME: "Maestro Test User"
+  ADDRESS: "15 Avenue Test BARDEC"
+  CITY: "Dakar"
+  ZIP: "12345"
+  COUNTRY: "Sénégal"
+  PHONE: "+221 77 000 00 00"
+
+---
+
+- launchApp:
+    clearState: false
+
+# S'assurer d'être sur le panier
+- tapOn: "Panier"
+- assertNotVisible: "Panier vide"
+
+# Lancer le checkout
+- tapOn: "Commander"
+
+# ── Étape 1 : Adresse ────────────────────────────────────────────
+- assertVisible: "Adresse"
+- clearText:
+    text: "Nom complet *"
+- tapOn:
+    text: "Nom complet *"
+- inputText: ${FULL_NAME}
+
+- tapOn:
+    text: "Adresse *"
+- inputText: ${ADDRESS}
+
+- tapOn:
+    text: "Ville *"
+- inputText: ${CITY}
+
+- tapOn:
+    text: "Code postal"
+- inputText: ${ZIP}
+
+- tapOn:
+    text: "Pays"
+- inputText: ${COUNTRY}
+
+- tapOn:
+    text: "Téléphone"
+- inputText: ${PHONE}
+
+- tapOn: "Continuer"
+
+# ── Étape 2 : Livraison ──────────────────────────────────────────
+- assertVisible: "Livraison"
+# Choisir "Standard (Gratuit)"
+- tapOn: "Standard (Gratuit)"
+- tapOn: "Continuer"
+
+# ── Étape 3 : Paiement ───────────────────────────────────────────
+- assertVisible: "Paiement"
+# Cash on delivery = simulé par "Carte Bancaire" (pas de vrai mode COD dans les traductions)
+# → On choisit "Carte Bancaire" pour déclencher le flux sans passerelle réelle
+- tapOn: "Carte Bancaire"
+- tapOn: "Continuer"
+
+# ── Étape 4 : Confirmation ───────────────────────────────────────
+- assertVisible: "Confirmation"
+- tapOn: "Passer la Commande"
+
+# Écran de succès
+- assertVisible: "Merci!"
+- assertVisible: "Votre commande a été confirmée."
+
+# Retour à l'accueil
+- tapOn: "Retour à l'accueil"
+- assertVisible: "Accueil"
+
+# ⚠ NOTE AUDIT : checkout.tsx ne fait aucun INSERT Supabase
+#   Vérifier dans Supabase orders table → aucune ligne créée attendue

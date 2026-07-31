@@ -1,0 +1,86 @@
+appId: com.bardec.app
+# ─────────────────────────────────────────────────────────────────
+# FLOW 1 — Inscription → Accueil → Déconnexion → Reconnexion
+# Identifiants traçables : maestro-test-<timestamp>@example.com
+# ─────────────────────────────────────────────────────────────────
+name: "BARDEC · Inscription & Connexion"
+tags:
+  - auth
+  - supabase
+
+# Variables injectées au lancement : maestro test --env EMAIL=maestro-test-...
+env:
+  EMAIL: "maestro-test-20260731@example.com"
+  PASSWORD: "MaestroTest2026!"
+  FULL_NAME: "Maestro Test User"
+
+---
+
+# ── Lancement de l'app ──────────────────────────────────────────
+- launchApp:
+    clearState: true
+
+# L'app démarre sur l'écran de connexion (utilisateur non authentifié)
+- assertVisible: "Connexion"
+
+# ── Naviguer vers l'inscription ─────────────────────────────────
+- tapOn: "Pas de compte?"
+
+# Sélectionner le rôle Client (B2C)
+- assertVisible: "Client (B2C)"
+- tapOn: "Client (B2C)"
+
+# Remplir le formulaire d'inscription
+- tapOn:
+    text: "Nom complet *"
+- inputText: ${FULL_NAME}
+
+- tapOn:
+    text: "E-mail"
+- inputText: ${EMAIL}
+
+- tapOn:
+    text: "Mot de passe"
+- inputText: ${PASSWORD}
+
+# Créer le compte
+- tapOn: "Créer un Compte"
+
+# ── Vérifier l'arrivée sur l'accueil authentifié ────────────────
+# Soit redirection directe, soit confirmation → aller à connexion
+- runFlow:
+    when:
+      visible: "Aller à la connexion"
+    file: ./_helpers/goto_login_after_register.yaml
+
+# L'accueil doit afficher le tab "Accueil" ou "Produits Tendances"
+- assertVisible:
+    text: "Accueil"
+    enabled: true
+
+# ── Déconnexion ─────────────────────────────────────────────────
+- tapOn: "Profil"
+- scrollUntilVisible:
+    text: "Déconnexion"
+    direction: DOWN
+- tapOn: "Déconnexion"
+
+# Retour sur l'écran de connexion
+- assertVisible: "Connexion"
+
+# ── Reconnexion avec les mêmes identifiants ─────────────────────
+- tapOn:
+    text: "E-mail"
+- inputText: ${EMAIL}
+
+- tapOn:
+    text: "Mot de passe"
+- inputText: ${PASSWORD}
+
+- tapOn: "Connexion"
+
+# Vérifier le succès de la reconnexion
+- assertVisible:
+    text: "Accueil"
+    enabled: true
+- assertNotVisible: "Connexion"

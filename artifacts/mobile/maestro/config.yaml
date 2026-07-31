@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────
+# Maestro Test Suite — BARDEC Mobile
+# Exécuter : maestro test maestro/
+# Exécuter 1 flow : maestro test maestro/flow_signup_login.yaml
+# Avec variables : maestro test maestro/flow_signup_login.yaml \
+#   --env EMAIL=maestro-test-20260731@example.com \
+#   --env PASSWORD=MaestroTest2026!
+# ─────────────────────────────────────────────────────────────────
+
+# Prérequis :
+#   1. Java 11+ installé (java -version)
+#   2. Maestro CLI installé (curl -fsSL https://get.maestro.mobile.dev | bash)
+#   3. Émulateur Android démarré OU appareil connecté (adb devices)
+#   4. App déployée sur l'émulateur :
+#        npx expo run:android --variant debug
+#        OR
+#        adb install bardec.apk
+
+# Ordre d'exécution recommandé :
+#   1. flow_signup_login.yaml    → crée l'utilisateur dans Supabase auth
+#   2. flow_browse_and_cart.yaml → peuple le panier local
+#   3. flow_checkout.yaml        → tente le checkout (local seulement)
+#   4. flow_role_switch.yaml     → test rôles (local, indépendant)
+#   5. flow_vendor_dashboard.yaml → test vendeur
+#   6. flow_proximity_shop.yaml  → test boutique de proximité (Supabase)
+
+# Données traçables dans Supabase :
+#   - auth.users      → email LIKE 'maestro-test-%'
+#   - proximity_shops → name LIKE 'MAESTRO TEST -%'
+#   - products        → name LIKE 'MAESTRO TEST -%'

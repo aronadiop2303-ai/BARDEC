@@ -1,0 +1,65 @@
+appId: com.bardec.app
+# ─────────────────────────────────────────────────────────────────
+# FLOW 5 — Vendor Dashboard : ajouter un produit test
+# ⚠ AUDIT : bouton "Ajouter" n'a PAS de onPress → test échouera à cette étape
+# ─────────────────────────────────────────────────────────────────
+name: "BARDEC · Vendor Dashboard — Ajouter Produit"
+tags:
+  - vendor
+  - supabase
+
+env:
+  PRODUCT_NAME: "MAESTRO TEST - Riz Parfumé 25kg"
+  PRODUCT_PRICE: "15000"
+  PRODUCT_STOCK: "50"
+  PRODUCT_DESC: "Produit créé automatiquement par Maestro le 2026-07-31"
+
+---
+
+- launchApp:
+    clearState: false
+
+# S'assurer d'être en mode VENDOR
+- tapOn: "Profil"
+- assertVisible: "Changer de rôle"
+- tapOn: "VENDOR"
+
+# Naviguer vers le dashboard vendeur
+- tapOn: "Tableau de Bord Vendeur"
+- assertVisible: "Vue d'ensemble"
+
+# ── Onglet Produits ──────────────────────────────────────────────
+- tapOn: "Produits"
+- assertVisible: "Mes produits"
+
+# Note : "Ajouter produit" dans Vue d'ensemble → switch vers onglet Produits (OK)
+# Mais le bouton "Ajouter" DANS l'onglet Produits n'a PAS de onPress (bug confirmé)
+# → On utilise le bouton de la Vue d'ensemble d'abord
+- tapOn: "Vue d'ensemble"
+- tapOn: "Ajouter produit"
+# → devrait naviguer vers l'onglet "Produits"
+- assertVisible: "Mes produits"
+
+# Le vrai bouton "Ajouter" de l'onglet Produits — bug : <TouchableOpacity> sans onPress
+# Ce tap ne déclenche rien → le test échouera à assertVisible "Nom du produit"
+- tapOn: "Ajouter"
+
+# ⚠ BUG ATTENDU : aucune navigation ne s'ouvre car onPress manquant
+# Si un formulaire s'ouvre quand même (fix effectué), continuer :
+- assertVisible: "Nom du produit"
+- tapOn: "Nom du produit"
+- inputText: ${PRODUCT_NAME}
+
+- tapOn: "Prix"
+- inputText: ${PRODUCT_PRICE}
+
+- tapOn: "Stock"
+- inputText: ${PRODUCT_STOCK}
+
+- tapOn: "Description"
+- inputText: ${PRODUCT_DESC}
+
+- tapOn: "Enregistrer"
+
+# Vérifier que le produit apparaît dans "Mes produits"
+- assertVisible: ${PRODUCT_NAME}

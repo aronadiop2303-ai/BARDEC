@@ -1,0 +1,80 @@
+appId: com.bardec.app
+# ─────────────────────────────────────────────────────────────────
+# FLOW 6 — Onglet "Près de moi" : carte + création de boutique
+# ─────────────────────────────────────────────────────────────────
+name: "BARDEC · Boutique de Proximité"
+tags:
+  - proximity
+  - supabase
+
+env:
+  SHOP_NAME: "MAESTRO TEST - Épicerie du Quartier"
+  SHOP_DESC: "Boutique créée automatiquement par Maestro le 2026-07-31"
+  SHOP_ADDRESS: "12 Rue des Tests, Dakar"
+  SHOP_PHONE: "+221 77 111 22 33"
+
+---
+
+- launchApp:
+    clearState: false
+
+# ── Onglet Près de moi ──────────────────────────────────────────
+- tapOn: "Près de moi"
+- assertVisible: "Près de moi"
+
+# Géolocalisation : accorder la permission (dialog système Android)
+- runFlow:
+    when:
+      visible: "Allow"
+    commands:
+      - tapOn: "While using the app"
+
+# Sinon le fallback Dakar GPS est utilisé automatiquement
+# Vérifier que la carte (ou liste) se charge
+- assertNotVisible: "Chargement..."
+- runFlow:
+    when:
+      visible: "Géolocalisation requise"
+    commands:
+      - tapOn: "Autoriser la géolocalisation"
+
+# La carte ou la liste doit être visible (au moins le titre)
+- assertVisible: "Près de moi"
+
+# ── Ouvrir le formulaire de création de boutique ─────────────────
+- tapOn: "Ouvrir ma boutique"
+
+# Formulaire register-shop.tsx
+- assertVisible: "Nom de la boutique"
+- tapOn: "Nom du commerce *"
+- inputText: ${SHOP_NAME}
+
+# Sélectionner la catégorie principale (premier chip)
+- tapOn:
+    index: 0
+    text: "Alimentation"
+
+- tapOn: "Description"
+- inputText: ${SHOP_DESC}
+
+- tapOn: "Téléphone"
+- inputText: ${SHOP_PHONE}
+
+- tapOn: "Adresse (texte)"
+- inputText: ${SHOP_ADDRESS}
+
+# Étape 1 → Étape 2 (Position)
+- tapOn: "Suivant"
+
+# Étape 2 : Position (GPS auto-rempli) → Étape 3
+- tapOn: "Suivant"
+
+# Étape 3 : Horaires (optionnel) → Étape 4
+- tapOn: "Suivant"
+
+# Étape 4 : Photos (optionnel) → Soumettre
+- tapOn: "Créer ma boutique"
+
+# Vérifier la confirmation
+- assertVisible:
+    textRegex: "(Boutique créée|Succès|MAESTRO TEST)"

@@ -1,0 +1,56 @@
+appId: com.bardec.app
+# ─────────────────────────────────────────────────────────────────
+# FLOW 4 — Changement de rôle CUSTOMER → BUYER → APPROVER → VENDOR → ADMIN → CUSTOMER
+# Vérifie qu'aucun écran d'erreur rouge n'apparaît à chaque étape
+# ─────────────────────────────────────────────────────────────────
+name: "BARDEC · Role Switch (5 rôles)"
+tags:
+  - roles
+  - local-only   # switchDemoRole n'appelle jamais Supabase
+
+---
+
+- launchApp:
+    clearState: false
+
+- tapOn: "Profil"
+- assertVisible: "Changer de rôle"
+
+# ── CUSTOMER → BUYER ────────────────────────────────────────────
+- tapOn: "BUYER"
+- assertNotVisible: "Une erreur est survenue"
+- assertNotVisible: "Error"
+# L'onglet "Panier" disparaît, l'onglet "Commandes" doit rester visible
+- assertVisible: "Commandes"
+- tapOn: "Profil"
+
+# ── BUYER → APPROVER ────────────────────────────────────────────
+- tapOn: "APPROVER"
+- assertNotVisible: "Une erreur est survenue"
+- assertNotVisible: "Error"
+- assertVisible: "Profil"
+- tapOn: "Profil"
+
+# ── APPROVER → VENDOR ───────────────────────────────────────────
+- tapOn: "VENDOR"
+- assertNotVisible: "Une erreur est survenue"
+- assertNotVisible: "Error"
+# Le tab "Tableau de Bord Vendeur" doit apparaître
+- assertVisible: "Tableau de Bord Vendeur"
+- tapOn: "Profil"
+
+# ── VENDOR → ADMIN ──────────────────────────────────────────────
+- tapOn: "ADMIN"
+- assertNotVisible: "Une erreur est survenue"
+- assertNotVisible: "Error"
+# L'onglet Admin doit apparaître
+- assertVisible: "Panneau Admin"
+- tapOn: "Profil"
+
+# ── ADMIN → CUSTOMER ────────────────────────────────────────────
+- tapOn: "CUSTOMER"
+- assertNotVisible: "Une erreur est survenue"
+- assertNotVisible: "Error"
+# Retour aux onglets normaux client
+- assertVisible: "Accueil"
+- assertVisible: "Panier"
