@@ -17,7 +17,8 @@ import { useAuth } from '@/context/AuthContext';
 import BardecLayout from '@/components/BardecLayout';
 import ProductCard from '@/components/ProductCard';
 import { SkeletonProductCard } from '@/components/SkeletonCard';
-import { CATEGORIES, MOCK_PRODUCTS } from '@/constants/mockData';
+import { CATEGORIES } from '@/constants/mockData';
+import { useProducts } from '@/hooks/useProducts';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -28,22 +29,24 @@ export default function HomeScreen() {
   const { user, isAuthenticated } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
   const isVendor = user?.role === 'VENDOR';
   const isAdmin = user?.role === 'ADMIN';
 
-  const filteredProducts = MOCK_PRODUCTS.filter(p =>
+  // ── Supabase products (falls back to MOCK_PRODUCTS in demo mode) ──────────
+  const { products, loading, refetch } = useProducts();
+
+  const filteredProducts = products.filter(p =>
     selectedCategory === 'all' || p.category === selectedCategory
   );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await new Promise(r => setTimeout(r, 1000));
+    await refetch();
     setRefreshing(false);
-  }, []);
+  }, [refetch]);
 
   // ── Route guard (MUST be before any conditional return) ──────────────────
   // Rules of Hooks: every hook must be called on every render, in the same

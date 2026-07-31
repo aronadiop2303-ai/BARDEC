@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import {
-  Alert, Image, KeyboardAvoidingView, Platform, ScrollView,
+  ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -146,7 +147,8 @@ export default function CheckoutScreen() {
   const { items, subtotal, clearCart } = useCart();
   const insets = useSafeAreaInsets();
 
-  const [step, setStep] = useState<Step>(1);
+  const [step, setStep]           = useState<Step>(1);
+  const [submitting, setSubmitting] = useState(false);
   const [address, setAddress] = useState<Address>({
     fullName: user?.name ?? '', street: '', city: '', country: 'France', phone: '', zipCode: '',
   });
@@ -237,7 +239,9 @@ export default function CheckoutScreen() {
     }
   }
 
-  function handleNext() {
+  async function handleNext() {
+    if (submitting) return;
+
     if (step === 1) {
       if (!address.fullName || !address.street || !address.city) {
         Alert.alert('Erreur', 'Veuillez remplir les champs obligatoires.');
@@ -263,18 +267,61 @@ export default function CheckoutScreen() {
         );
         return;
       }
-      // Determine resulting payment status
-      if (isMobileMoney) {
-        setPaymentStatus('awaiting_verification');
-      } else if (paymentMethod === 'cash_on_delivery') {
-        setPaymentStatus('pending');
-      } else {
-        setPaymentStatus('paid');
+
+      // Determine payment status (local variable — state update is async)
+      const newPayStatus: PaymentStatus = isMobileMoney
+        ? 'awaiting_verification'
+        : paymentMethod === 'cash_on_delivery' ? 'pending' : 'paid';
+      setPaymentStatus(newPayStatus);
+
+      // ── INSERT ORDER TO SUPABASE ─────────────────────────────────────────
+      if (isSupabaseConfigured && supabase && user) {
+        setSubmitting(true);
+        const { error: dbErr } = await supabase.from('orders').insert({
+          customer_id:           user.id,
+          order_number:          orderRef,
+          status:                isB2B ? 'pending_approval' : 'pending',
+          items:                 items.map(i => ({
+            product_id:   i.productId,
+            product_name: i.productName,
+            quantity:     i.quantity,
+            price:        i.price,
+            image:        i.image,
+          })),
+          subtotal,
+          shipping_cost:         delivery.cost,
+          tax_amount:            tax,
+          total,
+          payment_method:        paymentMethod,
+          payment_status:        newPayStatus,
+          delivery_type:         delivery.type,
+          shipping_address: {
+            full_name: address.fullName,
+            street:    address.street,
+            city:      address.city,
+            country:   address.country,
+            phone:     address.phone,
+            zip_code:  address.zipCode,
+          },
+          purchase_order_number: purchaseOrder || null,
+        });
+        setSubmitting(false);
+
+        if (dbErr) {
+          Alert.alert(
+            'Erreur commande',
+            `Impossible d'enregistrer votre commande :\n${dbErr.message}\n\nVotre panier a été conservé.`
+          );
+          return; // ← panier intact, on reste sur l'étape 3
+        }
       }
+      // ─────────────────────────────────────────────────────────────────────
     }
+
     if (step < 4) {
       setStep((step + 1) as Step);
     } else {
+      // Step 4 → "Retour à l'accueil" : vider le panier seulement ici
       clearCart();
       router.replace('/');
     }
@@ -998,8 +1045,17 @@ export default function CheckoutScreen() {
 
       {/* Bottom action bar */}
       <View style={[styles.actionBar, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: insets.bottom + 12 }]}>
-        <TouchableOpacity style={[styles.nextBtn, { backgroundColor: colors.primary }]} onPress={handleNext}>
-          {step === 3 ? (
+        <TouchableOpacity
+          style={[styles.nextBtn, { backgroundColor: colors.primary, opacity: submitting ? 0.7 : 1 }]}
+          onPress={handleNext}
+          disabled={submitting}
+        >
+          {submitting ? (
+            <>
+              <ActivityIndicator size="small" color="white" />
+              <Text style={styles.nextBtnText}>Enregistrement…</Text>
+            </>
+          ) : step === 3 ? (
             <>
               <Feather name={isMobileMoney ? 'upload' : paymentMethod === 'cash_on_delivery' ? 'package' : 'lock'} size={18} color="white" />
               <Text style={styles.nextBtnText}>{ctaLabel()}</Text>

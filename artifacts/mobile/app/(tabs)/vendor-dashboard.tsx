@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  ActivityIndicator, Alert, Dimensions, ScrollView,
-  StyleSheet, Text, TouchableOpacity, View, Switch,
+  ActivityIndicator, Alert, Dimensions, KeyboardAvoidingView, Modal,
+  Platform, ScrollView, StyleSheet, Text, TextInput,
+  TouchableOpacity, View, Switch,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -111,6 +112,63 @@ export default function VendorDashboardScreen() {
   // Loading states
   const [isImporting, setIsImporting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+
+  // ─── Add product modal ────────────────────────────────────────────────────
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [addForm, setAddForm] = useState({
+    name: '', category: 'Général',
+    pricePublic: '', priceWholesale: '', stock: '',
+  });
+
+  function openAddModal() {
+    setAddForm({ name: '', category: 'Général', pricePublic: '', priceWholesale: '', stock: '' });
+    setShowAddModal(true);
+  }
+
+  async function handleAddProduct() {
+    const name = addForm.name.trim();
+    if (!name) { Alert.alert('Erreur', 'Le nom du produit est requis.'); return; }
+    const pricePublic = parseFloat(addForm.pricePublic.replace(',', '.'));
+    if (isNaN(pricePublic) || pricePublic < 0) {
+      Alert.alert('Erreur', 'Prix public invalide.'); return;
+    }
+    const priceWholesale =
+      parseFloat(addForm.priceWholesale.replace(',', '.')) ||
+      Math.round(pricePublic * 0.8 * 100) / 100;
+    const stock = parseInt(addForm.stock, 10) || 0;
+
+    setIsSavingProduct(true);
+    if (isSupabaseConfigured && supabase && user) {
+      const { error } = await supabase.from('products').insert({
+        vendor_id:          user.id,
+        name_i18n:          { fr: name },
+        description_i18n:   { fr: '' },
+        price_public:       pricePublic,
+        price_wholesale:    priceWholesale,
+        min_order_quantity: 1,
+        stock_quantity:     stock,
+        category:           addForm.category || 'Général',
+        is_active:          true,
+      });
+      setIsSavingProduct(false);
+      if (error) { Alert.alert('Erreur Supabase', error.message); return; }
+      await fetchProducts();
+    } else {
+      // Demo mode — append to local state
+      setImportedProducts(prev => [...prev, {
+        id:            `add-${Date.now()}`,
+        name,
+        stock,
+        priceWholesale,
+        vendorId:      'v1',
+        _imported:     true,
+      }]);
+      setIsSavingProduct(false);
+    }
+    setShowAddModal(false);
+    setActiveTab('products');
+  }
 
   // ─── Fetch products from Supabase on mount ─────────────────────────────────
   const fetchProducts = useCallback(async () => {
@@ -543,7 +601,7 @@ export default function VendorDashboardScreen() {
             {/* Ajouter produit */}
             <TouchableOpacity
               style={[styles.actionCard, { backgroundColor: colors.accent, borderColor: colors.border }]}
-              onPress={() => setActiveTab('products')}
+              onPress={openAddModal}
             >
               <Feather name="plus-circle" size={22} color={colors.primary} />
               <Text style={[styles.actionLabel, { color: colors.foreground }]}>Ajouter produit</Text>
@@ -626,7 +684,10 @@ export default function VendorDashboardScreen() {
             <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
               Mes produits{displayedProducts.length > 0 ? ` (${displayedProducts.length})` : ''}
             </Text>
-            <TouchableOpacity style={[styles.addProductBtn, { backgroundColor: colors.primary }]}>
+            <TouchableOpacity
+              style={[styles.addProductBtn, { backgroundColor: colors.primary }]}
+              onPress={openAddModal}
+            >
               <Feather name="plus" size={16} color="white" />
               <Text style={styles.addProductText}>Ajouter</Text>
             </TouchableOpacity>
@@ -670,6 +731,64 @@ export default function VendorDashboardScreen() {
           ))}
         </View>
       )}
+      {/* ── Add product modal ─────────────────────────────────────────────── */}
+      <Modal
+        visible={showAddModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowAddModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {/* Header */}
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.foreground }]}>Nouveau produit</Text>
+              <TouchableOpacity onPress={() => setShowAddModal(false)}>
+                <Feather name="x" size={22} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Form */}
+            {[
+              { key: 'name',           label: 'Nom du produit *',      placeholder: 'Ex: Riz parfumé 25 kg',   keyboard: 'default'  as const },
+              { key: 'category',       label: 'Catégorie',             placeholder: 'Ex: Alimentation',         keyboard: 'default'  as const },
+              { key: 'pricePublic',    label: 'Prix public (FCFA) *',  placeholder: 'Ex: 12000',               keyboard: 'numeric'  as const },
+              { key: 'priceWholesale', label: 'Prix gros (FCFA)',      placeholder: 'Auto = 80 % du prix public', keyboard: 'numeric' as const },
+              { key: 'stock',          label: 'Stock (unités)',         placeholder: 'Ex: 100',                 keyboard: 'number-pad' as const },
+            ].map(f => (
+              <View key={f.key} style={styles.modalField}>
+                <Text style={[styles.modalLabel, { color: colors.foreground }]}>{f.label}</Text>
+                <TextInput
+                  style={[styles.modalInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                  placeholder={f.placeholder}
+                  placeholderTextColor={colors.mutedForeground}
+                  value={(addForm as any)[f.key]}
+                  onChangeText={v => setAddForm(prev => ({ ...prev, [f.key]: v }))}
+                  keyboardType={f.keyboard}
+                />
+              </View>
+            ))}
+
+            {/* Save button */}
+            <TouchableOpacity
+              style={[styles.modalSaveBtn, { backgroundColor: colors.primary, opacity: isSavingProduct ? 0.7 : 1 }]}
+              onPress={handleAddProduct}
+              disabled={isSavingProduct}
+            >
+              {isSavingProduct
+                ? <ActivityIndicator size="small" color="white" />
+                : <Feather name="check" size={18} color="white" />}
+              <Text style={styles.modalSaveTxt}>
+                {isSavingProduct ? 'Enregistrement…' : 'Enregistrer le produit'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
     </BardecLayout>
   );
 }
@@ -741,6 +860,17 @@ const styles = StyleSheet.create({
   productsHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   addProductBtn:   { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10 },
   addProductText:  { color: 'white', fontSize: 13, fontWeight: '700' },
+
+  // Add product modal
+  modalOverlay:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalCard:     { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, padding: 20, gap: 14 },
+  modalHeader:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  modalTitle:    { fontSize: 18, fontWeight: '800' },
+  modalField:    { gap: 5 },
+  modalLabel:    { fontSize: 13, fontWeight: '600' },
+  modalInput:    { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
+  modalSaveBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 14, marginTop: 4 },
+  modalSaveTxt:  { color: 'white', fontSize: 16, fontWeight: '700' },
   productRow:      { flexDirection: 'row', alignItems: 'center', borderRadius: 12, borderWidth: 1, padding: 12, gap: 12 },
   productIcon:     { width: 44, height: 44, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   productName:     { fontSize: 13, fontWeight: '600' },

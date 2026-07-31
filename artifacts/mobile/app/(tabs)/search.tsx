@@ -16,7 +16,8 @@ import { useLanguage } from '@/context/LanguageContext';
 import BardecLayout from '@/components/BardecLayout';
 import ProductCard from '@/components/ProductCard';
 import { SkeletonProductCard } from '@/components/SkeletonCard';
-import { CATEGORIES, MOCK_PRODUCTS, Product } from '@/constants/mockData';
+import { CATEGORIES } from '@/constants/mockData';
+import { useProducts } from '@/hooks/useProducts';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -41,13 +42,16 @@ export default function SearchScreen() {
   const [maxPrice, setMaxPrice] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
+  // ── Supabase products (falls back to MOCK_PRODUCTS in demo mode) ──────────
+  const { products, loading, refetch } = useProducts();
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await new Promise(r => setTimeout(r, 800));
+    await refetch();
     setRefreshing(false);
-  }, []);
+  }, [refetch]);
 
-  const filtered = MOCK_PRODUCTS.filter(p => {
+  const filtered = products.filter(p => {
     const matchQuery = !query || p.name.toLowerCase().includes(query.toLowerCase()) || p.description.toLowerCase().includes(query.toLowerCase()) || p.vendorName.toLowerCase().includes(query.toLowerCase());
     const matchCat = selectedCategory === 'all' || p.category === selectedCategory;
     const matchMin = !minPrice || p.pricePublic >= Number(minPrice);
@@ -155,16 +159,27 @@ export default function SearchScreen() {
       </View>
 
       <View style={styles.grid}>
-        {filtered.map(product => (
-          <View key={product.id} style={[styles.gridItem, { width: CARD_WIDTH }]}>
-            <ProductCard product={product} />
-          </View>
-        ))}
-        {filtered.length === 0 && (
+        {loading ? (
+          [1, 2, 3, 4].map(i => (
+            <View key={i} style={[styles.gridItem, { width: CARD_WIDTH }]}>
+              <SkeletonProductCard />
+            </View>
+          ))
+        ) : filtered.length === 0 ? (
           <View style={styles.empty}>
             <Feather name="search" size={40} color={colors.muted} />
-            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>Aucun produit trouvé</Text>
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+              {products.length === 0
+                ? 'Aucun produit disponible pour le moment'
+                : 'Aucun produit trouvé'}
+            </Text>
           </View>
+        ) : (
+          filtered.map(product => (
+            <View key={product.id} style={[styles.gridItem, { width: CARD_WIDTH }]}>
+              <ProductCard product={product} />
+            </View>
+          ))
         )}
       </View>
     </BardecLayout>
