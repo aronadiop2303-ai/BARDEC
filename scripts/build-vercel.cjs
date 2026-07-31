@@ -62,4 +62,16 @@ copyDir(DIST_DIR, OUT_DIR);
 
 const fileCount = execSync(`find "${OUT_DIR}" -type f | wc -l`).toString().trim();
 console.log(`✓ ${fileCount} fichiers copiés → vercel-dist/app/`);
+
+// ── 5. Copie public/ → vercel-dist/ (landing page à la racine) ──────────────
+const PUBLIC_DIR = path.resolve(ROOT, 'public');
+if (fs.existsSync(PUBLIC_DIR)) {
+  const VERCEL_ROOT = path.resolve(ROOT, 'vercel-dist');
+  copyDir(PUBLIC_DIR, VERCEL_ROOT);
+  const pubCount = execSync(`find "${PUBLIC_DIR}" -type f | wc -l`).toString().trim();
+  console.log(`✓ ${pubCount} fichier(s) copiés → vercel-dist/ (landing page)`);
+} else {
+  console.warn('⚠️  Dossier public/ introuvable — landing page non incluse');
+}
+
 console.log('\n🎉 Build Vercel terminé. Dossier de sortie : vercel-dist/');
