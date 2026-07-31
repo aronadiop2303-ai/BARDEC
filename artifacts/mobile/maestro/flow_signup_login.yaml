@@ -8,7 +8,6 @@ tags:
   - auth
   - supabase
 
-# Variables injectées au lancement : maestro test --env EMAIL=maestro-test-...
 env:
   EMAIL: "maestro-test-20260731@example.com"
   PASSWORD: "MaestroTest2026!"
@@ -47,21 +46,29 @@ env:
 - tapOn: "Créer un Compte"
 
 # ── Vérifier l'arrivée sur l'accueil authentifié ────────────────
-# Soit redirection directe, soit confirmation → aller à connexion
+# Supabase peut afficher "Aller à la connexion" si confirmation email requise
+# Dans ce cas on retourne à la connexion manuellement
 - runFlow:
     when:
       visible: "Aller à la connexion"
-    file: ./_helpers/goto_login_after_register.yaml
+    commands:
+      - tapOn: "Aller à la connexion"
+      - tapOn:
+          text: "E-mail"
+      - inputText: ${EMAIL}
+      - tapOn:
+          text: "Mot de passe"
+      - inputText: ${PASSWORD}
+      - tapOn: "Connexion"
 
-# L'accueil doit afficher le tab "Accueil" ou "Produits Tendances"
-- assertVisible:
-    text: "Accueil"
-    enabled: true
+# L'accueil doit afficher "Accueil" ou "Produits Tendances"
+- assertVisible: "Accueil"
 
 # ── Déconnexion ─────────────────────────────────────────────────
 - tapOn: "Profil"
 - scrollUntilVisible:
-    text: "Déconnexion"
+    element:
+      text: "Déconnexion"
     direction: DOWN
 - tapOn: "Déconnexion"
 
@@ -80,7 +87,5 @@ env:
 - tapOn: "Connexion"
 
 # Vérifier le succès de la reconnexion
-- assertVisible:
-    text: "Accueil"
-    enabled: true
+- assertVisible: "Accueil"
 - assertNotVisible: "Connexion"

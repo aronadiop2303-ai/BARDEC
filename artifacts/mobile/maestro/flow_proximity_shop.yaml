@@ -1,6 +1,7 @@
 appId: com.bardec.app
 # ─────────────────────────────────────────────────────────────────
 # FLOW 6 — Onglet "Près de moi" : carte + création de boutique
+# Formulaire 4 étapes : Informations → Position → Horaires → Photos
 # ─────────────────────────────────────────────────────────────────
 name: "BARDEC · Boutique de Proximité"
 tags:
@@ -25,27 +26,28 @@ env:
 # Géolocalisation : accorder la permission (dialog système Android)
 - runFlow:
     when:
-      visible: "Allow"
+      visible: "While using the app"
     commands:
       - tapOn: "While using the app"
 
-# Sinon le fallback Dakar GPS est utilisé automatiquement
-# Vérifier que la carte (ou liste) se charge
-- assertNotVisible: "Chargement..."
+# Si permission refusée, utiliser le bouton de la page
 - runFlow:
     when:
-      visible: "Géolocalisation requise"
+      visible: "Autoriser la géolocalisation"
     commands:
       - tapOn: "Autoriser la géolocalisation"
 
-# La carte ou la liste doit être visible (au moins le titre)
+# Attendre que la carte/liste charge (fallback GPS Dakar automatique)
+- assertNotVisible: "Chargement..."
+
+# Le titre "Près de moi" doit rester visible
 - assertVisible: "Près de moi"
 
 # ── Ouvrir le formulaire de création de boutique ─────────────────
 - tapOn: "Ouvrir ma boutique"
 
-# Formulaire register-shop.tsx
-- assertVisible: "Nom de la boutique"
+# ── Étape 1 : Informations ───────────────────────────────────────
+- assertVisible: "Informations"
 - tapOn: "Nom du commerce *"
 - inputText: ${SHOP_NAME}
 
@@ -63,18 +65,20 @@ env:
 - tapOn: "Adresse (texte)"
 - inputText: ${SHOP_ADDRESS}
 
-# Étape 1 → Étape 2 (Position)
 - tapOn: "Suivant"
 
-# Étape 2 : Position (GPS auto-rempli) → Étape 3
+# ── Étape 2 : Position (GPS auto-rempli) ────────────────────────
+- assertVisible: "Position"
 - tapOn: "Suivant"
 
-# Étape 3 : Horaires (optionnel) → Étape 4
+# ── Étape 3 : Horaires (optionnel) ──────────────────────────────
+- assertVisible: "Horaires"
 - tapOn: "Suivant"
 
-# Étape 4 : Photos (optionnel) → Soumettre
+# ── Étape 4 : Photos (optionnel) → Soumettre ────────────────────
+- assertVisible: "Photos"
 - tapOn: "Créer ma boutique"
 
 # Vérifier la confirmation
 - assertVisible:
-    textRegex: "(Boutique créée|Succès|MAESTRO TEST)"
+    text: "MAESTRO TEST"

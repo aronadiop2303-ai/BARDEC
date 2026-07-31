@@ -1,51 +1,45 @@
 appId: com.bardec.app
 # ─────────────────────────────────────────────────────────────────
 # FLOW 2 — Navigation accueil → recherche → fiche produit → panier
+# Produits : MOCK_PRODUCTS (noms en anglais, filtrés localement)
 # ─────────────────────────────────────────────────────────────────
 name: "BARDEC · Parcourir & Panier"
 tags:
   - catalog
   - cart
+  - local-mock
 
 env:
-  SEARCH_QUERY: "riz"
+  SEARCH_QUERY: "Coffee"    # correspond à "Arabica Green Coffee Beans" dans MOCK_PRODUCTS
 
 ---
 
 - launchApp:
-    clearState: false   # conserver la session
+    clearState: false
 
 # ── Vérifier que l'accueil se charge ────────────────────────────
 - assertVisible: "Accueil"
 - assertVisible: "Produits Tendances"
 
-# ── Recherche d'un produit ──────────────────────────────────────
+# ── Aller sur l'onglet Recherche et taper la requête ────────────
+- tapOn: "Recherche"
 - tapOn:
     text: "Rechercher produits, vendeurs..."
 - inputText: ${SEARCH_QUERY}
-- pressKey: Enter
 
-# L'onglet Recherche doit lister des résultats (MOCK_PRODUCTS)
+# L'onglet Recherche doit lister des résultats (MOCK_PRODUCTS filtrés)
 - assertVisible: "Recherche"
 
-# Ouvrir le premier résultat (taper sur la première carte visible)
-- tapOn:
-    index: 0
-    text: "Ajouter au Panier"   # bouton sur chaque carte produit
+# Taper sur le premier bouton "Ajouter au Panier" visible
+- tapOn: "Ajouter au Panier"
 
-# Si un bottom-sheet de détail s'affiche d'abord, trouver le bouton là
-- runFlow:
-    when:
-      visible: "Description"
-    file: ./_helpers/add_from_product_detail.yaml
-
-# ── Vérifier le badge du panier ─────────────────────────────────
-# Le badge sur l'onglet Panier doit afficher "1"
-- assertVisible:
-    id: "cart-badge"        # testID absent → test dégradé par texte
+# ── Aller sur l'onglet Panier ────────────────────────────────────
 - tapOn: "Panier"
 
 # ── Vérifier que le produit est dans le panier ──────────────────
 - assertVisible: "Sous-total"
 - assertVisible: "Commander"
 - assertNotVisible: "Panier vide"
+
+# Le total articles doit être > 0 — vérifier l'affichage du total
+- assertVisible: "Total"
