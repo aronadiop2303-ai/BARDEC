@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useMyProximityShop } from '@/hooks/useMyProximityShop';
@@ -113,6 +114,51 @@ async function fetchShopOrders(shopId: string): Promise<ProximityOrder[]> {
 export function useProximityOrders() {
   const { shop } = useMyProximityShop();
   const shopId = shop?.id ?? null;
+  const shopName = shop?.name ?? 'votre boutique';
+  const qc = useQueryClient();
+
+  // ── Supabase Realtime subscription ─────────────────────────────────────────
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase || !shopId) return;
+
+    // Request notification permission once when the subscription starts
+    requestNotificationPermission().catch(() => {/* ignore */});
+
+    const channel = supabase
+      .channel(`proximity_orders:shop:${shopId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'proximity_orders',
+          filter: `proximity_shop_id=eq.${shopId}`,
+        },
+        (payload) => {
+          const newOrder = payload.new as ProximityOrder;
+
+          // Prepend the new order into the cache immediately
+          qc.setQueryData<ProximityOrder[]>(
+            ['proximity_orders', shopId],
+            (prev) => [newOrder, ...(prev ?? [])],
+          );
+
+          // Fire a local push notification to alert the vendor
+          scheduleLocalNotification(
+            '🛒 Nouvelle commande !',
+            `Un client vient de passer une commande chez ${shopName}.`,
+            { type: 'new_proximity_order', orderId: newOrder.id },
+            1,
+          ).catch(() => {/* ignore notification failures */});
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase!.removeChannel(channel);
+    };
+  }, [shopId, shopName, qc]);
+  // ───────────────────────────────────────────────────────────────────────────
 
   return useQuery({
     queryKey: ['proximity_orders', shopId],
