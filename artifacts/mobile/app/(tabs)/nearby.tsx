@@ -191,6 +191,14 @@ function NearbyScreenInner() {
           )}
         </View>
         <View style={styles.headerRight}>
+          {/* My orders */}
+          <TouchableOpacity
+            style={[styles.myShopBtn, { backgroundColor: GREEN + '18', borderColor: GREEN + '40' }]}
+            onPress={() => router.push('/proximity/my-orders' as any)}
+          >
+            <Feather name="shopping-bag" size={14} color={GREEN} />
+            <Text style={[styles.myShopBtnText, { color: GREEN }]}>Commandes</Text>
+          </TouchableOpacity>
           {/* My shop */}
           <TouchableOpacity
             style={[styles.myShopBtn, { backgroundColor: GREEN + '18', borderColor: GREEN + '40' }]}

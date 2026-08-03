@@ -18,6 +18,7 @@ import { AuthProvider } from '@/context/AuthContext';
 import { LanguageProvider } from '@/context/LanguageContext';
 import { CartProvider } from '@/context/CartContext';
 import { ProximityCartProvider } from '@/context/ProximityCartContext';
+import CustomerOrdersNotifier from '@/components/CustomerOrdersNotifier';
 
 // On web, expo-splash-screen creates a white overlay that never reliably clears.
 // Only use it on native where it controls the OS-level splash screen.
@@ -80,6 +81,9 @@ export default function RootLayout() {
                 <AuthProvider>
                   <CartProvider>
                     <ProximityCartProvider>
+                      {/* Keeps a Realtime channel open for customer order status
+                          changes and fires local notifications app-wide */}
+                      <CustomerOrdersNotifier />
                       <RootLayoutNav />
                     </ProximityCartProvider>
                   </CartProvider>

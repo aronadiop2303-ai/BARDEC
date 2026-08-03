@@ -332,3 +332,24 @@ $$;
 
 -- 9. Bucket Storage (à créer manuellement dans Storage > New bucket)
 -- Nom: proximity-shop-photos | Public: true
+
+-- 10. Realtime publication
+-- Allow customers to receive live UPDATE events on their own orders via the
+-- Supabase Realtime channel opened in useCustomerOrdersRealtime().
+-- RLS ensures each subscriber only sees rows they are authorised to SELECT.
+-- The DO block is idempotent: it skips silently if the table is already a
+-- member of the publication (avoids "relation already exists in publication"
+-- on repeated migration runs).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM   pg_publication_tables
+    WHERE  pubname   = 'supabase_realtime'
+      AND  schemaname = 'public'
+      AND  tablename  = 'proximity_orders'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE proximity_orders;
+  END IF;
+END;
+$$;
