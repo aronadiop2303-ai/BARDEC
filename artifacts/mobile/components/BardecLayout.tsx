@@ -23,6 +23,8 @@ interface BardecLayoutProps {
   refreshing?: boolean;
   showFooter?: boolean;
   backgroundColor?: string;
+  /** Extra element(s) rendered in the header row, immediately before the profile avatar. */
+  headerActions?: React.ReactNode;
 }
 
 export default function BardecLayout({
@@ -32,6 +34,7 @@ export default function BardecLayout({
   refreshing = false,
   showFooter = true,
   backgroundColor,
+  headerActions,
 }: BardecLayoutProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -80,15 +83,18 @@ export default function BardecLayout({
       >
         <Text style={styles.bardecBadgeText}>BARDEC ∞</Text>
       </TouchableOpacity>
-      <TouchableOpacity
-        onPress={() => router.push('/(tabs)/profile')}
-        activeOpacity={0.8}
-        style={styles.avatarWrapper}
-      >
-        <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
-          <Text style={styles.avatarText}>{initials}</Text>
-        </View>
-      </TouchableOpacity>
+      <View style={styles.headerRight}>
+        {headerActions ?? null}
+        <TouchableOpacity
+          onPress={() => router.push('/(tabs)/profile')}
+          activeOpacity={0.8}
+          style={styles.avatarWrapper}
+        >
+          <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
+            <Text style={styles.avatarText}>{initials}</Text>
+          </View>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -184,6 +190,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     letterSpacing: 0.5,
   },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   avatarWrapper: {},
   avatar: {
     width: 38,
