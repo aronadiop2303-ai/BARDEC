@@ -1,11 +1,12 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  ActivityIndicator, Alert, Dimensions, KeyboardAvoidingView, Modal,
+  ActivityIndicator, Alert, Dimensions, Image, KeyboardAvoidingView, Modal,
   Platform, ScrollView, StyleSheet, Text, TextInput,
   TouchableOpacity, View, Switch,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { Feather } from '@/components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -113,6 +114,29 @@ export default function VendorDashboardScreen() {
   const [isImporting, setIsImporting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
+  // ─── Vendor orders (real Supabase data) ────────────────────────────────────
+  const [vendorOrders,   setVendorOrders]   = useState<any[]>([]);
+  const [ordersLoading,  setOrdersLoading]  = useState(false);
+
+  // ─── Order status update modal ─────────────────────────────────────────────
+  const [statusOrder,     setStatusOrder]     = useState<any | null>(null);
+  const [newStatus,       setNewStatus]       = useState('');
+  const [trackingNumber,  setTrackingNumber]  = useState('');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+
+  // ─── Product images for add-product modal ──────────────────────────────────
+  const [pendingImages,      setPendingImages]      = useState<string[]>([]);
+  const [isUploadingImages,  setIsUploadingImages]  = useState(false);
+
+  const ORDER_STATUSES = [
+    { value: 'pending',          label: 'En attente' },
+    { value: 'approved',         label: 'Approuvé' },
+    { value: 'shipped',          label: 'Expédié' },
+    { value: 'out_for_delivery', label: 'En livraison' },
+    { value: 'completed',        label: 'Livré' },
+    { value: 'cancelled',        label: 'Annulé' },
+  ];
+
   // ─── Add product modal ────────────────────────────────────────────────────
   const [showAddModal, setShowAddModal] = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
@@ -140,6 +164,27 @@ export default function VendorDashboardScreen() {
 
     setIsSavingProduct(true);
     if (isSupabaseConfigured && supabase && user) {
+      // Upload product images first
+      const imageUrls: string[] = [];
+      if (pendingImages.length > 0) {
+        setIsUploadingImages(true);
+        for (const uri of pendingImages) {
+          try {
+            const filename = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+            const response = await fetch(uri);
+            const blob     = await response.blob();
+            const { data: upData, error: upErr } = await supabase.storage
+              .from('products')
+              .upload(filename, blob, { contentType: 'image/jpeg', upsert: true });
+            if (!upErr && upData) {
+              const { data: { publicUrl } } = supabase.storage.from('products').getPublicUrl(upData.path);
+              imageUrls.push(publicUrl);
+            }
+          } catch { /* skip failed image */ }
+        }
+        setIsUploadingImages(false);
+      }
+
       const { error } = await supabase.from('products').insert({
         vendor_id:          user.id,
         name_i18n:          { fr: name },
@@ -149,10 +194,12 @@ export default function VendorDashboardScreen() {
         min_order_quantity: 1,
         stock_quantity:     stock,
         category:           addForm.category || 'Général',
+        images:             imageUrls,
         is_active:          true,
       });
       setIsSavingProduct(false);
       if (error) { Alert.alert('Erreur Supabase', error.message); return; }
+      setPendingImages([]);
       await fetchProducts();
     } else {
       // Demo mode — append to local state
@@ -170,7 +217,7 @@ export default function VendorDashboardScreen() {
     setActiveTab('products');
   }
 
-  // ─── Fetch products from Supabase on mount ─────────────────────────────────
+  // ─── Fetch products from Supabase ─────────────────────────────────────────
   const fetchProducts = useCallback(async () => {
     if (!isSupabaseConfigured || !supabase || !user) return;
     const { data, error } = await supabase
@@ -191,14 +238,82 @@ export default function VendorDashboardScreen() {
     );
   }, [user]);
 
+  // ─── Fetch vendor orders from Supabase ─────────────────────────────────────
+  const fetchVendorOrders = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase || !user) return;
+    setOrdersLoading(true);
+    // Get this vendor's product IDs
+    const { data: prods } = await supabase
+      .from('products')
+      .select('id')
+      .eq('vendor_id', user.id);
+    const productIds = (prods ?? []).map((p: any) => p.id);
+    if (productIds.length === 0) { setOrdersLoading(false); return; }
+
+    // Fetch recent orders and filter by those containing vendor's products
+    const { data: orders } = await supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    const filtered = (orders ?? []).filter((o: any) => {
+      const items = Array.isArray(o.items) ? o.items : [];
+      return items.some((item: any) => productIds.includes(item.product_id));
+    });
+    setVendorOrders(filtered);
+    setOrdersLoading(false);
+  }, [user]);
+
+  // ─── Update order status ───────────────────────────────────────────────────
+  async function handleUpdateOrderStatus() {
+    if (!statusOrder || !newStatus) return;
+    setIsUpdatingStatus(true);
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: newStatus, tracking_number: trackingNumber || null })
+        .eq('id', statusOrder.id);
+      setIsUpdatingStatus(false);
+      if (error) { Alert.alert('Erreur', error.message); return; }
+      setVendorOrders(prev =>
+        prev.map(o => o.id === statusOrder.id
+          ? { ...o, status: newStatus, tracking_number: trackingNumber || o.tracking_number }
+          : o
+        )
+      );
+    } else {
+      setIsUpdatingStatus(false);
+    }
+    setStatusOrder(null);
+    setNewStatus('');
+    setTrackingNumber('');
+  }
+
+  // ─── Pick product images ───────────────────────────────────────────────────
+  async function handlePickProductImages() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission refusée', 'L\'accès à la galerie est nécessaire.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      quality: 0.7,
+    });
+    if (result.canceled) return;
+    setPendingImages(prev => [...prev, ...result.assets.map(a => a.uri)]);
+  }
+
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
+  useEffect(() => { fetchVendorOrders(); }, [fetchVendorOrders]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchProducts();
-    await new Promise(r => setTimeout(r, 600));
+    await Promise.all([fetchProducts(), fetchVendorOrders()]);
+    await new Promise(r => setTimeout(r, 300));
     setRefreshing(false);
-  }, [fetchProducts]);
+  }, [fetchProducts, fetchVendorOrders]);
 
   // ─── Build the displayed products list ────────────────────────────────────
   const _vendorProds = MOCK_PRODUCTS.filter(p => p.vendorId === 'v1');
@@ -231,7 +346,8 @@ export default function VendorDashboardScreen() {
     { icon: 'star',        label: t('rating'),         value: VENDOR_STATS.avgRating.toFixed(1),                  color: '#F59E0B' },
   ];
 
-  const recentOrders = MOCK_ORDERS.slice(0, 4);
+  // Use real Supabase orders when available, fall back to mock for demo
+  const recentOrders = vendorOrders.length > 0 ? vendorOrders : MOCK_ORDERS.slice(0, 4);
 
   // ─── IMPORT CSV ───────────────────────────────────────────────────────────
   const handleImportCSV = async () => {
@@ -651,26 +767,44 @@ export default function VendorDashboardScreen() {
       {activeTab === 'orders' && (
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Commandes récentes</Text>
-          {recentOrders.map(order => (
-            <View key={order.id} style={[styles.orderRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.orderNum,  { color: colors.foreground }]}>{order.orderNumber}</Text>
-                <Text style={[styles.orderDate, { color: colors.mutedForeground }]}>{order.date}</Text>
-              </View>
-              <View style={styles.orderMeta}>
-                <Text style={[styles.orderTotal, { color: colors.primary }]}>${order.total.toLocaleString()}</Text>
-                <View style={[styles.statusDot, {
-                  backgroundColor:
-                    order.status === 'completed' ? '#22C55E' :
-                    order.status === 'shipped'   ? '#0EA5E9' : '#F59E0B',
-                }]} />
-              </View>
-              <TouchableOpacity style={[styles.orderAction, { borderColor: colors.border }]}>
-                <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
-              </TouchableOpacity>
+          {ordersLoading ? (
+            <ActivityIndicator style={{ marginVertical: 20 }} color={colors.primary} />
+          ) : recentOrders.length === 0 ? (
+            <View style={{ alignItems: 'center', paddingVertical: 32, gap: 8 }}>
+              <Feather name="inbox" size={36} color={colors.muted} />
+              <Text style={{ color: colors.mutedForeground }}>Aucune commande reçue</Text>
             </View>
-          ))}
-          <TouchableOpacity style={[styles.viewAllBtn, { borderColor: colors.border }]}>
+          ) : recentOrders.map(order => {
+            const orderNum  = order.orderNumber ?? order.order_number ?? order.id;
+            const orderDate = order.date
+              ?? (order.created_at ? new Date(order.created_at).toLocaleDateString('fr-FR') : '—');
+            const orderTotal = order.total ?? 0;
+            const orderStatus = order.status ?? 'pending';
+            const statusColor =
+              orderStatus === 'completed' ? '#22C55E' :
+              orderStatus === 'shipped'   ? '#0EA5E9' :
+              orderStatus === 'cancelled' ? '#EF4444' : '#F59E0B';
+            return (
+              <View key={order.id} style={[styles.orderRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.orderNum,  { color: colors.foreground }]}>{orderNum}</Text>
+                  <Text style={[styles.orderDate, { color: colors.mutedForeground }]}>{orderDate}</Text>
+                </View>
+                <View style={styles.orderMeta}>
+                  <Text style={[styles.orderTotal, { color: colors.primary }]}>{orderTotal.toLocaleString()} FCFA</Text>
+                  <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+                </View>
+                {/* Vendor action: update status */}
+                <TouchableOpacity
+                  style={[styles.orderAction, { borderColor: colors.primary }]}
+                  onPress={() => { setStatusOrder(order); setNewStatus(orderStatus); setTrackingNumber(order.tracking_number ?? ''); }}
+                >
+                  <Feather name="edit-2" size={14} color={colors.primary} />
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+          <TouchableOpacity style={[styles.viewAllBtn, { borderColor: colors.border }]} onPress={() => router.push('/(tabs)/orders' as any)}>
             <Text style={[styles.viewAllText, { color: colors.primary }]}>Voir toutes les commandes</Text>
             <Feather name="arrow-right" size={16} color={colors.primary} />
           </TouchableOpacity>
@@ -772,17 +906,118 @@ export default function VendorDashboardScreen() {
               </View>
             ))}
 
+            {/* Product images picker */}
+            <View style={styles.modalField}>
+              <Text style={[styles.modalLabel, { color: colors.foreground }]}>Photos du produit</Text>
+              <TouchableOpacity
+                style={[styles.imagePicker, { backgroundColor: colors.background, borderColor: colors.border }]}
+                onPress={handlePickProductImages}
+              >
+                <Feather name="camera" size={18} color={colors.primary} />
+                <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 14 }}>
+                  {pendingImages.length > 0 ? `${pendingImages.length} photo(s) sélectionnée(s)` : 'Ajouter des photos'}
+                </Text>
+              </TouchableOpacity>
+              {pendingImages.length > 0 && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                  {pendingImages.map((uri, idx) => (
+                    <View key={idx} style={{ position: 'relative' }}>
+                      <Image source={{ uri }} style={{ width: 56, height: 56, borderRadius: 8 }} />
+                      <TouchableOpacity
+                        style={{ position: 'absolute', top: -4, right: -4, backgroundColor: '#EF4444', borderRadius: 8, width: 16, height: 16, justifyContent: 'center', alignItems: 'center' }}
+                        onPress={() => setPendingImages(prev => prev.filter((_, i) => i !== idx))}
+                      >
+                        <Feather name="x" size={10} color="white" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
             {/* Save button */}
             <TouchableOpacity
-              style={[styles.modalSaveBtn, { backgroundColor: colors.primary, opacity: isSavingProduct ? 0.7 : 1 }]}
+              style={[styles.modalSaveBtn, { backgroundColor: colors.primary, opacity: (isSavingProduct || isUploadingImages) ? 0.7 : 1 }]}
               onPress={handleAddProduct}
-              disabled={isSavingProduct}
+              disabled={isSavingProduct || isUploadingImages}
             >
-              {isSavingProduct
+              {(isSavingProduct || isUploadingImages)
                 ? <ActivityIndicator size="small" color="white" />
                 : <Feather name="check" size={18} color="white" />}
               <Text style={styles.modalSaveTxt}>
-                {isSavingProduct ? 'Enregistrement…' : 'Enregistrer le produit'}
+                {isUploadingImages ? 'Upload photos…' : isSavingProduct ? 'Enregistrement…' : 'Enregistrer le produit'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Order status update modal ───────────────────────────────────────── */}
+      <Modal
+        visible={!!statusOrder}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setStatusOrder(null)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.foreground }]}>Mettre à jour le statut</Text>
+              <TouchableOpacity onPress={() => setStatusOrder(null)}>
+                <Feather name="x" size={22} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.modalLabel, { color: colors.foreground }]}>Commande</Text>
+            <Text style={[styles.orderNum, { color: colors.primary, marginBottom: 12 }]}>
+              {statusOrder?.orderNumber ?? statusOrder?.order_number ?? statusOrder?.id}
+            </Text>
+
+            <Text style={[styles.modalLabel, { color: colors.foreground }]}>Nouveau statut</Text>
+            <View style={{ gap: 8, marginBottom: 12 }}>
+              {ORDER_STATUSES.map(s => (
+                <TouchableOpacity
+                  key={s.value}
+                  style={[
+                    styles.statusChoice,
+                    {
+                      backgroundColor: newStatus === s.value ? colors.primary + '20' : colors.background,
+                      borderColor:     newStatus === s.value ? colors.primary : colors.border,
+                    },
+                  ]}
+                  onPress={() => setNewStatus(s.value)}
+                >
+                  <View style={[
+                    styles.statusChoiceRadio,
+                    { borderColor: colors.primary, backgroundColor: newStatus === s.value ? colors.primary : 'transparent' }
+                  ]} />
+                  <Text style={[{ color: colors.foreground, fontWeight: '600', fontSize: 14 }]}>{s.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={[styles.modalLabel, { color: colors.foreground }]}>Numéro de suivi (optionnel)</Text>
+            <TextInput
+              style={[styles.modalInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+              placeholder="Ex: DHL123456789"
+              placeholderTextColor={colors.mutedForeground}
+              value={trackingNumber}
+              onChangeText={setTrackingNumber}
+            />
+
+            <TouchableOpacity
+              style={[styles.modalSaveBtn, { backgroundColor: colors.primary, opacity: isUpdatingStatus ? 0.7 : 1 }]}
+              onPress={handleUpdateOrderStatus}
+              disabled={isUpdatingStatus || !newStatus}
+            >
+              {isUpdatingStatus
+                ? <ActivityIndicator size="small" color="white" />
+                : <Feather name="check" size={18} color="white" />}
+              <Text style={styles.modalSaveTxt}>
+                {isUpdatingStatus ? 'Mise à jour…' : 'Confirmer'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -860,6 +1095,18 @@ const styles = StyleSheet.create({
   productsHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   addProductBtn:   { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10 },
   addProductText:  { color: 'white', fontSize: 13, fontWeight: '700' },
+  imagePicker: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderWidth: 1, borderStyle: 'dashed', borderRadius: 12,
+    padding: 14,
+  },
+  statusChoice: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+  },
+  statusChoiceRadio: {
+    width: 18, height: 18, borderRadius: 9, borderWidth: 2,
+  },
 
   // Add product modal
   modalOverlay:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },

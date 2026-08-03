@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Alert, Dimensions, Image, ScrollView, StyleSheet, Text,
   TextInput, TouchableOpacity, View,
@@ -11,6 +11,8 @@ import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { MOCK_PRODUCTS } from '@/constants/mockData';
+import { useProducts } from '@/hooks/useProducts';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import BardecLayout from '@/components/BardecLayout';
 import ProductCard from '@/components/ProductCard';
 
@@ -43,16 +45,43 @@ export default function ProductDetailScreen() {
   const { addItem } = useCart();
   const insets = useSafeAreaInsets();
 
-  const product = MOCK_PRODUCTS.find(p => p.id === id) ?? MOCK_PRODUCTS[0];
+  const { products } = useProducts();
+  // Prefer Supabase data; fall back to MOCK_PRODUCTS for demo IDs
+  const product = products.find(p => p.id === id) ?? MOCK_PRODUCTS.find(p => p.id === id) ?? MOCK_PRODUCTS[0];
   const [activeImage, setActiveImage] = useState(0);
   const [activeTab, setActiveTab] = useState<ProductTab>('description');
-  const [quantity, setQuantity] = useState(product.minQuantity);
+  const [quantity, setQuantity] = useState(product?.minQuantity ?? 1);
   const [wishlist, setWishlist] = useState(false);
+
+  // ── Real reviews from Supabase ──────────────────────────────────────────────
+  const [reviews, setReviews] = useState(MOCK_REVIEWS);
+  const fetchReviews = useCallback(async () => {
+    if (!id || !isSupabaseConfigured || !supabase) return;
+    const { data } = await supabase
+      .from('reviews')
+      .select('id, rating, comment, verified_purchase, created_at, users(display_name)')
+      .eq('product_id', id)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (data && data.length > 0) {
+      setReviews(data.map((r: any) => ({
+        id:       r.id,
+        user:     r.users?.display_name ?? 'Client',
+        rating:   r.rating ?? 5,
+        comment:  r.comment ?? '',
+        date:     r.created_at ? new Date(r.created_at).toLocaleDateString('fr-FR') : '',
+        verified: r.verified_purchase ?? false,
+      })));
+    }
+  }, [id]);
+  useEffect(() => { fetchReviews(); }, [fetchReviews]);
 
   const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
   const displayPrice = isB2B ? product.priceWholesale : product.pricePublic;
   const savings = isB2B ? ((product.pricePublic - product.priceWholesale) / product.pricePublic * 100).toFixed(0) : null;
-  const similar = MOCK_PRODUCTS.filter(p => p.category === product.category && p.id !== product.id).slice(0, 4);
+  const similar = (products.length > 0 ? products : MOCK_PRODUCTS)
+    .filter(p => p.category === product.category && p.id !== product.id)
+    .slice(0, 4);
   const specs = PRODUCT_SPECS[product.id] ?? {};
 
   function handleAddToCart() {
@@ -253,7 +282,7 @@ export default function ProductDetailScreen() {
 
           {activeTab === 'reviews' && (
             <View style={styles.reviewsList}>
-              {MOCK_REVIEWS.map(rev => (
+              {reviews.map(rev => (
                 <View key={rev.id} style={[styles.reviewCard, { borderBottomColor: colors.border }]}>
                   <View style={styles.reviewHeader}>
                     <View style={[styles.reviewAvatar, { backgroundColor: colors.primary }]}>

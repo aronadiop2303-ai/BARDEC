@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator, Alert, Image, ScrollView,
+  StyleSheet, Switch, Text, TouchableOpacity, View,
+} from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
@@ -9,13 +13,53 @@ import { LANGUAGES } from '@/constants/languages';
 import { DEMO_USERS, UserRole } from '@/constants/mockData';
 import RoleBadge from '@/components/RoleBadge';
 import BardecLayout from '@/components/BardecLayout';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 export default function ProfileScreen() {
   const colors = useColors();
   const { t, language } = useLanguage();
-  const { user, logout, switchDemoRole, isDemoMode } = useAuth();
+  const { user, logout, switchDemoRole, isDemoMode, updateUserAvatar } = useAuth();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricEnabled,     setBiometricEnabled]     = useState(false);
+  const [isUploadingAvatar,    setIsUploadingAvatar]    = useState(false);
+
+  async function handleChangeAvatar() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission refusée', 'L\'accès à la galerie est nécessaire pour changer votre photo.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const uri = result.assets[0].uri;
+    setIsUploadingAvatar(true);
+    try {
+      if (isSupabaseConfigured && supabase && user) {
+        const filename = `${user.id}/avatar.jpg`;
+        const response = await fetch(uri);
+        const blob     = await response.blob();
+        const { data, error: upErr } = await supabase.storage
+          .from('avatars')
+          .upload(filename, blob, { contentType: 'image/jpeg', upsert: true });
+        if (upErr) throw upErr;
+        const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(data.path);
+        await updateUserAvatar(publicUrl);
+      } else {
+        // Demo mode: use local URI directly
+        await updateUserAvatar(uri);
+      }
+    } catch {
+      Alert.alert('Erreur', 'Impossible de changer la photo. Réessaie dans un instant.');
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  }
 
   const currentLang = LANGUAGES.find(l => l.code === language);
   const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
@@ -35,9 +79,21 @@ export default function ProfileScreen() {
     <BardecLayout>
       {/* Profile hero */}
       <View style={[styles.hero, { backgroundColor: colors.primary }]}>
-        <View style={styles.avatarLarge}>
-          <Text style={styles.avatarText}>{initials}</Text>
-        </View>
+        {/* Tappable avatar with camera-edit overlay */}
+        <TouchableOpacity onPress={handleChangeAvatar} style={styles.avatarLargeWrapper} activeOpacity={0.8}>
+          {user?.avatar ? (
+            <Image source={{ uri: user.avatar }} style={styles.avatarLarge} resizeMode="cover" />
+          ) : (
+            <View style={[styles.avatarLarge, styles.avatarInitials]}>
+              <Text style={styles.avatarText}>{initials}</Text>
+            </View>
+          )}
+          <View style={styles.avatarEditBadge}>
+            {isUploadingAvatar
+              ? <ActivityIndicator size="small" color="white" />
+              : <Feather name="camera" size={13} color="white" />}
+          </View>
+        </TouchableOpacity>
         <Text style={styles.userName}>{user?.name ?? 'Utilisateur'}</Text>
         <Text style={styles.userEmail}>{user?.email}</Text>
         {user?.role && <RoleBadge role={user.role} />}
@@ -220,14 +276,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 8,
   },
+  avatarLargeWrapper: { position: 'relative', marginBottom: 4 },
   avatarLarge: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 80, height: 80, borderRadius: 40,
+    overflow: 'hidden',
+  },
+  avatarInitials: {
     backgroundColor: 'rgba(255,255,255,0.25)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
+  },
+  avatarEditBadge: {
+    position: 'absolute', bottom: 0, right: 0,
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1.5, borderColor: 'white',
   },
   avatarText: { color: 'white', fontSize: 28, fontWeight: '800' },
   userName: { color: 'white', fontSize: 20, fontWeight: '700' },

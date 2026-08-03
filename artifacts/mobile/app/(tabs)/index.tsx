@@ -19,8 +19,6 @@ import ProductCard from '@/components/ProductCard';
 import { SkeletonProductCard } from '@/components/SkeletonCard';
 import { CATEGORIES } from '@/constants/mockData';
 import { useProducts } from '@/hooks/useProducts';
-import { OmniButton } from '@/components/OmniButton';
-import { OmniChatModal } from '@/components/OmniChatModal';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -32,7 +30,6 @@ export default function HomeScreen() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [omniVisible, setOmniVisible] = useState(false);
 
   const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
   const isVendor = user?.role === 'VENDOR';
@@ -91,12 +88,7 @@ export default function HomeScreen() {
   if (isVendor || isAdmin) return null;
 
   return (
-    <>
-    <BardecLayout
-      onRefresh={onRefresh}
-      refreshing={refreshing}
-      headerActions={<OmniButton onPress={() => setOmniVisible(true)} />}
-    >
+    <BardecLayout onRefresh={onRefresh} refreshing={refreshing}>
       {/* Search bar */}
       <View style={[styles.searchContainer, { backgroundColor: colors.background }]}>
         <View style={[styles.searchBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -204,9 +196,6 @@ export default function HomeScreen() {
         )}
       </View>
     </BardecLayout>
-
-    <OmniChatModal visible={omniVisible} onClose={() => setOmniVisible(false)} />
-    </>
   );
 }
 
