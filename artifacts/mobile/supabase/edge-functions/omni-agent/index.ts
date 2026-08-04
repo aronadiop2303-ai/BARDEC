@@ -1,143 +1,67 @@
 /**
  * OMNI Agent — Supabase Edge Function
- * Conversational AI assistant for BARDEC.
  *
- * Supports both:
- *   • Streaming (SSE) when body.stream === true
- *   • Standard JSON response otherwise
+ * Conversational AI assistant for BARDEC, powered by Anthropic Claude.
+ * Supports streaming (SSE) and standard JSON responses.
+ * Persists conversation history in 3 normalized tables:
+ *   omni_conversations, omni_messages, omni_memory
  *
- * Body: { conversation_id?: string, message: string, context?: OmniContext, stream?: boolean }
+ * Request body:
+ *   {
+ *     conversation_id?: string   // omit to start a new conversation
+ *     message:          string   // user's current message
+ *     context?:         OmniContext   // what the user is currently viewing
+ *     stream?:          boolean  // true → SSE chunks; false → JSON reply
+ *     user_role?:       UserRole // for personalised system prompt
+ *   }
  *
- * SSE format (streaming):
- *   data: {"chunk":"token text"}\n\n
- *   data: {"done":true,"conversation_id":"xxx"}\n\n
- *   data: {"error":"..."}\n\n   (on failure)
+ * SSE events (stream=true):
+ *   data: {"chunk":"…"}\n\n          — text token
+ *   data: {"done":true,"conversation_id":"…"}\n\n
+ *   data: {"error":"…"}\n\n          — on failure
  *
- * JSON format (non-streaming):
+ * JSON response (stream=false):
  *   { reply: string, conversation_id: string | null }
  *
- * Authorization:
- *   Conversation history is only persisted for authenticated (JWT) users.
- *   All DB reads/writes are scoped by user_id — the service-role client always
- *   includes an explicit `user_id = <uid>` filter for defence-in-depth on top of RLS.
- *   Anonymous callers receive AI replies but no conversation is stored.
- *
- * Streaming + persistence:
- *   Chunks are accumulated server-side. After OpenAI sends [DONE], the full
- *   conversation (history + user message + assistant reply) is written atomically
- *   before the final SSE event is emitted. On stream error, nothing is persisted.
+ * Auth: standard Supabase JWT (Authorization: Bearer <token>).
+ * Anonymous callers receive replies but no history is persisted.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CORS
-// ─────────────────────────────────────────────────────────────────────────────
+import type { OmniRequest, ChatMessage }  from './lib/types.ts';
+import { buildSystemPrompt }              from './lib/system-prompt.ts';
+import { loadHistory, ensureConversation, appendMessages, loadMemory } from './lib/memory.ts';
+import { MCP_TOOLS }                      from './lib/mcp-tools.ts';
+import { resolveToolUses }                from './lib/mcp-client.ts';
+
+// ─── Config ───────────────────────────────────────────────────────────────────
+
+const ANTHROPIC_KEY  = Deno.env.get('ANTHROPIC_API_KEY') ?? '';
+const ANTHROPIC_URL  = 'https://api.anthropic.com/v1/messages';
+const MODEL          = Deno.env.get('OMNI_MODEL') ?? 'claude-sonnet-4-5';
+const MAX_TOKENS     = 1024;
+const SUPABASE_URL   = Deno.env.get('SUPABASE_URL')         ?? '';
+const SUPABASE_SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
 const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Origin':  '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Supabase service-role client (bypasses RLS for writes after auth check) ──
 
-interface OmniContext {
-  type: 'product' | 'order' | 'shop';
-  data: Record<string, unknown>;
+function makeDb() {
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE, {
+    auth: { persistSession: false },
+  });
 }
 
-interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
+// ─── JWT → userId ─────────────────────────────────────────────────────────────
 
-type ServiceClient = ReturnType<typeof createClient>;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// System prompt
-// ─────────────────────────────────────────────────────────────────────────────
-
-function buildSystemPrompt(context?: OmniContext): string {
-  const base = `Tu es OMNI, l'assistant IA de BARDEC — une marketplace B2B et B2C.
-Tu aides les utilisateurs avec leurs commandes, produits, et questions sur la plateforme.
-Réponds toujours en français. Sois concis, clair, et utile.
-Si tu ne sais pas quelque chose, dis-le honnêtement.`;
-
-  if (!context) return base;
-
-  const extra: Record<string, string> = {
-    product: `\n\nContexte produit : ${JSON.stringify(context.data)}`,
-    order:   `\n\nContexte commande : ${JSON.stringify(context.data)}`,
-    shop:    `\n\nContexte boutique : ${JSON.stringify(context.data)}`,
-  };
-  return base + (extra[context.type] ?? '');
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Conversation persistence
-// (authenticated users only; requires omni_conversations table — see schema file)
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function loadHistory(
-  db: ServiceClient,
-  conversationId: string,
-  userId: string,
-): Promise<ChatMessage[]> {
-  const { data, error } = await db
-    .from('omni_conversations')
-    .select('messages')
-    .eq('id', conversationId)
-    .eq('user_id', userId)   // ownership check (service-role ignores RLS)
-    .single();
-
-  if (error || !data) return [];
-  return (data.messages as ChatMessage[]) ?? [];
-}
-
-async function saveConversation(
-  db: ServiceClient,
-  conversationId: string | null,
-  messages: ChatMessage[],
-  userId: string,
-): Promise<string> {
-  const now = new Date().toISOString();
-  const trimmed = messages.slice(-30);
-
-  if (conversationId) {
-    const { error } = await db
-      .from('omni_conversations')
-      .update({ messages: trimmed, updated_at: now })
-      .eq('id', conversationId)
-      .eq('user_id', userId);  // ownership check on write
-
-    if (error) throw new Error(`Failed to update conversation: ${error.message}`);
-    return conversationId;
-  }
-
-  const { data, error } = await db
-    .from('omni_conversations')
-    .insert({ user_id: userId, messages: trimmed, updated_at: now })
-    .select('id')
-    .single();
-
-  if (error || !data) {
-    throw new Error(`Failed to create conversation: ${error?.message ?? 'no data'}`);
-  }
-  return data.id as string;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// JWT → user ID (returns null for anonymous / invalid tokens)
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function resolveUserId(
-  db: ServiceClient,
-  authHeader: string | null,
-): Promise<string | null> {
+async function resolveUserId(authHeader: string | null): Promise<string | null> {
   if (!authHeader?.startsWith('Bearer ')) return null;
+  const db = makeDb();
   try {
     const { data, error } = await db.auth.getUser(authHeader.slice(7));
     if (error || !data?.user) return null;
@@ -147,235 +71,283 @@ async function resolveUserId(
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// OpenAI body builder
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Anthropic helpers ────────────────────────────────────────────────────────
 
-const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
-
-function openAIBody(messages: ChatMessage[], stream: boolean) {
+function anthropicHeaders() {
   return {
-    model: 'gpt-4o-mini',
+    'Content-Type':      'application/json',
+    'x-api-key':         ANTHROPIC_KEY,
+    'anthropic-version': '2023-06-01',
+  };
+}
+
+interface AnthropicBody {
+  model:      string;
+  max_tokens: number;
+  system:     string;
+  messages:   Array<{ role: string; content: any }>;
+  tools?:     unknown[];
+  stream?:    boolean;
+}
+
+function buildAnthropicBody(
+  systemPrompt: string,
+  history: ChatMessage[],
+  userMessage: string,
+  stream: boolean,
+  includeTools: boolean,
+): AnthropicBody {
+  const messages = [
+    ...history.map(m => ({ role: m.role, content: m.content })),
+    { role: 'user', content: userMessage },
+  ];
+
+  return {
+    model:      MODEL,
+    max_tokens: MAX_TOKENS,
+    system:     systemPrompt,
     messages,
-    stream,
-    max_tokens: 1024,
-    temperature: 0.7,
+    ...(includeTools ? { tools: MCP_TOOLS } : {}),
+    ...(stream       ? { stream: true }     : {}),
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Streaming response
-//
-// Chunks are accumulated server-side. After [DONE] the full conversation
-// (history + userMessage + assembled reply) is persisted before the final
-// SSE event is emitted so both turns are always stored together.
-// On any error nothing is written to the DB.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Non-streaming call (with tool-use loop) ──────────────────────────────────
 
-function streamReply(opts: {
-  openaiKey: string;
-  chatMessages: ChatMessage[];      // messages sent to OpenAI (includes system)
-  storageMessages: ChatMessage[];   // prior history WITHOUT system prompt (for DB)
-  userMessage: string;
-  db: ServiceClient;
-  userId: string | null;
-  existingConvId: string | null;
-}): Response {
-  const { openaiKey, chatMessages, storageMessages, userMessage, db, userId, existingConvId } = opts;
-  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-  const writer = writable.getWriter();
-  const enc = new TextEncoder();
+async function callAnthropic(
+  body: AnthropicBody,
+  userJwt: string,
+): Promise<string> {
+  const messages = [...body.messages];
 
-  const write = (obj: Record<string, unknown>) =>
-    writer.write(enc.encode(`data: ${JSON.stringify(obj)}\n\n`));
+  // Allow up to 3 tool-use rounds
+  for (let round = 0; round < 3; round++) {
+    const res = await fetch(ANTHROPIC_URL, {
+      method:  'POST',
+      headers: anthropicHeaders(),
+      body:    JSON.stringify({ ...body, messages, stream: false }),
+    });
 
-  (async () => {
-    try {
-      const upstreamRes = await fetch(OPENAI_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${openaiKey}`,
-        },
-        body: JSON.stringify(openAIBody(chatMessages, true)),
-      });
-
-      if (!upstreamRes.ok) {
-        const errText = await upstreamRes.text();
-        await write({ error: `OpenAI error ${upstreamRes.status}: ${errText}` });
-        return;
-      }
-
-      const reader = upstreamRes.body!.getReader();
-      const dec = new TextDecoder();
-      let buffer = '';
-      let assembled = '';   // full assistant reply accumulated here
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += dec.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data:')) continue;
-          const raw = trimmed.slice(5).trim();
-
-          if (raw === '[DONE]') {
-            // ── Persist both turns atomically before signalling done ──────────
-            let finalConvId: string | null = existingConvId;
-            if (userId && assembled) {
-              const fullHistory: ChatMessage[] = [
-                ...storageMessages,
-                { role: 'user', content: userMessage },
-                { role: 'assistant', content: assembled },
-              ];
-              try {
-                finalConvId = await saveConversation(db, existingConvId, fullHistory, userId);
-              } catch (e) {
-                // Persist failure — still emit done so the client can show the reply
-                console.error('Failed to persist conversation:', String(e));
-              }
-            }
-            await write({ done: true, conversation_id: finalConvId });
-            continue;
-          }
-
-          try {
-            const parsed = JSON.parse(raw);
-            const chunk: string = parsed?.choices?.[0]?.delta?.content ?? '';
-            if (chunk) {
-              assembled += chunk;
-              await write({ chunk });
-            }
-          } catch {
-            // malformed delta — skip
-          }
-        }
-      }
-    } catch (e) {
-      await write({ error: String(e) });
-    } finally {
-      await writer.close();
+    if (!res.ok) {
+      const err = await res.text().catch(() => res.statusText);
+      throw new Error(`Anthropic error ${res.status}: ${err}`);
     }
-  })();
 
-  return new Response(readable, {
-    headers: {
-      ...CORS,
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'X-Accel-Buffering': 'no',
-    },
-  });
+    const json = await res.json();
+
+    // Check for tool_use blocks
+    const toolUses = (json.content ?? []).filter((b: any) => b.type === 'tool_use');
+    if (toolUses.length === 0 || json.stop_reason === 'end_turn') {
+      // Extract final text
+      const textBlock = (json.content ?? []).find((b: any) => b.type === 'text');
+      return textBlock?.text ?? '';
+    }
+
+    // Resolve tool calls
+    const toolResults = await resolveToolUses(
+      toolUses.map((tu: any) => ({ id: tu.id, name: tu.name, input: tu.input })),
+      userJwt,
+    );
+
+    // Append assistant turn + tool results and loop
+    messages.push({ role: 'assistant', content: json.content });
+    messages.push({ role: 'user',      content: toolResults });
+  }
+
+  return '(Impossible de résoudre la réponse après plusieurs tentatives.)';
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Main handler
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Streaming call (no tool-use; simpler for real-time UX) ──────────────────
 
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+async function streamAnthropic(
+  body: AnthropicBody,
+  controller: ReadableStreamDefaultController,
+  encoder: TextEncoder,
+): Promise<string> {
+  const res = await fetch(ANTHROPIC_URL, {
+    method:  'POST',
+    headers: anthropicHeaders(),
+    body:    JSON.stringify({ ...body, stream: true, tools: undefined }),
+  });
 
-  const openaiKey = Deno.env.get('OPENAI_API_KEY');
-  if (!openaiKey) return json({ error: 'OPENAI_API_KEY not configured' }, 503);
+  if (!res.ok) {
+    const err = await res.text().catch(() => res.statusText);
+    throw new Error(`Anthropic stream error ${res.status}: ${err}`);
+  }
 
-  let body: {
-    conversation_id?: string;
-    message: string;
-    context?: OmniContext;
-    stream?: boolean;
-  };
+  const reader  = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let accumulated = '';
+  let buffer = '';
 
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const raw = line.slice(6).trim();
+      if (raw === '[DONE]') continue;
+
+      try {
+        const evt = JSON.parse(raw);
+
+        // Anthropic SSE: content_block_delta with text_delta
+        if (
+          evt.type === 'content_block_delta' &&
+          evt.delta?.type === 'text_delta' &&
+          evt.delta.text
+        ) {
+          accumulated += evt.delta.text;
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ chunk: evt.delta.text })}\n\n`)
+          );
+        }
+      } catch {
+        // ignore malformed events
+      }
+    }
+  }
+
+  return accumulated;
+}
+
+// ─── Main handler ─────────────────────────────────────────────────────────────
+
+Deno.serve(async (req: Request) => {
+  // CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: CORS });
+  }
+
+  if (req.method !== 'POST') {
+    return new Response('Method not allowed', { status: 405, headers: CORS });
+  }
+
+  // Parse body
+  let body: OmniRequest;
   try {
     body = await req.json();
   } catch {
-    return json({ error: 'Invalid JSON body' }, 400);
-  }
-
-  const { conversation_id, message, context, stream = false } = body;
-  if (!message?.trim()) return json({ error: 'message is required' }, 400);
-
-  // Service-role client for DB (explicit user_id filter on every query)
-  const db = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-  );
-
-  const userId = await resolveUserId(db, req.headers.get('authorization'));
-
-  // Load prior history (authenticated only; ownership enforced in query)
-  let history: ChatMessage[] = [];
-  let resolvedConvId: string | null = null;
-
-  if (userId && conversation_id) {
-    history = await loadHistory(db, conversation_id, userId);
-    if (history.length > 0) resolvedConvId = conversation_id;
-  }
-
-  const chatMessages: ChatMessage[] = [
-    { role: 'system', content: buildSystemPrompt(context) },
-    ...history,
-    { role: 'user', content: message.trim() },
-  ];
-
-  // ── Streaming path ──────────────────────────────────────────────────────────
-  if (stream) {
-    return streamReply({
-      openaiKey,
-      chatMessages,
-      storageMessages: history,  // excludes system prompt
-      userMessage: message.trim(),
-      db,
-      userId,
-      existingConvId: resolvedConvId,
+    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+      status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
     });
   }
 
-  // ── Non-streaming path ──────────────────────────────────────────────────────
-  const openaiRes = await fetch(OPENAI_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
-    body: JSON.stringify(openAIBody(chatMessages, false)),
-  });
-
-  if (!openaiRes.ok) {
-    const errText = await openaiRes.text();
-    return json({ error: `OpenAI error ${openaiRes.status}: ${errText}` }, 502);
+  if (!body.message?.trim()) {
+    return new Response(JSON.stringify({ error: 'message is required' }), {
+      status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
+    });
   }
 
-  const openaiData = await openaiRes.json();
-  const reply: string =
-    openaiData?.choices?.[0]?.message?.content ?? "Désolé, je n'ai pas pu répondre.";
+  const stream   = body.stream ?? false;
+  const authHeader = req.headers.get('Authorization');
+  const userId   = await resolveUserId(authHeader);
+  const db       = makeDb();
 
-  let finalConvId: string | null = null;
-  if (userId) {
-    const updatedMessages: ChatMessage[] = [
-      ...history,
-      { role: 'user', content: message.trim() },
-      { role: 'assistant', content: reply },
-    ];
+  // Load history + memory (authenticated users only)
+  let history: ChatMessage[] = [];
+  let memory = [];
+
+  if (userId && body.conversation_id) {
     try {
-      finalConvId = await saveConversation(db, resolvedConvId, updatedMessages, userId);
-    } catch (e) {
-      return json({ error: String(e) }, 500);
+      history = await loadHistory(db, body.conversation_id, userId);
+    } catch {
+      // Non-fatal — start fresh if history load fails
     }
   }
 
-  return json({ reply, conversation_id: finalConvId });
+  if (userId) {
+    try {
+      memory = await loadMemory(db, userId);
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  const systemPrompt = buildSystemPrompt(body.context, memory, body.user_role);
+  const anthropicBody = buildAnthropicBody(
+    systemPrompt,
+    history,
+    body.message,
+    stream,
+    !stream, // include tools only for non-streaming calls
+  );
+
+  // ── STREAMING ────────────────────────────────────────────────────────────────
+  if (stream) {
+    const encoder = new TextEncoder();
+
+    const readable = new ReadableStream({
+      async start(controller) {
+        let reply = '';
+        let convId: string | null = null;
+
+        try {
+          reply = await streamAnthropic(anthropicBody, controller, encoder);
+
+          // Persist after stream completes
+          if (userId && reply) {
+            try {
+              convId = await ensureConversation(db, body.conversation_id, userId, body.message);
+              await appendMessages(db, convId, body.message, reply);
+            } catch {
+              // Non-fatal — reply was already streamed
+            }
+          }
+
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ done: true, conversation_id: convId })}\n\n`)
+          );
+        } catch (err: any) {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ error: err?.message ?? 'Stream error' })}\n\n`)
+          );
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(readable, {
+      headers: {
+        ...CORS,
+        'Content-Type':  'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection':    'keep-alive',
+      },
+    });
+  }
+
+  // ── NON-STREAMING ─────────────────────────────────────────────────────────────
+  try {
+    const reply = await callAnthropic(
+      anthropicBody,
+      authHeader?.slice(7) ?? '',
+    );
+
+    let convId: string | null = null;
+    if (userId && reply) {
+      try {
+        convId = await ensureConversation(db, body.conversation_id, userId, body.message);
+        await appendMessages(db, convId, body.message, reply);
+      } catch {
+        // Non-fatal
+      }
+    }
+
+    return new Response(
+      JSON.stringify({ reply, conversation_id: convId }),
+      { headers: { ...CORS, 'Content-Type': 'application/json' } },
+    );
+  } catch (err: any) {
+    return new Response(
+      JSON.stringify({ error: err?.message ?? 'Internal error' }),
+      { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } },
+    );
+  }
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...CORS, 'Content-Type': 'application/json' },
-  });
-}
