@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, ScrollView,
+  ActivityIndicator, Alert, Image, Modal, ScrollView,
   StyleSheet, Switch, Text, TouchableOpacity, View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -22,6 +22,8 @@ export default function ProfileScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [biometricEnabled,     setBiometricEnabled]     = useState(false);
   const [isUploadingAvatar,    setIsUploadingAvatar]    = useState(false);
+  // Pending avatar: URI picked by user but not yet confirmed / uploaded
+  const [pendingAvatarUri,     setPendingAvatarUri]     = useState<string | null>(null);
 
   async function handleChangeAvatar() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -31,16 +33,21 @@ export default function ProfileScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
+      // No allowsEditing so the OS doesn't show its own crop screen — we handle
+      // confirmation explicitly in-app with a "Valider" button.
+      quality: 0.85,
     });
     if (result.canceled || !result.assets?.[0]) return;
+    setPendingAvatarUri(result.assets[0].uri);
+  }
 
-    const uri = result.assets[0].uri;
+  async function handleConfirmAvatar() {
+    if (!pendingAvatarUri) return;
+    const uri = pendingAvatarUri;
+    setPendingAvatarUri(null);
     setIsUploadingAvatar(true);
     try {
-      if (isSupabaseConfigured && supabase && user) {
+      if (isSupabaseConfigured && supabase && user && !isDemoMode) {
         const filename = `${user.id}/avatar.jpg`;
         const response = await fetch(uri);
         const blob     = await response.blob();
@@ -77,6 +84,43 @@ export default function ProfileScreen() {
 
   return (
     <BardecLayout>
+      {/* ── Avatar confirmation modal ── */}
+      <Modal
+        visible={!!pendingAvatarUri}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPendingAvatarUri(null)}
+      >
+        <View style={styles.avatarModalOverlay}>
+          <View style={[styles.avatarModalCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.avatarModalTitle, { color: colors.foreground }]}>
+              Valider cette photo de profil ?
+            </Text>
+            {pendingAvatarUri && (
+              <Image
+                source={{ uri: pendingAvatarUri }}
+                style={styles.avatarModalPreview}
+                resizeMode="cover"
+              />
+            )}
+            <View style={styles.avatarModalActions}>
+              <TouchableOpacity
+                style={[styles.avatarModalBtn, styles.avatarModalBtnCancel, { borderColor: colors.border }]}
+                onPress={() => setPendingAvatarUri(null)}
+              >
+                <Text style={[styles.avatarModalBtnText, { color: colors.mutedForeground }]}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.avatarModalBtn, styles.avatarModalBtnConfirm, { backgroundColor: colors.primary }]}
+                onPress={handleConfirmAvatar}
+              >
+                <Text style={[styles.avatarModalBtnText, { color: 'white' }]}>Valider</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Profile hero */}
       <View style={[styles.hero, { backgroundColor: colors.primary }]}>
         {/* Tappable avatar with camera-edit overlay */}
@@ -374,4 +418,54 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   logoutText: { fontSize: 15, fontWeight: '700' },
+  // ── Avatar confirmation modal ──────────────────────────────────────────────
+  avatarModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  avatarModalCard: {
+    width: '100%',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    gap: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  avatarModalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  avatarModalPreview: {
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    overflow: 'hidden',
+  },
+  avatarModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  avatarModalBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  avatarModalBtnCancel: {
+    borderWidth: 1,
+  },
+  avatarModalBtnConfirm: {},
+  avatarModalBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
 });

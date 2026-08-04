@@ -100,7 +100,7 @@ interface LocalProduct {
 export default function VendorDashboardScreen() {
   const colors = useColors();
   const { t } = useLanguage();
-  const { user } = useAuth();
+  const { user, isDemoMode } = useAuth();
   const [period, setPeriod] = useState<Period>('30j');
   const [shopActive, setShopActive] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -180,7 +180,7 @@ export default function VendorDashboardScreen() {
     const stock = parseInt(addForm.stock, 10) || 0;
 
     setIsSavingProduct(true);
-    if (isSupabaseConfigured && supabase && user) {
+    if (isSupabaseConfigured && supabase && user && !isDemoMode) {
       // Upload product images first
       const imageUrls: string[] = [];
       if (pendingImages.length > 0) {
