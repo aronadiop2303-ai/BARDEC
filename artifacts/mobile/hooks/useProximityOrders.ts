@@ -251,6 +251,42 @@ export async function notifyCustomerOrderStatus(
   }
 }
 
+/**
+ * Lets a customer cancel one of their own pending orders.
+ * In Supabase mode: calls the `cancel_my_proximity_order` SECURITY DEFINER RPC
+ *   which verifies customer_id = auth.uid() and status = 'pending'.
+ * In demo mode: optimistically updates the query cache so the UI reflects the
+ *   cancellation immediately without touching the database.
+ */
+export function useCancelMyOrder() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const customerId = user?.id ?? null;
+
+  return useMutation({
+    mutationFn: async (orderId: string) => {
+      if (!isSupabaseConfigured || !supabase) {
+        // Demo mode — update the cache directly
+        qc.setQueryData<CustomerProximityOrder[]>(
+          ['my_proximity_orders', customerId],
+          (prev) =>
+            (prev ?? []).map((o) =>
+              o.id === orderId ? { ...o, status: 'cancelled' as ProximityOrderStatus } : o,
+            ),
+        );
+        return;
+      }
+      const { error } = await supabase.rpc('cancel_my_proximity_order', {
+        p_order_id: orderId,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my_proximity_orders', customerId] });
+    },
+  });
+}
+
 /** Returns the current customer's proximity orders (demo-safe) */
 export function useMyProximityOrders() {
   const { user } = useAuth();

@@ -330,6 +330,56 @@ BEGIN
 END;
 $$;
 
+-- Fonction RPC : annulation d'une commande par le client
+-- Le client ne peut annuler QUE ses propres commandes en attente.
+-- Passe par SECURITY DEFINER pour éviter d'avoir besoin d'une policy UPDATE.
+CREATE OR REPLACE FUNCTION cancel_my_proximity_order(
+  p_order_id uuid
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_rows_updated integer;
+  v_exists       boolean;
+BEGIN
+  -- Require an authenticated caller with a non-null uid
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Accès refusé : authentification requise';
+  END IF;
+
+  -- Single atomic UPDATE: succeeds only when this exact caller owns the order
+  -- AND it is still pending.  The vendor's confirm runs a separate UPDATE on
+  -- the same row, so the WHERE clause here acts as an optimistic-lock guard:
+  -- if the vendor confirmed first, status <> 'pending' and zero rows match.
+  UPDATE proximity_orders
+     SET status = 'cancelled'
+   WHERE id            = p_order_id
+     AND customer_id   = auth.uid()   -- explicit equality; rejects NULLs on both sides
+     AND status        = 'pending';
+
+  GET DIAGNOSTICS v_rows_updated = ROW_COUNT;
+
+  IF v_rows_updated = 0 THEN
+    -- Distinguish "not yours" from "no longer pending" for a clearer error.
+    SELECT EXISTS (
+      SELECT 1 FROM proximity_orders WHERE id = p_order_id
+    ) INTO v_exists;
+
+    IF NOT v_exists THEN
+      RAISE EXCEPTION 'Commande introuvable';
+    END IF;
+
+    -- Row exists but the UPDATE predicate didn't match: either wrong owner or
+    -- the order is no longer pending (e.g. already confirmed by the vendor).
+    RAISE EXCEPTION
+      'Impossible d''annuler cette commande : elle n''est plus en attente ou ne vous appartient pas';
+  END IF;
+END;
+$$;
+
 -- 9. Bucket Storage (à créer manuellement dans Storage > New bucket)
 -- Nom: proximity-shop-photos | Public: true
 

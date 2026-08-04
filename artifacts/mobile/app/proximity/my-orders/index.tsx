@@ -15,6 +15,7 @@ import { useColors } from '@/hooks/useColors';
 import { Feather } from '@/components/Icon';
 import {
   useMyProximityOrders,
+  useCancelMyOrder,
   CustomerProximityOrder,
   ProximityOrderStatus,
 } from '@/hooks/useProximityOrders';
@@ -71,9 +72,43 @@ export default function MyOrdersScreen() {
   const { data: orders = [], isLoading, refetch } = useMyProximityOrders();
   const [filter, setFilter] = useState<Filter>('all');
   const [reorderingId, setReorderingId] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const { reorder } = useProximityCart();
+  const cancelOrder = useCancelMyOrder();
 
   const filtered = filter === 'all' ? orders : orders.filter(o => o.status === filter);
+
+  function handleCancel(order: CustomerProximityOrder) {
+    if (order.status !== 'pending') return;
+
+    const demoSuffix = !isSupabaseConfigured
+      ? '\n\n(Mode démo — la liste sera mise à jour localement)'
+      : '';
+
+    Alert.alert(
+      'Annuler la commande',
+      `Confirmes-tu l'annulation de cette commande ? Cette action est irréversible.${demoSuffix}`,
+      [
+        { text: 'Non, garder', style: 'cancel' },
+        {
+          text: 'Oui, annuler',
+          style: 'destructive',
+          onPress: () => {
+            setCancellingId(order.id);
+            cancelOrder.mutate(order.id, {
+              onSettled: () => setCancellingId(null),
+              onError: (err) => {
+                Alert.alert(
+                  'Erreur',
+                  err instanceof Error ? err.message : 'Impossible d\'annuler la commande.',
+                );
+              },
+            });
+          },
+        },
+      ],
+    );
+  }
 
   async function handleReorder(order: CustomerProximityOrder) {
     setReorderingId(order.id);
@@ -195,6 +230,8 @@ export default function MyOrdersScreen() {
             colors={colors}
             onReorder={handleReorder}
             reordering={reorderingId === item.id}
+            onCancel={handleCancel}
+            cancelling={cancellingId === item.id}
           />
         )}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
@@ -210,11 +247,15 @@ function OrderCard({
   colors,
   onReorder,
   reordering,
+  onCancel,
+  cancelling,
 }: {
   order: CustomerProximityOrder;
   colors: any;
   onReorder: (order: CustomerProximityOrder) => void;
   reordering: boolean;
+  onCancel: (order: CustomerProximityOrder) => void;
+  cancelling: boolean;
 }) {
   const sc = STATUS_CONFIG[order.status];
 
@@ -276,6 +317,24 @@ function OrderCard({
             Le commerce va confirmer ta commande prochainement.
           </Text>
         </View>
+      )}
+
+      {/* Cancel button — pending orders only */}
+      {order.status === 'pending' && (
+        <TouchableOpacity
+          style={[styles.cancelBtn, { borderColor: '#DC2626', opacity: cancelling ? 0.6 : 1 }]}
+          onPress={() => onCancel(order)}
+          disabled={cancelling}
+        >
+          {cancelling ? (
+            <ActivityIndicator size="small" color="#DC2626" />
+          ) : (
+            <>
+              <Feather name="x" size={14} color="#DC2626" />
+              <Text style={styles.cancelBtnTxt}>Annuler la commande</Text>
+            </>
+          )}
+        </TouchableOpacity>
       )}
       {order.status === 'confirmed' && (
         <View style={[styles.hint, { backgroundColor: '#EFF6FF', borderColor: '#2563EB40' }]}>
@@ -428,4 +487,15 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   reorderBtnTxt: { fontSize: 13, fontWeight: '700' },
+  cancelBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    marginTop: 2,
+  },
+  cancelBtnTxt: { fontSize: 13, fontWeight: '700', color: '#DC2626' },
 });
