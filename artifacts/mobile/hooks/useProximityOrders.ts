@@ -98,6 +98,15 @@ export const DEMO_ORDERS: ProximityOrder[] = [
   },
 ];
 
+// ── Vendor-initiated cancellation guard ─────────────────────────────────────
+//
+// The Realtime UPDATE subscription cannot distinguish who triggered a status
+// change to 'cancelled' (customer via cancel_my_proximity_order, or vendor via
+// update_proximity_order_status).  This Set is populated by useUpdateOrderStatus
+// whenever the vendor explicitly cancels an order so the UPDATE handler can
+// suppress the false "customer cancelled" notification.
+const _vendorCancelledOrderIds = new Set<string>();
+
 // ── Fetch ────────────────────────────────────────────────────────────────────
 
 async function fetchShopOrders(shopId: string): Promise<ProximityOrder[]> {
@@ -156,6 +165,46 @@ export function useProximityOrders() {
           ).catch(() => {/* ignore notification failures */});
         },
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'proximity_orders',
+          filter: `proximity_shop_id=eq.${shopId}`,
+        },
+        (payload) => {
+          const updatedOrder = payload.new as ProximityOrder;
+
+          // Update the cached order in place so the vendor screen refreshes immediately
+          qc.setQueryData<ProximityOrder[]>(
+            ['proximity_orders', shopId],
+            (prev) =>
+              (prev ?? []).map((o) =>
+                o.id === updatedOrder.id ? { ...o, ...updatedOrder } : o,
+              ),
+          );
+
+          // Alert the vendor only when the cancellation was customer-initiated.
+          // Vendor-initiated cancellations are pre-registered in
+          // _vendorCancelledOrderIds by useUpdateOrderStatus before the RPC runs,
+          // so we can reliably distinguish the two paths here.
+          if (updatedOrder.status === 'cancelled') {
+            if (_vendorCancelledOrderIds.has(updatedOrder.id)) {
+              // Vendor cancelled this order themselves — consume the flag and skip.
+              _vendorCancelledOrderIds.delete(updatedOrder.id);
+            } else {
+              // No pre-registration → this cancellation came from the customer.
+              scheduleLocalNotification(
+                '❌ Commande annulée',
+                'Un client a annulé sa commande.',
+                { type: 'proximity_order_cancelled', orderId: updatedOrder.id },
+                1,
+              ).catch(() => {/* ignore notification failures */});
+            }
+          }
+        },
+      )
       .subscribe();
 
     return () => {
@@ -182,13 +231,22 @@ export function useUpdateOrderStatus() {
         // Demo mode: return mock success without touching DB
         return;
       }
+      // Register vendor-initiated cancellations BEFORE the RPC so the Realtime
+      // UPDATE event (which arrives asynchronously) sees the flag in time.
+      if (status === 'cancelled') {
+        _vendorCancelledOrderIds.add(orderId);
+      }
       // Uses a SECURITY DEFINER function that only allows changing the status column,
       // preventing vendors from altering totals, items, or customer fields.
       const { error } = await supabase.rpc('update_proximity_order_status', {
         p_order_id: orderId,
         p_status: status,
       });
-      if (error) throw new Error(error.message);
+      if (error) {
+        // Roll back the guard flag so a retry doesn't permanently suppress alerts.
+        _vendorCancelledOrderIds.delete(orderId);
+        throw new Error(error.message);
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['proximity_orders'] });
@@ -266,7 +324,11 @@ export function useCancelMyOrder() {
   return useMutation({
     mutationFn: async (orderId: string) => {
       if (!isSupabaseConfigured || !supabase) {
-        // Demo mode — update the cache directly
+        // Demo mode — update the cache directly so the customer UI reflects the
+        // cancellation immediately.
+        // NOTE: no vendor push notification is sent in demo mode because there is
+        // no Supabase Realtime channel to deliver the UPDATE event.  In production
+        // the vendor's useProximityOrders UPDATE subscription handles it automatically.
         qc.setQueryData<CustomerProximityOrder[]>(
           ['my_proximity_orders', customerId],
           (prev) =>
