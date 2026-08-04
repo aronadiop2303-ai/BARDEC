@@ -367,7 +367,7 @@ export default function MyOrdersScreen() {
   const [reorderingId, setReorderingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [reorderSheetOrder, setReorderSheetOrder] = useState<CustomerProximityOrder | null>(null);
-  const { reorder } = useProximityCart();
+  const { reorder, items: cartItems, shopId: cartShopId, shopName: cartShopName } = useProximityCart();
   const cancelOrder = useCancelMyOrder();
 
   const filtered = filter === 'all' ? orders : orders.filter(o => o.status === filter);
@@ -422,6 +422,24 @@ export default function MyOrdersScreen() {
           );
           return;
         }
+      }
+
+      // If the cart already has items from a different shop, ask for confirmation
+      // before opening the quantity-adjustment sheet
+      if (cartItems.length > 0 && cartShopId !== order.proximity_shop_id) {
+        Alert.alert(
+          'Remplacer le panier ?',
+          `Ton panier contient des articles de "${cartShopName}". Le re-commander les remplacera par ceux de "${order.shop_name}".`,
+          [
+            { text: 'Annuler', style: 'cancel' },
+            {
+              text: 'Remplacer',
+              style: 'destructive',
+              onPress: () => setReorderSheetOrder(order),
+            },
+          ],
+        );
+        return;
       }
 
       // Open the quantity-adjustment sheet
