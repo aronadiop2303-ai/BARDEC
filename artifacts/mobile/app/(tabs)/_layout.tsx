@@ -8,6 +8,7 @@ import { Tabs } from 'expo-router';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
+import { useMyProximityOrders } from '@/hooks/useProximityOrders';
 
 // NOTE: expo-symbols (SF Symbols) is iOS-only and its native module is
 // unavailable on Android — importing it crashes the tab layout on Android.
@@ -24,6 +25,12 @@ export default function TabLayout() {
   const isAndroid = Platform.OS === 'android';
   const isVendor = user?.role === 'VENDOR';
   const isAdmin  = user?.role === 'ADMIN';
+
+  // Active proximity orders badge (pending + confirmed) — customer only
+  const { data: myProximityOrders } = useMyProximityOrders();
+  const activeProximityOrderCount = !isVendor && !isAdmin
+    ? (myProximityOrders ?? []).filter(o => o.status === 'pending' || o.status === 'confirmed').length
+    : 0;
 
   // Properly account for the gesture-navigation bar on Android and home-indicator on iOS.
   // Without this, tab icons overlap the system gesture area on modern Android phones.
@@ -115,6 +122,8 @@ export default function TabLayout() {
         name="nearby"
         options={{
           title: 'Près de moi',
+          tabBarBadge: activeProximityOrderCount > 0 ? activeProximityOrderCount : undefined,
+          tabBarBadgeStyle: { backgroundColor: colors.primary, fontSize: 10 },
           tabBarIcon: ({ color }) => <Feather name="map-pin" size={22} color={color} />,
         }}
       />
