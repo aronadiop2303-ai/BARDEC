@@ -106,6 +106,23 @@ export default function VendorDashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'products'>('overview');
 
+  // ─── Resolved company/shop display name ───────────────────────────────────
+  const [shopName, setShopName] = useState<string>('Ma Boutique');
+
+  useEffect(() => {
+    async function resolveShopName() {
+      if (!isSupabaseConfigured || !supabase || !user?.company) return;
+      // user.company holds the company UUID (company_id); look up the display name
+      const { data } = await supabase
+        .from('companies')
+        .select('name')
+        .eq('id', user.company)
+        .single();
+      if (data?.name) setShopName(data.name);
+    }
+    resolveShopName();
+  }, [user?.company]);
+
   // Products state (Supabase or local-imported in demo mode)
   const [supabaseProducts, setSupabaseProducts] = useState<LocalProduct[]>([]);
   const [importedProducts, setImportedProducts] = useState<LocalProduct[]>([]);
@@ -604,9 +621,18 @@ export default function VendorDashboardScreen() {
     }
   };
 
+  // ─── Vendor OMNI context ─────────────────────────────────────────────────
+  const omniContext = React.useMemo(() => ({
+    type: 'shop' as const,
+    data: {
+      vendor_id: user?.id ?? null,
+      shop_name: shopName,
+    },
+  }), [user?.id, shopName]);
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <BardecLayout onRefresh={onRefresh} refreshing={refreshing}>
+    <BardecLayout onRefresh={onRefresh} refreshing={refreshing} omniContext={omniContext}>
       {/* Shop header */}
       <LinearGradient
         colors={[colors.primary, colors.secondary]}
