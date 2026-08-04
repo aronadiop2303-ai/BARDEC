@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,7 +21,7 @@ import {
   ProximityOrderStatus,
 } from '@/hooks/useProximityOrders';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { useProximityCart } from '@/context/ProximityCartContext';
+import { useProximityCart, ReorderItem } from '@/context/ProximityCartContext';
 
 const GREEN = '#22C55E';
 
@@ -70,6 +71,292 @@ function formatPrice(amount: number) {
   return `${amount.toLocaleString('fr-FR')} FCFA`;
 }
 
+// ── Re-order quantity sheet ───────────────────────────────────────────────────
+
+interface ReorderSheetProps {
+  order: CustomerProximityOrder | null;
+  onConfirm: (items: ReorderItem[]) => void;
+  onClose: () => void;
+}
+
+function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+
+  // Local quantity map — keyed by product_id
+  const [quantities, setQuantities] = useState<Record<string, number>>(() => {
+    if (!order) return {};
+    return Object.fromEntries(order.items.map(i => [i.product_id, i.quantity]));
+  });
+
+  // Reset quantities when a new order is shown
+  React.useEffect(() => {
+    if (order) {
+      setQuantities(Object.fromEntries(order.items.map(i => [i.product_id, i.quantity])));
+    }
+  }, [order?.id]);
+
+  if (!order) return null;
+
+  function change(productId: string, delta: number) {
+    setQuantities(prev => {
+      const next = Math.max(0, (prev[productId] ?? 1) + delta);
+      return { ...prev, [productId]: next };
+    });
+  }
+
+  const adjustedItems: ReorderItem[] = order.items
+    .map(i => ({ ...i, quantity: quantities[i.product_id] ?? i.quantity }))
+    .filter(i => i.quantity > 0);
+
+  const total = adjustedItems.reduce((s, i) => s + i.unit_price * i.quantity, 0);
+  const hasItems = adjustedItems.length > 0;
+
+  function handleConfirm() {
+    if (!hasItems) return;
+    onConfirm(adjustedItems);
+  }
+
+  return (
+    <Modal visible={!!order} transparent animationType="slide" onRequestClose={onClose}>
+      {/* Dimmed overlay */}
+      <TouchableOpacity style={sheetStyles.overlay} activeOpacity={1} onPress={onClose} />
+
+      <View style={[sheetStyles.sheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 16 }]}>
+        {/* Handle */}
+        <View style={[sheetStyles.handle, { backgroundColor: colors.border }]} />
+
+        {/* Close button */}
+        <TouchableOpacity style={sheetStyles.closeBtn} onPress={onClose}>
+          <Feather name="x" size={20} color={colors.mutedForeground} />
+        </TouchableOpacity>
+
+        {/* Title */}
+        <Text style={[sheetStyles.title, { color: colors.foreground }]}>
+          Ajuster la commande
+        </Text>
+        <Text style={[sheetStyles.subtitle, { color: colors.mutedForeground }]}>
+          {order.shop_name}
+        </Text>
+
+        {/* Item list */}
+        <ScrollView style={sheetStyles.itemsScroll} showsVerticalScrollIndicator={false} bounces={false}>
+          {order.items.map((item) => {
+            const qty = quantities[item.product_id] ?? item.quantity;
+            return (
+              <View
+                key={item.product_id}
+                style={[sheetStyles.itemRow, { borderBottomColor: colors.border }]}
+              >
+                <View style={sheetStyles.itemInfo}>
+                  <Text style={[sheetStyles.itemName, { color: colors.foreground }]} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  <Text style={[sheetStyles.itemUnitPrice, { color: colors.mutedForeground }]}>
+                    {formatPrice(item.unit_price)} / unité
+                  </Text>
+                </View>
+
+                {/* Quantity stepper */}
+                <View style={sheetStyles.stepper}>
+                  <TouchableOpacity
+                    style={[
+                      sheetStyles.stepBtn,
+                      { borderColor: qty <= 0 ? colors.border : '#DC2626' },
+                    ]}
+                    onPress={() => change(item.product_id, -1)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Feather name={qty <= 1 ? 'trash-2' : 'minus'} size={14} color={qty <= 0 ? colors.mutedForeground : '#DC2626'} />
+                  </TouchableOpacity>
+
+                  <Text style={[sheetStyles.stepQty, { color: qty === 0 ? colors.mutedForeground : colors.foreground }]}>
+                    {qty}
+                  </Text>
+
+                  <TouchableOpacity
+                    style={[sheetStyles.stepBtn, { borderColor: GREEN }]}
+                    onPress={() => change(item.product_id, +1)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Feather name="plus" size={14} color={GREEN} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Line total */}
+                <Text style={[sheetStyles.itemLineTotal, { color: qty === 0 ? colors.mutedForeground : colors.foreground }]}>
+                  {formatPrice(item.unit_price * qty)}
+                </Text>
+              </View>
+            );
+          })}
+        </ScrollView>
+
+        {/* Total + CTA */}
+        <View style={[sheetStyles.footer, { borderTopColor: colors.border }]}>
+          <View style={sheetStyles.totalRow}>
+            <Text style={[sheetStyles.totalLabel, { color: colors.mutedForeground }]}>Total</Text>
+            <Text style={[sheetStyles.totalAmount, { color: colors.foreground }]}>
+              {formatPrice(total)}
+            </Text>
+          </View>
+
+          {!hasItems && (
+            <View style={[sheetStyles.emptyWarn, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B40' }]}>
+              <Feather name="alert-triangle" size={13} color="#D97706" />
+              <Text style={sheetStyles.emptyWarnTxt}>
+                Ajoute au moins un article avant de confirmer.
+              </Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[sheetStyles.confirmBtn, { backgroundColor: hasItems ? GREEN : colors.muted }]}
+            onPress={handleConfirm}
+            disabled={!hasItems}
+          >
+            <Feather name="shopping-cart" size={16} color={hasItems ? 'white' : colors.mutedForeground} />
+            <Text style={[sheetStyles.confirmBtnTxt, { color: hasItems ? 'white' : colors.mutedForeground }]}>
+              Ajouter au panier
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const sheetStyles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  sheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    padding: 4,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  subtitle: {
+    fontSize: 13,
+    marginBottom: 16,
+  },
+  itemsScroll: {
+    flexGrow: 0,
+    maxHeight: 320,
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    gap: 10,
+  },
+  itemInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  itemName: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  itemUnitPrice: {
+    fontSize: 11,
+  },
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  stepBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepQty: {
+    fontSize: 15,
+    fontWeight: '700',
+    minWidth: 22,
+    textAlign: 'center',
+  },
+  itemLineTotal: {
+    fontSize: 13,
+    fontWeight: '600',
+    minWidth: 80,
+    textAlign: 'right',
+  },
+  footer: {
+    borderTopWidth: 1,
+    paddingTop: 14,
+    marginTop: 8,
+    gap: 10,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  totalLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  totalAmount: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  emptyWarn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  emptyWarnTxt: {
+    flex: 1,
+    fontSize: 12,
+    color: '#92400E',
+    lineHeight: 17,
+  },
+  confirmBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  confirmBtnTxt: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+});
+
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export default function MyOrdersScreen() {
@@ -79,6 +366,7 @@ export default function MyOrdersScreen() {
   const [filter, setFilter] = useState<Filter>('all');
   const [reorderingId, setReorderingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [reorderSheetOrder, setReorderSheetOrder] = useState<CustomerProximityOrder | null>(null);
   const { reorder } = useProximityCart();
   const cancelOrder = useCancelMyOrder();
 
@@ -136,11 +424,18 @@ export default function MyOrdersScreen() {
         }
       }
 
-      reorder(order.items, order.proximity_shop_id, order.shop_name);
-      router.push('/proximity/cart' as any);
+      // Open the quantity-adjustment sheet
+      setReorderSheetOrder(order);
     } finally {
       setReorderingId(null);
     }
+  }
+
+  function handleConfirmReorder(adjustedItems: ReorderItem[]) {
+    if (!reorderSheetOrder) return;
+    reorder(adjustedItems, reorderSheetOrder.proximity_shop_id, reorderSheetOrder.shop_name);
+    setReorderSheetOrder(null);
+    router.push('/proximity/cart' as any);
   }
 
   return (
@@ -241,6 +536,13 @@ export default function MyOrdersScreen() {
           />
         )}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+      />
+
+      {/* Re-order quantity sheet */}
+      <ReorderSheet
+        order={reorderSheetOrder}
+        onConfirm={handleConfirmReorder}
+        onClose={() => setReorderSheetOrder(null)}
       />
     </View>
   );
