@@ -11,6 +11,14 @@ export interface ProximityCartItem {
   shopName: string;
 }
 
+/** Minimal shape shared with ProximityOrderItem — used for re-ordering */
+export interface ReorderItem {
+  product_id: string;
+  name: string;
+  quantity: number;
+  unit_price: number;
+}
+
 interface ProximityCartContextType {
   items: ProximityCartItem[];
   shopId: string | null;
@@ -19,6 +27,8 @@ interface ProximityCartContextType {
   removeItem: (productId: string) => void;
   updateQuantity: (productId: string, quantity: number) => void;
   clearCart: () => void;
+  /** Replace the cart with all items from a previous order */
+  reorder: (orderItems: ReorderItem[], shopId: string, shopName: string) => void;
   totalItems: number;
   subtotal: number;
 }
@@ -31,6 +41,7 @@ const ProximityCartContext = createContext<ProximityCartContextType>({
   removeItem: () => {},
   updateQuantity: () => {},
   clearCart: () => {},
+  reorder: () => {},
   totalItems: 0,
   subtotal: 0,
 });
@@ -89,6 +100,19 @@ export function ProximityCartProvider({ children }: { children: React.ReactNode 
 
   function clearCart() { persist([]); }
 
+  function reorder(orderItems: ReorderItem[], sid: string, sName: string) {
+    const cartItems: ProximityCartItem[] = orderItems.map(i => ({
+      productId: i.product_id,
+      name: i.name,
+      price: i.unit_price,
+      unit: 'unité',
+      quantity: i.quantity,
+      shopId: sid,
+      shopName: sName,
+    }));
+    persist(cartItems);
+  }
+
   const shopId   = items[0]?.shopId   ?? null;
   const shopName = items[0]?.shopName ?? null;
   const totalItems = items.reduce((s, i) => s + i.quantity, 0);
@@ -96,7 +120,7 @@ export function ProximityCartProvider({ children }: { children: React.ReactNode 
 
   return (
     <ProximityCartContext.Provider
-      value={{ items, shopId, shopName, addItem, removeItem, updateQuantity, clearCart, totalItems, subtotal }}
+      value={{ items, shopId, shopName, addItem, removeItem, updateQuantity, clearCart, reorder, totalItems, subtotal }}
     >
       {children}
     </ProximityCartContext.Provider>

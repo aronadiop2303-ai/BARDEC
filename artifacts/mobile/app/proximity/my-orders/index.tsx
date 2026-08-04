@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   ScrollView,
   StyleSheet,
@@ -17,7 +18,8 @@ import {
   CustomerProximityOrder,
   ProximityOrderStatus,
 } from '@/hooks/useProximityOrders';
-import { isSupabaseConfigured } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { useProximityCart } from '@/context/ProximityCartContext';
 
 const GREEN = '#22C55E';
 
@@ -68,8 +70,37 @@ export default function MyOrdersScreen() {
   const insets = useSafeAreaInsets();
   const { data: orders = [], isLoading, refetch } = useMyProximityOrders();
   const [filter, setFilter] = useState<Filter>('all');
+  const [reorderingId, setReorderingId] = useState<string | null>(null);
+  const { reorder } = useProximityCart();
 
   const filtered = filter === 'all' ? orders : orders.filter(o => o.status === filter);
+
+  async function handleReorder(order: CustomerProximityOrder) {
+    setReorderingId(order.id);
+    try {
+      // Verify the shop still exists when Supabase is available
+      if (isSupabaseConfigured && supabase) {
+        const { data: shop, error } = await supabase
+          .from('proximity_shops')
+          .select('id')
+          .eq('id', order.proximity_shop_id)
+          .maybeSingle();
+
+        if (error || !shop) {
+          Alert.alert(
+            'Commerce introuvable',
+            `Le commerce "${order.shop_name}" n'est plus disponible. La commande ne peut pas être répétée.`,
+          );
+          return;
+        }
+      }
+
+      reorder(order.items, order.proximity_shop_id, order.shop_name);
+      router.push('/proximity/cart' as any);
+    } finally {
+      setReorderingId(null);
+    }
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -159,7 +190,12 @@ export default function MyOrdersScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <OrderCard order={item} colors={colors} />
+          <OrderCard
+            order={item}
+            colors={colors}
+            onReorder={handleReorder}
+            reordering={reorderingId === item.id}
+          />
         )}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
       />
@@ -169,7 +205,17 @@ export default function MyOrdersScreen() {
 
 // ── Order card ────────────────────────────────────────────────────────────────
 
-function OrderCard({ order, colors }: { order: CustomerProximityOrder; colors: any }) {
+function OrderCard({
+  order,
+  colors,
+  onReorder,
+  reordering,
+}: {
+  order: CustomerProximityOrder;
+  colors: any;
+  onReorder: (order: CustomerProximityOrder) => void;
+  reordering: boolean;
+}) {
   const sc = STATUS_CONFIG[order.status];
 
   return (
@@ -238,6 +284,24 @@ function OrderCard({ order, colors }: { order: CustomerProximityOrder; colors: a
             Ta commande est confirmée et en cours de préparation.
           </Text>
         </View>
+      )}
+
+      {/* Re-order button — only for delivered orders */}
+      {order.status === 'delivered' && (
+        <TouchableOpacity
+          style={[styles.reorderBtn, { borderColor: GREEN, opacity: reordering ? 0.6 : 1 }]}
+          onPress={() => onReorder(order)}
+          disabled={reordering}
+        >
+          {reordering ? (
+            <ActivityIndicator size="small" color={GREEN} />
+          ) : (
+            <>
+              <Feather name="refresh-cw" size={14} color={GREEN} />
+              <Text style={[styles.reorderBtnTxt, { color: GREEN }]}>Re-commander</Text>
+            </>
+          )}
+        </TouchableOpacity>
       )}
     </View>
   );
@@ -353,4 +417,15 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   hintTxt: { flex: 1, fontSize: 12, lineHeight: 18 },
+  reorderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    marginTop: 2,
+  },
+  reorderBtnTxt: { fontSize: 13, fontWeight: '700' },
 });
