@@ -35,6 +35,12 @@ const STATUS_CONFIG: Record<
   cancelled: { label: 'Annulée',     color: '#DC2626', bg: '#FEF2F2', icon: 'x-circle' },
 };
 
+function getCancelledByLabel(cancelledBy: 'customer' | 'vendor' | null | undefined): string | null {
+  if (cancelledBy === 'customer') return 'Annulée par le client';
+  if (cancelledBy === 'vendor')   return 'Annulée par vous';
+  return null;
+}
+
 const NEXT_STATUS: Record<ProximityOrderStatus, ProximityOrderStatus | null> = {
   pending:   'confirmed',
   confirmed: 'delivered',
@@ -237,9 +243,16 @@ function OrderCard({
           </Text>
           <Text style={[styles.cardTime, { color: colors.mutedForeground }]}>{timeLabel}</Text>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
-          <Feather name={cfg.icon as any} size={12} color={cfg.color} />
-          <Text style={[styles.statusLabel, { color: cfg.color }]}>{cfg.label}</Text>
+        <View style={styles.statusCol}>
+          <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
+            <Feather name={cfg.icon as any} size={12} color={cfg.color} />
+            <Text style={[styles.statusLabel, { color: cfg.color }]}>{cfg.label}</Text>
+          </View>
+          {order.status === 'cancelled' && getCancelledByLabel(order.cancelled_by) && (
+            <Text style={[styles.cancelledByLabel, { color: cfg.color }]}>
+              {getCancelledByLabel(order.cancelled_by)}
+            </Text>
+          )}
         </View>
       </View>
 
@@ -386,6 +399,10 @@ const styles = StyleSheet.create({
   cardTop: { flexDirection: 'row', alignItems: 'flex-start' },
   cardOrderId: { fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
   cardTime: { fontSize: 11, marginTop: 2 },
+  statusCol: {
+    alignItems: 'flex-end',
+    gap: 3,
+  },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -395,6 +412,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   statusLabel: { fontSize: 11, fontWeight: '700' },
+  cancelledByLabel: { fontSize: 10, fontWeight: '600', opacity: 0.8 },
   customerRow: {
     flexDirection: 'row',
     alignItems: 'center',

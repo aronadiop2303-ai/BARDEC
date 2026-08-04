@@ -28,6 +28,7 @@ export interface ProximityOrder {
   subtotal: number;
   total: number;
   status: ProximityOrderStatus;
+  cancelled_by?: 'customer' | 'vendor' | null;
   notes?: string | null;
   created_at: string;
   updated_at?: string;
@@ -94,6 +95,7 @@ export const DEMO_ORDERS: ProximityOrder[] = [
     subtotal: 15000,
     total: 15000,
     status: 'cancelled',
+    cancelled_by: 'customer',
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 6).toISOString(),
   },
 ];
@@ -238,6 +240,7 @@ export function useUpdateOrderStatus() {
       }
       // Uses a SECURITY DEFINER function that only allows changing the status column,
       // preventing vendors from altering totals, items, or customer fields.
+      // cancelled_by is derived server-side ('vendor') — never sent from the client.
       const { error } = await supabase.rpc('update_proximity_order_status', {
         p_order_id: orderId,
         p_status: status,
@@ -333,11 +336,14 @@ export function useCancelMyOrder() {
           ['my_proximity_orders', customerId],
           (prev) =>
             (prev ?? []).map((o) =>
-              o.id === orderId ? { ...o, status: 'cancelled' as ProximityOrderStatus } : o,
+              o.id === orderId
+                ? { ...o, status: 'cancelled' as ProximityOrderStatus, cancelled_by: 'customer' as const }
+                : o,
             ),
         );
         return;
       }
+      // The cancel_my_proximity_order RPC automatically sets cancelled_by = 'customer'.
       const { error } = await supabase.rpc('cancel_my_proximity_order', {
         p_order_id: orderId,
       });
@@ -408,6 +414,21 @@ export const DEMO_CUSTOMER_ORDERS: CustomerProximityOrder[] = [
     total: 8500,
     status: 'delivered',
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+  },
+  {
+    id: 'demo-cust-order-4',
+    proximity_shop_id: 'demo-shop-1',
+    shop_name: 'Boulangerie Teranga',
+    customer_id: 'demo-customer',
+    customer_name: 'Moi',
+    items: [
+      { product_id: 'p6', name: 'Gâteau d\'anniversaire', quantity: 1, unit_price: 12000, total: 12000 },
+    ],
+    subtotal: 12000,
+    total: 12000,
+    status: 'cancelled',
+    cancelled_by: 'vendor',
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
   },
 ];
 

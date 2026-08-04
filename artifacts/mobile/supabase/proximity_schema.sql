@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS proximity_orders (
   total             float8 NOT NULL DEFAULT 0,
   status            text NOT NULL DEFAULT 'pending'
                       CHECK (status IN ('pending','confirmed','delivered','cancelled')),
+  cancelled_by      text CHECK (cancelled_by IN ('customer','vendor')),
   notes             text,
   created_at        timestamptz DEFAULT now(),
   updated_at        timestamptz DEFAULT now()
@@ -79,6 +80,8 @@ CREATE TRIGGER trg_proximity_orders_updated_at
 
 -- Fonction SECURITY DEFINER pour que le vendeur ne puisse changer QUE le statut
 -- (protège items, total, customer_id, etc. contre toute modification)
+-- cancelled_by est toujours dérivé côté serveur : 'vendor' si le vendeur annule,
+-- jamais transmis par le client afin d'éviter toute falsification.
 CREATE OR REPLACE FUNCTION update_proximity_order_status(
   p_order_id uuid,
   p_status   text
@@ -106,9 +109,12 @@ BEGIN
     RAISE EXCEPTION 'Accès refusé : vous n''êtes pas propriétaire de cette boutique';
   END IF;
 
-  -- Mettre à jour uniquement le statut
+  -- Mettre à jour le statut.
+  -- cancelled_by est dérivé ici : uniquement 'vendor' (le propriétaire de la boutique),
+  -- jamais accepté en paramètre pour éviter toute falsification par l'appelant.
   UPDATE proximity_orders
-     SET status = p_status
+     SET status       = p_status,
+         cancelled_by = CASE WHEN p_status = 'cancelled' THEN 'vendor' ELSE NULL END
    WHERE id = p_order_id;
 END;
 $$;
@@ -355,7 +361,8 @@ BEGIN
   -- the same row, so the WHERE clause here acts as an optimistic-lock guard:
   -- if the vendor confirmed first, status <> 'pending' and zero rows match.
   UPDATE proximity_orders
-     SET status = 'cancelled'
+     SET status       = 'cancelled',
+         cancelled_by = 'customer'
    WHERE id            = p_order_id
      AND customer_id   = auth.uid()   -- explicit equality; rejects NULLs on both sides
      AND status        = 'pending';
@@ -380,7 +387,23 @@ BEGIN
 END;
 $$;
 
--- 9. Bucket Storage (à créer manuellement dans Storage > New bucket)
+-- 9. Migration : ajout de la colonne cancelled_by (idempotent)
+-- À exécuter sur les bases existantes qui n'ont pas encore cette colonne.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE  table_schema = 'public'
+      AND  table_name   = 'proximity_orders'
+      AND  column_name  = 'cancelled_by'
+  ) THEN
+    ALTER TABLE proximity_orders
+      ADD COLUMN cancelled_by text CHECK (cancelled_by IN ('customer','vendor'));
+  END IF;
+END;
+$$;
+
+-- 10. Bucket Storage (à créer manuellement dans Storage > New bucket)
 -- Nom: proximity-shop-photos | Public: true
 
 -- 10. Realtime publication

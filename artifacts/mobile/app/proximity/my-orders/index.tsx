@@ -36,6 +36,12 @@ const STATUS_CONFIG: Record<
   cancelled: { label: 'Annulée',     color: '#DC2626', bg: '#FEF2F2', icon: 'x-circle'      },
 };
 
+function getCancelledByLabel(cancelledBy: 'customer' | 'vendor' | null | undefined): string | null {
+  if (cancelledBy === 'customer') return 'Annulée par toi';
+  if (cancelledBy === 'vendor')   return 'Annulée par le commerce';
+  return null;
+}
+
 type Filter = 'all' | ProximityOrderStatus;
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all',       label: 'Toutes'    },
@@ -274,9 +280,16 @@ function OrderCard({
             {order.shop_name}
           </Text>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
-          <Feather name={sc.icon as any} size={11} color={sc.color} />
-          <Text style={[styles.statusLabel, { color: sc.color }]}>{sc.label}</Text>
+        <View style={styles.statusCol}>
+          <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
+            <Feather name={sc.icon as any} size={11} color={sc.color} />
+            <Text style={[styles.statusLabel, { color: sc.color }]}>{sc.label}</Text>
+          </View>
+          {order.status === 'cancelled' && getCancelledByLabel(order.cancelled_by) && (
+            <Text style={[styles.cancelledByLabel, { color: sc.color }]}>
+              {getCancelledByLabel(order.cancelled_by)}
+            </Text>
+          )}
         </View>
       </View>
 
@@ -440,6 +453,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   shopName: { fontSize: 15, fontWeight: '700', flex: 1 },
+  statusCol: {
+    alignItems: 'flex-end',
+    gap: 3,
+  },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -449,6 +466,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   statusLabel: { fontSize: 11, fontWeight: '700' },
+  cancelledByLabel: { fontSize: 10, fontWeight: '600', opacity: 0.8 },
   dateText: { fontSize: 12, marginTop: -4 },
   divider: { height: 1 },
   itemsList: { gap: 5 },
