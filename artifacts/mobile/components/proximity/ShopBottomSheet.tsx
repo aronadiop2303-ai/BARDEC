@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Linking,
   Modal,
@@ -13,6 +13,8 @@ import { router } from 'expo-router';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { CATEGORY_COLORS, ProximityShop } from '@/constants/proximityData';
+import { OmniChatModal } from '@/components/OmniChatModal';
+import type { OmniContext } from '@/hooks/useOmniChat';
 
 interface ShopBottomSheetProps {
   shop: ProximityShop | null;
@@ -36,8 +38,25 @@ function renderStars(rating: number): string {
 
 export default function ShopBottomSheet({ shop, visible, onClose }: ShopBottomSheetProps) {
   const colors = useColors();
+  const [omniVisible, setOmniVisible] = useState(false);
 
   if (!shop) return null;
+
+  const omniContext: OmniContext = {
+    type: 'shop',
+    data: {
+      id: shop.id,
+      name: shop.name,
+      category: shop.category,
+      subcategory: shop.subcategory,
+      address: shop.address,
+      phone: shop.phone,
+      rating: shop.rating,
+      distance_km: shop.distance_km,
+      description: shop.description,
+      verified: shop.verified,
+    },
+  };
 
   const categoryColor = CATEGORY_COLORS[shop.category] ?? colors.primary;
   const todayHours = getTodayHours(shop.opening_hours);
@@ -162,8 +181,19 @@ export default function ShopBottomSheet({ shop, visible, onClose }: ShopBottomSh
               <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>Itinéraire</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Ask OMNI about this shop */}
+          <TouchableOpacity
+            style={[styles.omniBtn, { backgroundColor: colors.primary }]}
+            onPress={() => setOmniVisible(true)}
+          >
+            <Text style={styles.omniBtnIcon}>∞</Text>
+            <Text style={styles.omniBtnText}>Demander à OMNI</Text>
+          </TouchableOpacity>
         </ScrollView>
       </View>
+
+      <OmniChatModal visible={omniVisible} onClose={() => setOmniVisible(false)} context={omniContext} />
     </Modal>
   );
 }
@@ -268,4 +298,15 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   secondaryBtnText: { fontSize: 15, fontWeight: '700' },
+  omniBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 13,
+    borderRadius: 14,
+    marginTop: 10,
+  },
+  omniBtnIcon: { color: 'white', fontSize: 18, fontWeight: '900', lineHeight: 20 },
+  omniBtnText: { color: 'white', fontSize: 15, fontWeight: '700' },
 });

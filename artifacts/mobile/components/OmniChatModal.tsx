@@ -3,11 +3,12 @@ import {
   Modal, View, Text, TextInput, Pressable, FlatList,
   KeyboardAvoidingView, Platform, StyleSheet, ActivityIndicator,
 } from 'react-native';
-import { useOmniChat, OmniChatMessage } from '../hooks/useOmniChat';
+import { useOmniChat, OmniChatMessage, OmniContext } from '../hooks/useOmniChat';
 
 interface OmniChatModalProps {
   visible: boolean;
   onClose: () => void;
+  context?: OmniContext;
 }
 
 function MessageBubble({ message }: { message: OmniChatMessage }) {
@@ -25,8 +26,8 @@ function MessageBubble({ message }: { message: OmniChatMessage }) {
   );
 }
 
-export function OmniChatModal({ visible, onClose }: OmniChatModalProps) {
-  const { messages, isSending, error, sendMessage, startNewConversation } = useOmniChat();
+export function OmniChatModal({ visible, onClose, context }: OmniChatModalProps) {
+  const { messages, isSending, error, sendMessage, startNewConversation } = useOmniChat(context);
   const [input, setInput] = React.useState('');
   const listRef = useRef<FlatList>(null);
 

@@ -15,7 +15,12 @@ function generateLocalId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export function useOmniChat() {
+export interface OmniContext {
+  type: 'product' | 'order' | 'shop';
+  data: Record<string, unknown>;
+}
+
+export function useOmniChat(context?: OmniContext) {
   const [messages, setMessages] = useState<OmniChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
@@ -48,7 +53,11 @@ export function useOmniChat() {
           throw new Error('OMNI n\'est pas disponible en mode démo. Configure Supabase pour l\'activer.');
         }
         const { data, error: invokeError } = await supabase.functions.invoke('omni-agent', {
-          body: { conversation_id: conversationId ?? undefined, message: trimmed },
+          body: {
+            conversation_id: conversationId ?? undefined,
+            message: trimmed,
+            ...(context ? { context } : {}),
+          },
         });
 
         if (invokeError) throw invokeError;
@@ -76,7 +85,8 @@ export function useOmniChat() {
         setIsSending(false);
       }
     },
-    [conversationId, isSending],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [conversationId, isSending, context],
   );
 
   const startNewConversation = useCallback(async () => {

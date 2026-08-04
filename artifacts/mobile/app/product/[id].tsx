@@ -15,6 +15,8 @@ import { useProducts } from '@/hooks/useProducts';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import BardecLayout from '@/components/BardecLayout';
 import ProductCard from '@/components/ProductCard';
+import { OmniChatModal } from '@/components/OmniChatModal';
+import type { OmniContext } from '@/hooks/useOmniChat';
 
 const { width } = Dimensions.get('window');
 type ProductTab = 'description' | 'specifications' | 'reviews' | 'trade_assurance';
@@ -52,6 +54,7 @@ export default function ProductDetailScreen() {
   const [activeTab, setActiveTab] = useState<ProductTab>('description');
   const [quantity, setQuantity] = useState(product?.minQuantity ?? 1);
   const [wishlist, setWishlist] = useState(false);
+  const [omniVisible, setOmniVisible] = useState(false);
 
   // ── Real reviews from Supabase ──────────────────────────────────────────────
   const [reviews, setReviews] = useState(MOCK_REVIEWS);
@@ -83,6 +86,20 @@ export default function ProductDetailScreen() {
     .filter(p => p.category === product.category && p.id !== product.id)
     .slice(0, 4);
   const specs = PRODUCT_SPECS[product.id] ?? {};
+
+  const omniContext: OmniContext = {
+    type: 'product',
+    data: {
+      id: product.id,
+      name: product.name,
+      price: displayPrice,
+      category: product.category,
+      stock: product.stock,
+      rating: product.rating,
+      vendorName: product.vendorName,
+      description: product.description,
+    },
+  };
 
   function handleAddToCart() {
     addItem({
@@ -118,9 +135,14 @@ export default function ProductDetailScreen() {
         <TouchableOpacity style={[styles.iconBtn, { backgroundColor: 'rgba(255,255,255,0.9)' }]} onPress={() => router.back()}>
           <Feather name="arrow-left" size={20} color={colors.foreground} />
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.iconBtn, { backgroundColor: 'rgba(255,255,255,0.9)' }]} onPress={() => setWishlist(!wishlist)}>
-          <Feather name="heart" size={20} color={wishlist ? '#EF4444' : colors.foreground} />
-        </TouchableOpacity>
+        <View style={styles.topBarRight}>
+          <TouchableOpacity style={[styles.iconBtn, { backgroundColor: 'rgba(255,255,255,0.9)' }]} onPress={() => setOmniVisible(true)}>
+            <Text style={[styles.omniIcon, { color: colors.primary }]}>∞</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.iconBtn, { backgroundColor: 'rgba(255,255,255,0.9)' }]} onPress={() => setWishlist(!wishlist)}>
+            <Feather name="heart" size={20} color={wishlist ? '#EF4444' : colors.foreground} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} stickyHeaderIndices={[]} contentContainerStyle={{ paddingBottom: 140 + insets.bottom }}>
@@ -365,6 +387,8 @@ export default function ProductDetailScreen() {
           <Text style={styles.addCartBtnText}>{t('add_to_cart')}</Text>
         </TouchableOpacity>
       </View>
+
+      <OmniChatModal visible={omniVisible} onClose={() => setOmniVisible(false)} context={omniContext} />
     </View>
   );
 }
@@ -378,9 +402,12 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
     zIndex: 10,
   },
+  topBarRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  omniIcon: { fontSize: 20, fontWeight: '900', lineHeight: 22 },
   iconBtn: {
     width: 40,
     height: 40,

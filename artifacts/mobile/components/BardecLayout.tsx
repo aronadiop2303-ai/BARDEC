@@ -18,6 +18,7 @@ import { Feather } from '@/components/Icon';
 import OfflineBanner from './OfflineBanner';
 import { OmniButton } from './OmniButton';
 import { OmniChatModal } from './OmniChatModal';
+import { OmniContext } from '../hooks/useOmniChat';
 
 interface BardecLayoutProps {
   children: React.ReactNode;
@@ -26,6 +27,7 @@ interface BardecLayoutProps {
   refreshing?: boolean;
   showFooter?: boolean;
   backgroundColor?: string;
+  omniContext?: OmniContext;
 }
 
 export default function BardecLayout({
@@ -35,6 +37,7 @@ export default function BardecLayout({
   refreshing = false,
   showFooter = true,
   backgroundColor,
+  omniContext,
 }: BardecLayoutProps) {
   const colors   = useColors();
   const insets   = useSafeAreaInsets();
@@ -135,7 +138,7 @@ export default function BardecLayout({
   ) : null;
 
   const omniModal = (
-    <OmniChatModal visible={omniVisible} onClose={() => setOmniVisible(false)} />
+    <OmniChatModal visible={omniVisible} onClose={() => setOmniVisible(false)} context={omniContext} />
   );
 
   if (!scrollable) {
