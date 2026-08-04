@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import {
   Modal, View, Text, TextInput, Pressable, FlatList,
   KeyboardAvoidingView, Platform, StyleSheet, ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { useOmniChat, OmniChatMessage, OmniContext } from '../hooks/useOmniChat';
 
@@ -11,31 +12,77 @@ interface OmniChatModalProps {
   context?: OmniContext;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Blinking cursor component
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BlinkingCursor() {
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0, duration: 500, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.Text style={[styles.cursor, { opacity }]}>▋</Animated.Text>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Message bubble
+// ─────────────────────────────────────────────────────────────────────────────
+
 function MessageBubble({ message }: { message: OmniChatMessage }) {
   const isUser = message.role === 'user';
+
+  // Initial loading state: pending and no content yet → show spinner
+  const showSpinner = message.pending && !message.streaming && !message.content;
+
+  // Streaming state: has content coming in → show text + blinking cursor
+  const showStreamingText = (message.streaming || message.pending) && !!message.content;
+
   return (
     <View style={[styles.bubbleRow, isUser ? styles.bubbleRowUser : styles.bubbleRowAssistant]}>
       <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}>
-        {message.pending ? (
+        {showSpinner ? (
           <ActivityIndicator size="small" color={isUser ? '#FFFFFF' : '#2563EB'} />
+        ) : showStreamingText ? (
+          <Text style={isUser ? styles.bubbleTextUser : styles.bubbleTextAssistant}>
+            {message.content}
+            <BlinkingCursor />
+          </Text>
         ) : (
-          <Text style={isUser ? styles.bubbleTextUser : styles.bubbleTextAssistant}>{message.content}</Text>
+          <Text style={isUser ? styles.bubbleTextUser : styles.bubbleTextAssistant}>
+            {message.content}
+          </Text>
         )}
       </View>
     </View>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Modal
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function OmniChatModal({ visible, onClose, context }: OmniChatModalProps) {
   const { messages, isSending, error, sendMessage, startNewConversation } = useOmniChat(context);
   const [input, setInput] = React.useState('');
   const listRef = useRef<FlatList>(null);
 
+  // Auto-scroll when messages update (streaming content causes frequent updates)
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
     }
-  }, [messages.length]);
+  }, [messages]);
 
   const handleSend = () => {
     if (!input.trim()) return;
@@ -136,6 +183,7 @@ const styles = StyleSheet.create({
   bubbleAssistant: { backgroundColor: '#FFFFFF', borderBottomLeftRadius: 4, borderWidth: 1, borderColor: '#E2E8F0' },
   bubbleTextUser: { color: '#FFFFFF', fontSize: 15, lineHeight: 20 },
   bubbleTextAssistant: { color: '#1E293B', fontSize: 15, lineHeight: 20 },
+  cursor: { color: '#2563EB', fontSize: 15 },
   errorText: { color: '#DC2626', fontSize: 12, textAlign: 'center', paddingBottom: 4 },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 12, borderTopWidth: 1, borderTopColor: '#E2E8F0', backgroundColor: '#FFFFFF' },
   input: { flex: 1, maxHeight: 100, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, backgroundColor: '#F1F5F9', fontSize: 15 },
