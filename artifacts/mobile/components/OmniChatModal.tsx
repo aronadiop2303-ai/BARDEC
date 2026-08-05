@@ -4,9 +4,11 @@ import {
   KeyboardAvoidingView, Platform, StyleSheet, ActivityIndicator,
   Animated, Image,
 } from 'react-native';
-
-const OMNI_LOGO = require('../assets/images/omni-logo.jpg') as number;
 import { useOmniChat, OmniChatMessage, OmniContext } from '../hooks/useOmniChat';
+
+// ─── OMNI official logo (globe + infinity emblem, blue/silver) ────────────────
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const OMNI_LOGO = require('../assets/images/omni-logo.jpg') as number;
 
 interface OmniChatModalProps {
   visible: boolean;
