@@ -89,11 +89,54 @@ function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
     return Object.fromEntries(order.items.map(i => [i.product_id, i.quantity]));
   });
 
-  // Reset quantities when a new order is shown
+  // Set of product_ids that are no longer in the shop's catalogue
+  const [unavailableIds, setUnavailableIds] = useState<Set<string>>(new Set());
+  const [catalogueLoading, setCatalogueLoading] = useState(false);
+
+  // Reset quantities and fetch current catalogue when a new order is shown
   React.useEffect(() => {
-    if (order) {
-      setQuantities(Object.fromEntries(order.items.map(i => [i.product_id, i.quantity])));
-    }
+    if (!order) return;
+    setQuantities(Object.fromEntries(order.items.map(i => [i.product_id, i.quantity])));
+    setUnavailableIds(new Set());
+
+    if (!isSupabaseConfigured || !supabase) return;
+
+    const productIds = order.items.map(i => i.product_id);
+    if (productIds.length === 0) return;
+
+    // Cleanup flag — set to true when the effect re-runs (order changed) or unmounts.
+    // The async callback checks this before touching state, preventing a stale
+    // response from a previous order from overwriting the current order's state.
+    let cancelled = false;
+
+    setCatalogueLoading(true);
+    supabase
+      .from('proximity_products')
+      .select('id, in_stock')
+      .eq('shop_id', order.proximity_shop_id)
+      .in('id', productIds)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+
+        if (error || !data) {
+          // On failure leave all items interactive — don't deadlock the sheet
+          setUnavailableIds(new Set());
+          setCatalogueLoading(false);
+          return;
+        }
+
+        // An item is unavailable if it's missing from the catalogue OR marked out of stock
+        const availableIds = new Set(
+          (data as { id: string; in_stock: boolean }[])
+            .filter(p => p.in_stock === true)
+            .map(p => p.id),
+        );
+        const missing = new Set(productIds.filter(id => !availableIds.has(id)));
+        setUnavailableIds(missing);
+        setCatalogueLoading(false);
+      });
+
+    return () => { cancelled = true; };
   }, [order?.id]);
 
   if (!order) return null;
@@ -106,11 +149,13 @@ function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
   }
 
   const adjustedItems: ReorderItem[] = order.items
+    .filter(i => !unavailableIds.has(i.product_id))
     .map(i => ({ ...i, quantity: quantities[i.product_id] ?? i.quantity }))
     .filter(i => i.quantity > 0);
 
   const total = adjustedItems.reduce((s, i) => s + i.unit_price * i.quantity, 0);
   const hasItems = adjustedItems.length > 0;
+  const hasUnavailable = unavailableIds.size > 0;
 
   function handleConfirm() {
     if (!hasItems) return;
@@ -139,57 +184,106 @@ function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
           {order.shop_name}
         </Text>
 
+        {/* Unavailability warning banner */}
+        {hasUnavailable && !catalogueLoading && (
+          <View style={[sheetStyles.unavailableBanner, { backgroundColor: '#FEF2F2', borderColor: '#DC262640' }]}>
+            <Feather name="alert-circle" size={14} color="#DC2626" />
+            <Text style={sheetStyles.unavailableBannerTxt}>
+              {unavailableIds.size === 1
+                ? 'Un article n\'est plus disponible et a été retiré de la commande.'
+                : `${unavailableIds.size} articles ne sont plus disponibles et ont été retirés de la commande.`}
+            </Text>
+          </View>
+        )}
+
         {/* Item list */}
         <ScrollView style={sheetStyles.itemsScroll} showsVerticalScrollIndicator={false} bounces={false}>
-          {order.items.map((item) => {
-            const qty = quantities[item.product_id] ?? item.quantity;
-            return (
-              <View
-                key={item.product_id}
-                style={[sheetStyles.itemRow, { borderBottomColor: colors.border }]}
-              >
-                <View style={sheetStyles.itemInfo}>
-                  <Text style={[sheetStyles.itemName, { color: colors.foreground }]} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  <Text style={[sheetStyles.itemUnitPrice, { color: colors.mutedForeground }]}>
-                    {formatPrice(item.unit_price)} / unité
+          {catalogueLoading ? (
+            <ActivityIndicator color={GREEN} style={{ marginVertical: 24 }} />
+          ) : (
+            order.items.map((item) => {
+              const unavailable = unavailableIds.has(item.product_id);
+              const qty = quantities[item.product_id] ?? item.quantity;
+              return (
+                <View
+                  key={item.product_id}
+                  style={[
+                    sheetStyles.itemRow,
+                    { borderBottomColor: colors.border },
+                    unavailable && sheetStyles.itemRowUnavailable,
+                  ]}
+                >
+                  <View style={sheetStyles.itemInfo}>
+                    <View style={sheetStyles.itemNameRow}>
+                      <Text
+                        style={[
+                          sheetStyles.itemName,
+                          { color: unavailable ? colors.mutedForeground : colors.foreground },
+                          unavailable && sheetStyles.strikethrough,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {item.name}
+                      </Text>
+                      {unavailable && (
+                        <View style={sheetStyles.unavailableBadge}>
+                          <Text style={sheetStyles.unavailableBadgeTxt}>Indisponible</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[sheetStyles.itemUnitPrice, { color: colors.mutedForeground }]}>
+                      {formatPrice(item.unit_price)} / unité
+                    </Text>
+                  </View>
+
+                  {/* Quantity stepper — disabled for unavailable items */}
+                  {unavailable ? (
+                    <View style={[sheetStyles.stepper, { opacity: 0.35 }]}>
+                      <View style={[sheetStyles.stepBtn, { borderColor: colors.border }]}>
+                        <Feather name="minus" size={14} color={colors.mutedForeground} />
+                      </View>
+                      <Text style={[sheetStyles.stepQty, { color: colors.mutedForeground }]}>
+                        {qty}
+                      </Text>
+                      <View style={[sheetStyles.stepBtn, { borderColor: colors.border }]}>
+                        <Feather name="plus" size={14} color={colors.mutedForeground} />
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={sheetStyles.stepper}>
+                      <TouchableOpacity
+                        style={[
+                          sheetStyles.stepBtn,
+                          { borderColor: qty <= 0 ? colors.border : '#DC2626' },
+                        ]}
+                        onPress={() => change(item.product_id, -1)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Feather name={qty <= 1 ? 'trash-2' : 'minus'} size={14} color={qty <= 0 ? colors.mutedForeground : '#DC2626'} />
+                      </TouchableOpacity>
+
+                      <Text style={[sheetStyles.stepQty, { color: qty === 0 ? colors.mutedForeground : colors.foreground }]}>
+                        {qty}
+                      </Text>
+
+                      <TouchableOpacity
+                        style={[sheetStyles.stepBtn, { borderColor: GREEN }]}
+                        onPress={() => change(item.product_id, +1)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Feather name="plus" size={14} color={GREEN} />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* Line total */}
+                  <Text style={[sheetStyles.itemLineTotal, { color: unavailable || qty === 0 ? colors.mutedForeground : colors.foreground }]}>
+                    {unavailable ? '—' : formatPrice(item.unit_price * qty)}
                   </Text>
                 </View>
-
-                {/* Quantity stepper */}
-                <View style={sheetStyles.stepper}>
-                  <TouchableOpacity
-                    style={[
-                      sheetStyles.stepBtn,
-                      { borderColor: qty <= 0 ? colors.border : '#DC2626' },
-                    ]}
-                    onPress={() => change(item.product_id, -1)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Feather name={qty <= 1 ? 'trash-2' : 'minus'} size={14} color={qty <= 0 ? colors.mutedForeground : '#DC2626'} />
-                  </TouchableOpacity>
-
-                  <Text style={[sheetStyles.stepQty, { color: qty === 0 ? colors.mutedForeground : colors.foreground }]}>
-                    {qty}
-                  </Text>
-
-                  <TouchableOpacity
-                    style={[sheetStyles.stepBtn, { borderColor: GREEN }]}
-                    onPress={() => change(item.product_id, +1)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Feather name="plus" size={14} color={GREEN} />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Line total */}
-                <Text style={[sheetStyles.itemLineTotal, { color: qty === 0 ? colors.mutedForeground : colors.foreground }]}>
-                  {formatPrice(item.unit_price * qty)}
-                </Text>
-              </View>
-            );
-          })}
+              );
+            })
+          )}
         </ScrollView>
 
         {/* Total + CTA */}
@@ -201,7 +295,7 @@ function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
             </Text>
           </View>
 
-          {!hasItems && (
+          {!hasItems && !catalogueLoading && (
             <View style={[sheetStyles.emptyWarn, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B40' }]}>
               <Feather name="alert-triangle" size={13} color="#D97706" />
               <Text style={sheetStyles.emptyWarnTxt}>
@@ -211,12 +305,12 @@ function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
           )}
 
           <TouchableOpacity
-            style={[sheetStyles.confirmBtn, { backgroundColor: hasItems ? GREEN : colors.muted }]}
+            style={[sheetStyles.confirmBtn, { backgroundColor: hasItems && !catalogueLoading ? GREEN : colors.muted }]}
             onPress={handleConfirm}
-            disabled={!hasItems}
+            disabled={!hasItems || catalogueLoading}
           >
-            <Feather name="shopping-cart" size={16} color={hasItems ? 'white' : colors.mutedForeground} />
-            <Text style={[sheetStyles.confirmBtnTxt, { color: hasItems ? 'white' : colors.mutedForeground }]}>
+            <Feather name="shopping-cart" size={16} color={hasItems && !catalogueLoading ? 'white' : colors.mutedForeground} />
+            <Text style={[sheetStyles.confirmBtnTxt, { color: hasItems && !catalogueLoading ? 'white' : colors.mutedForeground }]}>
               Ajouter au panier
             </Text>
           </TouchableOpacity>
@@ -354,6 +448,44 @@ const sheetStyles = StyleSheet.create({
   confirmBtnTxt: {
     fontSize: 15,
     fontWeight: '700',
+  },
+  unavailableBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 4,
+  },
+  unavailableBannerTxt: {
+    flex: 1,
+    fontSize: 12,
+    color: '#991B1B',
+    lineHeight: 17,
+  },
+  itemRowUnavailable: {
+    opacity: 0.65,
+  },
+  itemNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  strikethrough: {
+    textDecorationLine: 'line-through',
+  },
+  unavailableBadge: {
+    backgroundColor: '#FEE2E2',
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  unavailableBadgeTxt: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#DC2626',
   },
 });
 
