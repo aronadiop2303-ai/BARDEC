@@ -83,6 +83,44 @@ function MessageBubble({ message }: { message: OmniChatMessage }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Vendor-specific empty state
+// ─────────────────────────────────────────────────────────────────────────────
+
+const VENDOR_SUGGESTIONS = [
+  'Quels sont mes produits les plus vendus ?',
+  'Rédige un message de suivi pour ma dernière commande',
+  'Donne-moi un résumé de mes ventes récentes',
+  'Comment améliorer la description de mes produits ?',
+];
+
+function VendorEmptyState({
+  shopName,
+  onSuggest,
+}: {
+  shopName?: string;
+  onSuggest: (q: string) => void;
+}) {
+  const displayName = shopName && shopName.trim() ? shopName.trim() : 'votre boutique';
+  return (
+    <View style={styles.emptyState}>
+      <Text style={styles.emptyEmoji}>🏪</Text>
+      <Text style={styles.emptyTitle}>Bonjour, je suis OMNI</Text>
+      <Text style={styles.emptyText}>
+        Je suis prêt à vous aider avec <Text style={styles.emptyBold}>{displayName}</Text>.
+        Posez-moi une question ou choisissez une suggestion ci-dessous.
+      </Text>
+      <View style={styles.suggestionsContainer}>
+        {VENDOR_SUGGESTIONS.map((q) => (
+          <Pressable key={q} style={styles.suggestionChip} onPress={() => onSuggest(q)}>
+            <Text style={styles.suggestionText}>{q}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Modal
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -127,13 +165,17 @@ export function OmniChatModal({ visible, onClose, context }: OmniChatModalProps)
         </View>
 
         {messages.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>👋</Text>
-            <Text style={styles.emptyTitle}>Bonjour, je suis OMNI</Text>
-            <Text style={styles.emptyText}>
-              Pose-moi une question sur un produit, une commande, ou demande-moi de l'aide pour rédiger quelque chose.
-            </Text>
-          </View>
+          context?.type === 'shop' && context.data?.shop_name ? (
+            <VendorEmptyState shopName={context.data.shop_name as string} onSuggest={(q) => { sendMessage(q); }} />
+          ) : (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyEmoji}>👋</Text>
+              <Text style={styles.emptyTitle}>Bonjour, je suis OMNI</Text>
+              <Text style={styles.emptyText}>
+                Pose-moi une question sur un produit, une commande, ou demande-moi de l'aide pour rédiger quelque chose.
+              </Text>
+            </View>
+          )
         ) : (
           <FlatList
             ref={listRef}
@@ -188,6 +230,13 @@ const styles = StyleSheet.create({
   emptyEmoji: { fontSize: 40, marginBottom: 12 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: '#1E293B', marginBottom: 8 },
   emptyText: { fontSize: 14, color: '#64748B', textAlign: 'center', lineHeight: 20 },
+  emptyBold: { fontWeight: '700', color: '#1E293B' },
+  suggestionsContainer: { marginTop: 20, width: '100%', gap: 8 },
+  suggestionChip: {
+    backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE',
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
+  },
+  suggestionText: { fontSize: 13, color: '#1D4ED8', textAlign: 'center', lineHeight: 18 },
   messageList: { padding: 16, gap: 10 },
   bubbleRow: { flexDirection: 'row' },
   bubbleRowUser: { justifyContent: 'flex-end' },
