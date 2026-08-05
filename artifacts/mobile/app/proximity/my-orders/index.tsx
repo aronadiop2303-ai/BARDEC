@@ -91,6 +91,8 @@ function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
 
   // Set of product_ids that are no longer in the shop's catalogue
   const [unavailableIds, setUnavailableIds] = useState<Set<string>>(new Set());
+  // Map of product_id → current live price (only populated when price differs from order)
+  const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
   const [catalogueLoading, setCatalogueLoading] = useState(false);
 
   // Reset quantities and fetch current catalogue when a new order is shown
@@ -98,6 +100,7 @@ function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
     if (!order) return;
     setQuantities(Object.fromEntries(order.items.map(i => [i.product_id, i.quantity])));
     setUnavailableIds(new Set());
+    setCurrentPrices({});
 
     if (!isSupabaseConfigured || !supabase) return;
 
@@ -112,7 +115,7 @@ function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
     setCatalogueLoading(true);
     supabase
       .from('proximity_products')
-      .select('id, in_stock')
+      .select('id, in_stock, price')
       .eq('shop_id', order.proximity_shop_id)
       .in('id', productIds)
       .then(({ data, error }) => {
@@ -121,18 +124,32 @@ function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
         if (error || !data) {
           // On failure leave all items interactive — don't deadlock the sheet
           setUnavailableIds(new Set());
+          setCurrentPrices({});
           setCatalogueLoading(false);
           return;
         }
 
+        const rows = data as { id: string; in_stock: boolean; price: number }[];
+
         // An item is unavailable if it's missing from the catalogue OR marked out of stock
         const availableIds = new Set(
-          (data as { id: string; in_stock: boolean }[])
-            .filter(p => p.in_stock === true)
-            .map(p => p.id),
+          rows.filter(p => p.in_stock === true).map(p => p.id),
         );
         const missing = new Set(productIds.filter(id => !availableIds.has(id)));
         setUnavailableIds(missing);
+
+        // Build a map of product_id → current price, only for items whose price changed
+        const historicalPriceById = Object.fromEntries(
+          order.items.map(i => [i.product_id, i.unit_price]),
+        );
+        const updatedPrices: Record<string, number> = {};
+        for (const row of rows) {
+          if (typeof row.price === 'number' && row.price !== historicalPriceById[row.id]) {
+            updatedPrices[row.id] = row.price;
+          }
+        }
+        setCurrentPrices(updatedPrices);
+
         setCatalogueLoading(false);
       });
 
@@ -150,7 +167,11 @@ function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
 
   const adjustedItems: ReorderItem[] = order.items
     .filter(i => !unavailableIds.has(i.product_id))
-    .map(i => ({ ...i, quantity: quantities[i.product_id] ?? i.quantity }))
+    .map(i => ({
+      ...i,
+      unit_price: currentPrices[i.product_id] ?? i.unit_price,
+      quantity: quantities[i.product_id] ?? i.quantity,
+    }))
     .filter(i => i.quantity > 0);
 
   const total = adjustedItems.reduce((s, i) => s + i.unit_price * i.quantity, 0);
@@ -204,6 +225,9 @@ function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
             order.items.map((item) => {
               const unavailable = unavailableIds.has(item.product_id);
               const qty = quantities[item.product_id] ?? item.quantity;
+              const livePrice = currentPrices[item.product_id];
+              const effectivePrice = livePrice ?? item.unit_price;
+              const priceUpdated = livePrice !== undefined;
               return (
                 <View
                   key={item.product_id}
@@ -231,9 +255,16 @@ function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
                         </View>
                       )}
                     </View>
-                    <Text style={[sheetStyles.itemUnitPrice, { color: colors.mutedForeground }]}>
-                      {formatPrice(item.unit_price)} / unité
-                    </Text>
+                    <View style={sheetStyles.itemPriceRow}>
+                      <Text style={[sheetStyles.itemUnitPrice, { color: colors.mutedForeground }]}>
+                        {formatPrice(effectivePrice)} / unité
+                      </Text>
+                      {priceUpdated && !unavailable && (
+                        <View style={sheetStyles.priceUpdatedBadge}>
+                          <Text style={sheetStyles.priceUpdatedBadgeTxt}>Prix mis à jour</Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
 
                   {/* Quantity stepper — disabled for unavailable items */}
@@ -278,7 +309,7 @@ function ReorderSheet({ order, onConfirm, onClose }: ReorderSheetProps) {
 
                   {/* Line total */}
                   <Text style={[sheetStyles.itemLineTotal, { color: unavailable || qty === 0 ? colors.mutedForeground : colors.foreground }]}>
-                    {unavailable ? '—' : formatPrice(item.unit_price * qty)}
+                    {unavailable ? '—' : formatPrice(effectivePrice * qty)}
                   </Text>
                 </View>
               );
@@ -376,8 +407,25 @@ const sheetStyles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  itemPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
   itemUnitPrice: {
     fontSize: 11,
+  },
+  priceUpdatedBadge: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  priceUpdatedBadgeTxt: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#92400E',
   },
   stepper: {
     flexDirection: 'row',
