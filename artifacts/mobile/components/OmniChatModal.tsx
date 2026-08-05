@@ -2,8 +2,10 @@ import React, { useRef, useEffect } from 'react';
 import {
   Modal, View, Text, TextInput, Pressable, FlatList,
   KeyboardAvoidingView, Platform, StyleSheet, ActivityIndicator,
-  Animated,
+  Animated, Image,
 } from 'react-native';
+
+const OMNI_LOGO = require('../assets/images/omni-logo.jpg') as number;
 import { useOmniChat, OmniChatMessage, OmniContext } from '../hooks/useOmniChat';
 
 interface OmniChatModalProps {
@@ -148,7 +150,7 @@ export function OmniChatModal({ visible, onClose, context }: OmniChatModalProps)
       <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}>
           <View style={styles.headerTitleRow}>
-            <View style={styles.avatar}><Text style={styles.avatarText}>∞</Text></View>
+            <Image source={OMNI_LOGO} style={styles.avatar} resizeMode="cover" />
             <View>
               <Text style={styles.headerTitle}>OMNI</Text>
               <Text style={styles.headerSubtitle}>Assistant IA de BARDEC</Text>
@@ -219,8 +221,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563EB',
   },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+  avatar: { width: 40, height: 40, borderRadius: 20, overflow: 'hidden', backgroundColor: '#0F2444' },
   headerTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
   headerSubtitle: { color: 'rgba(255,255,255,0.8)', fontSize: 12 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
