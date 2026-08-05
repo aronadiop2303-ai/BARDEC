@@ -8,7 +8,7 @@ import { Tabs } from 'expo-router';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
-import { useMyProximityOrders } from '@/hooks/useProximityOrders';
+import { useNearbyBadge } from '@/hooks/useProximityOrders';
 
 // NOTE: expo-symbols (SF Symbols) is iOS-only and its native module is
 // unavailable on Android — importing it crashes the tab layout on Android.
@@ -26,11 +26,9 @@ export default function TabLayout() {
   const isVendor = user?.role === 'VENDOR';
   const isAdmin  = user?.role === 'ADMIN';
 
-  // Active proximity orders badge (pending + confirmed) — customer only
-  const { data: myProximityOrders } = useMyProximityOrders();
-  const activeProximityOrderCount = !isVendor && !isAdmin
-    ? (myProximityOrders ?? []).filter(o => o.status === 'pending' || o.status === 'confirmed').length
-    : 0;
+  // Nearby badge — unseen active (pending | confirmed) proximity orders for customers.
+  // Clears when the customer visits the Nearby tab (markSeen is called there via useFocusEffect).
+  const { count: nearbyBadgeCount } = useNearbyBadge();
 
   // Properly account for the gesture-navigation bar on Android and home-indicator on iOS.
   // Without this, tab icons overlap the system gesture area on modern Android phones.
@@ -93,7 +91,7 @@ export default function TabLayout() {
         options={{
           title: t('orders'),
           href: !isVendor && !isAdmin ? undefined : null,
-          tabBarBadge: activeProximityOrderCount > 0 ? activeProximityOrderCount : undefined,
+          tabBarBadge: nearbyBadgeCount > 0 ? nearbyBadgeCount : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.primary, fontSize: 10 },
           tabBarIcon: ({ color }) => <Feather name="list" size={22} color={color} />,
         }}
@@ -124,7 +122,7 @@ export default function TabLayout() {
         name="nearby"
         options={{
           title: 'Près de moi',
-          tabBarBadge: activeProximityOrderCount > 0 ? activeProximityOrderCount : undefined,
+          tabBarBadge: nearbyBadgeCount > 0 ? nearbyBadgeCount : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.primary, fontSize: 10 },
           tabBarIcon: ({ color }) => <Feather name="map-pin" size={22} color={color} />,
         }}

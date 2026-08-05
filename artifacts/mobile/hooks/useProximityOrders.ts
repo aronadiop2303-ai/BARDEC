@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
@@ -431,6 +431,122 @@ export const DEMO_CUSTOMER_ORDERS: CustomerProximityOrder[] = [
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
   },
 ];
+
+// ── Nearby badge — "last seen" tracker ──────────────────────────────────────
+//
+// Stores a per-user ISO timestamp in AsyncStorage.  Any active (pending /
+// confirmed) order whose updated_at (or created_at) is newer than that
+// timestamp counts as "unseen" and contributes to the tab badge.
+// Calling markSeen() snapshots the current time so subsequent renders
+// produce a zero count until a new status-change event arrives.
+
+const NEARBY_SEEN_KEY_PREFIX = 'nearby_last_seen:';
+
+/**
+ * Module-level write-fence keyed by userId: set synchronously by markSeen()
+ * before the async AsyncStorage write.  The queryFn reads this after its own
+ * async storage load and returns whichever timestamp is newer, preventing the
+ * stale-storage race where a slow AsyncStorage read overwrites a markSeen()
+ * call that happened while the read was in flight.
+ *
+ * Keyed by userId so that signing in with a different account never leaks
+ * one user's timestamp into another user's badge computation.
+ */
+const _nearbyMarkSeenFence = new Map<string, string>();
+
+async function loadNearbyLastSeen(userId: string): Promise<string | null> {
+  try {
+    const raw = await AsyncStorage.getItem(`${NEARBY_SEEN_KEY_PREFIX}${userId}`);
+    return raw ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveNearbyLastSeen(userId: string, isoTs: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(`${NEARBY_SEEN_KEY_PREFIX}${userId}`, isoTs);
+  } catch { /* non-fatal */ }
+}
+
+/**
+ * Returns the count of active (pending | confirmed) proximity orders that
+ * were created or updated after the last time the customer viewed the Nearby
+ * tab, plus a `markSeen()` function to call when the tab gains focus.
+ *
+ * Non-customer roles always get count = 0.
+ *
+ * Shared state is stored in the React Query cache under the key
+ * ['nearby_badge_last_seen', userId] so that every mounted instance of this
+ * hook (tab layout + screen) re-renders simultaneously when markSeen() is
+ * called — preventing the "badge stays after focus" bug that local useState
+ * would cause.
+ */
+export function useNearbyBadge() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const { data: orders } = useMyProximityOrders();
+
+  const userId = user?.id ?? null;
+  const isCustomer = !!userId && user?.role !== 'VENDOR' && user?.role !== 'ADMIN';
+
+  // Use React Query as the reactive shared store for the last-seen timestamp.
+  // The queryFn loads the persisted value from AsyncStorage on first mount;
+  // subsequent updates come exclusively via setQueryData (no server fetches).
+  //
+  // Race guard: markSeen() may be called (via useFocusEffect) while the initial
+  // AsyncStorage load is still in flight.  Without a guard the queryFn result
+  // would overwrite the newer markSeen timestamp when it resolves.  We prevent
+  // this with the module-level _nearbyMarkSeenAt write-fence (set synchronously
+  // by markSeen before any async work) which the queryFn checks after its load.
+  const { data: lastSeenIso, isLoading } = useQuery<string | null>({
+    queryKey: ['nearby_badge_last_seen', userId],
+    queryFn: async () => {
+      if (!userId) return null;
+      const stored = await loadNearbyLastSeen(userId);
+      // If markSeen() was called while storage was loading, use whichever
+      // timestamp is newer so we never downgrade the badge-clear time.
+      const fenced = _nearbyMarkSeenFence.get(userId) ?? null;
+      if (fenced && (!stored || fenced > stored)) {
+        return fenced;
+      }
+      return stored;
+    },
+    enabled: !!userId,
+    staleTime: Infinity, // never auto-refetch; only updated via setQueryData
+    gcTime:    Infinity, // keep in cache for the lifetime of the session
+  });
+
+  // markSeen updates the shared query cache — all hook instances re-render at once.
+  const markSeen = useCallback(() => {
+    if (!userId) return;
+    const nowIso = new Date().toISOString();
+    // Write the fence synchronously BEFORE the async storage write so the
+    // queryFn can see it if it resolves after this point.
+    _nearbyMarkSeenFence.set(userId, nowIso);
+    qc.setQueryData<string | null>(['nearby_badge_last_seen', userId], nowIso);
+    saveNearbyLastSeen(userId, nowIso);
+  }, [userId, qc]);
+
+  if (!isCustomer || isLoading) return { count: 0, markSeen };
+
+  const activeOrders = (orders ?? []).filter(
+    o => o.status === 'pending' || o.status === 'confirmed',
+  );
+
+  // No previous visit recorded → all active orders are unseen
+  if (!lastSeenIso) return { count: activeOrders.length, markSeen };
+
+  const lastSeenAt = new Date(lastSeenIso);
+
+  // Only orders whose last activity (updated_at ?? created_at) is after lastSeenAt
+  const unseenCount = activeOrders.filter(o => {
+    const activity = o.updated_at ? new Date(o.updated_at) : new Date(o.created_at);
+    return activity > lastSeenAt;
+  }).length;
+
+  return { count: unseenCount, markSeen };
+}
 
 // ── Realtime subscription for customer order status changes ──────────────────
 //

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator,
   Animated,
@@ -29,6 +30,7 @@ import ProximityMap from '@/components/proximity/ProximityMap';
 import ShopBottomSheet from '@/components/proximity/ShopBottomSheet';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useMyProximityShop } from '@/hooks/useMyProximityShop';
+import { useNearbyBadge } from '@/hooks/useProximityOrders';
 
 const GREEN = '#22C55E';
 const TAB_H = Platform.OS === 'android' ? 62 : Platform.OS === 'web' ? 84 : 60;
@@ -61,6 +63,14 @@ function NearbyScreenInner() {
   const searchInputRef = useRef<TextInput>(null);
 
   const { shop: myShop } = useMyProximityShop();
+  const { markSeen } = useNearbyBadge();
+
+  // Clear the tab badge as soon as the customer focuses this screen
+  useFocusEffect(
+    useCallback(() => {
+      markSeen();
+    }, [markSeen]),
+  );
 
   const { data: shops = [], isLoading } = useProximityShops({
     lat: userLoc?.lat ?? null,

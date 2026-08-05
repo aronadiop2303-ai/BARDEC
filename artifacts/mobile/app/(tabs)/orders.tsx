@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator, Alert, KeyboardAvoidingView, Modal,
   Platform, ScrollView, StyleSheet, Text, TextInput,
@@ -13,6 +14,7 @@ import OrderCard from '@/components/OrderCard';
 import { SkeletonOrderCard } from '@/components/SkeletonCard';
 import { Order, MOCK_ORDERS } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { useNearbyBadge } from '@/hooks/useProximityOrders';
 
 // ─── Map Supabase row → Order interface ───────────────────────────────────────
 function mapDbOrder(row: any): Order {
@@ -55,6 +57,14 @@ export default function OrdersScreen() {
   const colors = useColors();
   const { t }  = useLanguage();
   const { user } = useAuth();
+  const { markSeen } = useNearbyBadge();
+
+  // Clear the proximity-orders badge when the customer opens the Orders tab
+  useFocusEffect(
+    useCallback(() => {
+      markSeen();
+    }, [markSeen]),
+  );
 
   const [activeTab,    setActiveTab]    = useState('all');
   const [searchQuery,  setSearchQuery]  = useState('');
