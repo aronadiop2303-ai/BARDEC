@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 export interface OmniChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'separator';
   content: string;
   pending?: boolean;
   streaming?: boolean;
@@ -60,16 +60,76 @@ export function useOmniChat(context?: OmniContext) {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Track serialised context so we can detect when it changes between renders
+  const serializedContext = context ? JSON.stringify(context) : undefined;
+  const prevContextRef = useRef<string | undefined>(serializedContext);
+
+  /**
+   * Generation counter — incremented every time the context resets.
+   * Completion handlers compare their captured generation against this ref;
+   * if it doesn't match the request is stale and its results are discarded.
+   */
+  const generationRef = useRef<number>(0);
+
+  /**
+   * AbortController for the currently in-flight fetch (streaming path).
+   * Replaced on every new send; aborted on context reset.
+   */
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
+    // Capture the generation at mount time. If a context reset fires before
+    // the async read resolves, generationRef will have been incremented and
+    // we discard the stale stored value rather than overwriting cleared state.
+    const hydrateGeneration = generationRef.current;
     AsyncStorage.getItem(CONVERSATION_STORAGE_KEY).then((stored) => {
-      if (stored) setConversationId(stored);
+      if (stored && generationRef.current === hydrateGeneration) {
+        setConversationId(stored);
+      }
     });
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset conversation when context changes (e.g. user opens OMNI from a different product/order)
+  useEffect(() => {
+    const current = context ? JSON.stringify(context) : undefined;
+    if (current === prevContextRef.current) return;
+    prevContextRef.current = current;
+
+    // Invalidate any in-flight request so it cannot write back stale state
+    generationRef.current += 1;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+
+    setConversationId(null);
+    setIsSending(false);
+    AsyncStorage.removeItem(CONVERSATION_STORAGE_KEY).catch(() => {});
+
+    setMessages((prev) => {
+      // Drop any pending/streaming assistant messages from the previous topic,
+      // then append a visual separator if there was any prior history.
+      const withoutPending = prev.filter((m) => !m.pending);
+      if (withoutPending.length === 0) return [];
+      return [
+        ...withoutPending,
+        {
+          id: generateLocalId(),
+          role: 'separator' as const,
+          content: 'Nouveau sujet',
+        },
+      ];
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serializedContext]);
 
   const sendMessage = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || isSending) return;
+
+      // Capture the generation at the start of this request.
+      // If the context resets while the request is running, generationRef will
+      // have been incremented and all completion guards below will bail out.
+      const requestGeneration = generationRef.current;
 
       setError(null);
       const userMessage: OmniChatMessage = {
@@ -98,11 +158,14 @@ export function useOmniChat(context?: OmniContext) {
         const canStream = supportsBodyStream() && !!supabaseUrl;
 
         if (canStream) {
-          await sendStreaming(trimmed, pendingId);
+          await sendStreaming(trimmed, pendingId, requestGeneration);
         } else {
-          await sendNonStreaming(trimmed, pendingId);
+          await sendNonStreaming(trimmed, pendingId, requestGeneration);
         }
       } catch (err) {
+        // Ignore errors from aborted/stale requests
+        if (generationRef.current !== requestGeneration) return;
+
         const message =
           err instanceof Error ? err.message : 'Une erreur est survenue.';
         setError(message);
@@ -119,7 +182,9 @@ export function useOmniChat(context?: OmniContext) {
           ),
         );
       } finally {
-        setIsSending(false);
+        if (generationRef.current === requestGeneration) {
+          setIsSending(false);
+        }
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -127,7 +192,15 @@ export function useOmniChat(context?: OmniContext) {
   );
 
   /** Streaming path via fetch + ReadableStream + SSE parsing */
-  async function sendStreaming(text: string, pendingId: string): Promise<void> {
+  async function sendStreaming(
+    text: string,
+    pendingId: string,
+    requestGeneration: number,
+  ): Promise<void> {
+    // Create a fresh AbortController for this request
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     // Get auth token from current session (optional — anonymous allowed)
     const sessionRes = await supabase!.auth.getSession();
     const token = sessionRes.data?.session?.access_token ?? supabaseAnonKey;
@@ -147,12 +220,16 @@ export function useOmniChat(context?: OmniContext) {
           stream: true,
           ...(context ? { context } : {}),
         }),
+        signal: controller.signal,
       },
     );
 
     if (!res.ok) {
       throw new Error(`Erreur serveur: ${res.status}`);
     }
+
+    // Guard: context may have changed while the fetch was in flight
+    if (generationRef.current !== requestGeneration) return;
 
     // Mark as actively streaming (shows content as it arrives)
     setMessages((prev) =>
@@ -165,6 +242,8 @@ export function useOmniChat(context?: OmniContext) {
     if (!res.body) {
       // Body not available — fall back to text parse
       const raw = await res.text();
+      if (generationRef.current !== requestGeneration) return;
+
       const events = parseSseChunk(raw);
       let fullContent = '';
       let newConvId: string | null = null;
@@ -178,7 +257,7 @@ export function useOmniChat(context?: OmniContext) {
         }
       }
 
-      finishMessage(pendingId, fullContent, newConvId);
+      finishMessage(pendingId, fullContent, newConvId, requestGeneration);
       return;
     }
 
@@ -192,6 +271,12 @@ export function useOmniChat(context?: OmniContext) {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+
+      // Bail out if the context was reset while we were reading
+      if (generationRef.current !== requestGeneration) {
+        reader.cancel().catch(() => {});
+        return;
+      }
 
       buffer += dec.decode(value, { stream: true });
 
@@ -239,11 +324,15 @@ export function useOmniChat(context?: OmniContext) {
       }
     }
 
-    finishMessage(pendingId, accumulated, newConvId);
+    finishMessage(pendingId, accumulated, newConvId, requestGeneration);
   }
 
   /** Fallback: non-streaming via supabase.functions.invoke */
-  async function sendNonStreaming(text: string, pendingId: string): Promise<void> {
+  async function sendNonStreaming(
+    text: string,
+    pendingId: string,
+    requestGeneration: number,
+  ): Promise<void> {
     const { data, error: invokeError } = await supabase!.functions.invoke(
       'omni-agent',
       {
@@ -255,6 +344,9 @@ export function useOmniChat(context?: OmniContext) {
         },
       },
     );
+
+    // Context may have changed while the request was in flight — discard
+    if (generationRef.current !== requestGeneration) return;
 
     if (invokeError) throw invokeError;
     if (!data?.reply) throw new Error('Réponse vide reçue.');
@@ -277,7 +369,11 @@ export function useOmniChat(context?: OmniContext) {
     pendingId: string,
     content: string,
     newConvId: string | null,
+    requestGeneration: number,
   ) {
+    // Discard if the context was reset after this request started
+    if (generationRef.current !== requestGeneration) return;
+
     if (newConvId && newConvId !== conversationId) {
       setConversationId(newConvId);
       AsyncStorage.setItem(CONVERSATION_STORAGE_KEY, newConvId).catch(() => {});
@@ -293,8 +389,12 @@ export function useOmniChat(context?: OmniContext) {
   }
 
   const startNewConversation = useCallback(async () => {
+    generationRef.current += 1;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
     setConversationId(null);
     setMessages([]);
+    setIsSending(false);
     await AsyncStorage.removeItem(CONVERSATION_STORAGE_KEY);
   }, []);
 

@@ -39,7 +39,21 @@ function BlinkingCursor() {
 // Message bubble
 // ─────────────────────────────────────────────────────────────────────────────
 
+function TopicSeparator({ label }: { label: string }) {
+  return (
+    <View style={styles.separatorRow}>
+      <View style={styles.separatorLine} />
+      <Text style={styles.separatorLabel}>{label}</Text>
+      <View style={styles.separatorLine} />
+    </View>
+  );
+}
+
 function MessageBubble({ message }: { message: OmniChatMessage }) {
+  if (message.role === 'separator') {
+    return <TopicSeparator label={message.content} />;
+  }
+
   const isUser = message.role === 'user';
 
   // Initial loading state: pending and no content yet → show spinner
@@ -190,4 +204,7 @@ const styles = StyleSheet.create({
   sendButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center' },
   sendButtonDisabled: { backgroundColor: '#CBD5E1' },
   sendButtonText: { color: '#FFFFFF', fontSize: 16 },
+  separatorRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 12, paddingHorizontal: 8 },
+  separatorLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' },
+  separatorLabel: { marginHorizontal: 10, fontSize: 11, color: '#94A3B8', fontWeight: '500', letterSpacing: 0.4 },
 });
