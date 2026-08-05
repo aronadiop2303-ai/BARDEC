@@ -20,6 +20,8 @@ import {
   ProximityOrderItem,
   ProximityOrderStatus,
 } from '@/hooks/useProximityOrders';
+import { OmniChatModal } from '@/components/OmniChatModal';
+import { OmniContext } from '@/hooks/useOmniChat';
 
 const GREEN = '#22C55E';
 
@@ -73,9 +75,35 @@ export default function MyShopOrdersScreen() {
   const { data: orders = [], isLoading, refetch } = useProximityOrders();
   const updateStatus = useUpdateOrderStatus();
   const [filter, setFilter] = useState<Filter>('all');
+  const [selectedOrder, setSelectedOrder] = useState<ProximityOrder | null>(null);
+  const [omniVisible, setOmniVisible] = useState(false);
 
   const filtered = filter === 'all' ? orders : orders.filter(o => o.status === filter);
   const pendingCount = orders.filter(o => o.status === 'pending').length;
+
+  function buildOmniContext(order: ProximityOrder | null): OmniContext | undefined {
+    if (!order) return undefined;
+    return {
+      type: 'order',
+      data: {
+        id: order.id,
+        status: order.status,
+        total: order.total,
+        created_at: order.created_at,
+        customer_name: order.customer_name ?? null,
+        customer_phone: order.customer_phone ?? null,
+        items: (order.items as ProximityOrderItem[]).map(i => ({
+          name: i.name,
+          quantity: i.quantity,
+          total: i.total,
+        })),
+      },
+    };
+  }
+
+  function handleSelectOrder(order: ProximityOrder) {
+    setSelectedOrder(prev => (prev?.id === order.id ? null : order));
+  }
 
   function handleAdvance(order: ProximityOrder) {
     const next = NEXT_STATUS[order.status];
@@ -144,6 +172,13 @@ export default function MyShopOrdersScreen() {
             </Text>
           )}
         </View>
+        <TouchableOpacity
+          style={[styles.omniBtn, selectedOrder && styles.omniBtnActive]}
+          onPress={() => setOmniVisible(true)}
+          accessibilityLabel="Ouvrir OMNI"
+        >
+          <Text style={styles.omniBtnText}>∞</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.refreshBtn} onPress={() => refetch()}>
           <Feather name="refresh-cw" size={18} color="white" />
         </TouchableOpacity>
@@ -204,12 +239,33 @@ export default function MyShopOrdersScreen() {
             <OrderCard
               order={item}
               colors={colors}
+              selected={selectedOrder?.id === item.id}
+              onSelect={() => handleSelectOrder(item)}
               onAdvance={() => handleAdvance(item)}
               onCancel={() => handleCancel(item)}
             />
           )}
         />
       )}
+
+      {/* OMNI context hint */}
+      {selectedOrder && (
+        <View style={[styles.omniHint, { backgroundColor: GREEN + '15', borderColor: GREEN + '40' }]}>
+          <Feather name="info" size={13} color={GREEN} />
+          <Text style={[styles.omniHintTxt, { color: GREEN }]}>
+            Commande #{selectedOrder.id.slice(-6).toUpperCase()} sélectionnée · OMNI connaît cette commande
+          </Text>
+          <TouchableOpacity onPress={() => setSelectedOrder(null)}>
+            <Feather name="x" size={14} color={GREEN} />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <OmniChatModal
+        visible={omniVisible}
+        onClose={() => setOmniVisible(false)}
+        context={buildOmniContext(selectedOrder)}
+      />
     </View>
   );
 }
@@ -219,11 +275,15 @@ export default function MyShopOrdersScreen() {
 function OrderCard({
   order,
   colors,
+  selected,
+  onSelect,
   onAdvance,
   onCancel,
 }: {
   order: ProximityOrder;
   colors: any;
+  selected: boolean;
+  onSelect: () => void;
   onAdvance: () => void;
   onCancel: () => void;
 }) {
@@ -234,7 +294,18 @@ function OrderCard({
   const timeLabel = formatRelativeTime(date);
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <TouchableOpacity
+      activeOpacity={0.85}
+      onPress={onSelect}
+      style={[
+        styles.card,
+        {
+          backgroundColor: colors.card,
+          borderColor: selected ? GREEN : colors.border,
+          borderWidth: selected ? 2 : 1,
+        },
+      ]}
+    >
       {/* Top row */}
       <View style={styles.cardTop}>
         <View style={{ flex: 1 }}>
@@ -320,7 +391,7 @@ function OrderCard({
           )}
         </View>
       )}
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -460,4 +531,29 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   advanceBtnTxt: { color: 'white', fontSize: 13, fontWeight: '700' },
+  omniBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.18)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  omniBtnActive: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderWidth: 1.5,
+    borderColor: 'white',
+  },
+  omniBtnText: { color: 'white', fontSize: 18, fontWeight: '900', lineHeight: 22 },
+  omniHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  omniHintTxt: { flex: 1, fontSize: 12, fontWeight: '600' },
 });
