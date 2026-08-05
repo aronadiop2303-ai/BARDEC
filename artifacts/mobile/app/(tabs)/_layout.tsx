@@ -93,6 +93,8 @@ export default function TabLayout() {
         options={{
           title: t('orders'),
           href: !isVendor && !isAdmin ? undefined : null,
+          tabBarBadge: activeProximityOrderCount > 0 ? activeProximityOrderCount : undefined,
+          tabBarBadgeStyle: { backgroundColor: colors.primary, fontSize: 10 },
           tabBarIcon: ({ color }) => <Feather name="list" size={22} color={color} />,
         }}
       />
