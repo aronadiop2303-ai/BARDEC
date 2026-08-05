@@ -1,36 +1,57 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Image, Platform, Pressable, StyleSheet } from 'react-native';
+import { Animated, Easing, Image, Pressable, StyleSheet } from 'react-native';
 
-// ─── Local PNG logo (placed in assets/omni-icon.png) ─────────────────────────
-// Falls back gracefully to the ∞ text if the image can't load (Expo web).
-const OMNI_ICON = require('../assets/omni-icon.png') as number;
+// ─── Logo officiel OMNI (JPEG, ~500 B, bundlé avec l'app) ────────────────────
+const OMNI_ICON = require('../assets/omni-icon.jpg') as number;
 
 interface OmniButtonProps {
   onPress: () => void;
 }
 
 export function OmniButton({ onPress }: OmniButtonProps) {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const floatAnim = useRef(new Animated.Value(0)).current;   // translateY  0 → -5 → 0
+  const scaleAnim = useRef(new Animated.Value(1)).current;   // scale       1 → 1.08 → 1
 
-  // Continuous float/pulse: 1 → 1.08 → 1 loop, ~1.5 s period
   useEffect(() => {
+    // Both animations run on the same 2.5 s cycle using Animated.parallel so
+    // they stay perfectly in sync.
     const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(scaleAnim, {
-          toValue:         1.08,
-          duration:        750,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue:         1,
-          duration:        750,
-          useNativeDriver: true,
-        }),
+      Animated.parallel([
+        // Floating lift — up 5 px then back down
+        Animated.sequence([
+          Animated.timing(floatAnim, {
+            toValue:         -5,
+            duration:        1250,
+            easing:          Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(floatAnim, {
+            toValue:         0,
+            duration:        1250,
+            easing:          Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ]),
+        // Gentle pulse — grows slightly while it lifts
+        Animated.sequence([
+          Animated.timing(scaleAnim, {
+            toValue:         1.08,
+            duration:        1250,
+            easing:          Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(scaleAnim, {
+            toValue:         1,
+            duration:        1250,
+            easing:          Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ]),
       ])
     );
     loop.start();
     return () => loop.stop();
-  }, [scaleAnim]);
+  }, [floatAnim, scaleAnim]);
 
   return (
     <Pressable
@@ -39,13 +60,18 @@ export function OmniButton({ onPress }: OmniButtonProps) {
       accessibilityLabel="Ouvrir OMNI, l'assistant IA de BARDEC"
       style={({ pressed }) => [styles.button, pressed && styles.pressed]}
     >
-      <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+      <Animated.View
+        style={{
+          transform: [
+            { translateY: floatAnim },
+            { scale:      scaleAnim  },
+          ],
+        }}
+      >
         <Image
           source={OMNI_ICON}
           style={styles.icon}
           resizeMode="contain"
-          // Web: if PNG can't be resolved, Image simply shows nothing
-          onError={() => {}}
         />
       </Animated.View>
     </Pressable>
@@ -54,22 +80,23 @@ export function OmniButton({ onPress }: OmniButtonProps) {
 
 const styles = StyleSheet.create({
   button: {
-    width:           40,
-    height:          40,
-    borderRadius:    20,
-    backgroundColor: '#1A3A6B',   // deep navy to complement the silver/blue ABFINI logo
+    width:           44,
+    height:          44,
+    borderRadius:    22,
+    backgroundColor: '#0F2444',          // fond navy foncé
     alignItems:      'center',
     justifyContent:  'center',
-    // subtle glow shadow
-    shadowColor:     '#3B82F6',
-    shadowOffset:    { width: 0, height: 0 },
-    shadowOpacity:   0.5,
-    shadowRadius:    6,
-    elevation:       4,
+    // halo bleu-acier
+    shadowColor:     '#4A90D9',
+    shadowOffset:    { width: 0, height: 2 },
+    shadowOpacity:   0.55,
+    shadowRadius:    8,
+    elevation:       6,
   },
-  pressed: { opacity: 0.8 },
+  pressed: { opacity: 0.75 },
   icon: {
-    width:  28,
-    height: 28,
+    width:        30,
+    height:       30,
+    borderRadius: 4,
   },
 });
