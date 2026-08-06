@@ -4,6 +4,7 @@ import {
   StyleSheet, Switch, Text, TouchableOpacity, View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { router } from 'expo-router';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
@@ -49,19 +50,52 @@ export default function ProfileScreen() {
     try {
       if (isSupabaseConfigured && supabase && user && !isDemoMode) {
         const filename = `${user.id}/avatar.jpg`;
-        const response = await fetch(uri);
-        const blob     = await response.blob();
-        const { data, error: upErr } = await supabase.storage
+
+        // Read file as base64 via expo-file-system (reliable for local URIs in RN)
+        console.log('[Avatar] Lecture du fichier local:', uri);
+        const base64 = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        // Decode base64 → Uint8Array for Supabase Storage upload
+        const binaryString = atob(base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        console.log('[Avatar] Upload vers Supabase Storage — bucket: avatars, path:', filename);
+        const { data: upData, error: upErr } = await supabase.storage
           .from('avatars')
-          .upload(filename, blob, { contentType: 'image/jpeg', upsert: true });
-        if (upErr) throw upErr;
-        const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(data.path);
+          .upload(filename, bytes, { contentType: 'image/jpeg', upsert: true });
+        if (upErr) {
+          console.error('[Avatar] Erreur upload Storage:', upErr);
+          throw upErr;
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(upData.path);
+        console.log('[Avatar] URL publique récupérée:', publicUrl);
+
+        console.log('[Avatar] Mise à jour table users — id:', user.id);
+        const { error: updateErr } = await supabase
+          .from('users')
+          .update({ avatar_url: publicUrl })
+          .eq('id', user.id);
+        if (updateErr) {
+          console.error('[Avatar] Erreur mise à jour users:', updateErr);
+          throw updateErr;
+        }
+
         await updateUserAvatar(publicUrl);
+        console.log('[Avatar] Succès — avatar mis à jour.');
       } else {
         // Demo mode: use local URI directly
         await updateUserAvatar(uri);
       }
-    } catch {
+    } catch (err: any) {
+      console.error('[Avatar] Échec handleConfirmAvatar:', err);
       Alert.alert('Erreur', 'Impossible de changer la photo. Réessaie dans un instant.');
     } finally {
       setIsUploadingAvatar(false);

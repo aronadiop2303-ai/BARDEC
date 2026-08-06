@@ -444,7 +444,7 @@ export default function VendorDashboardScreen() {
         const minOrderQty     = parseInt(row['min_order_quantity'] || '1', 10) || 1;
         const category        = row['category']?.trim() || 'Général';
 
-        if (isSupabaseConfigured && supabase && user) {
+        if (isSupabaseConfigured && supabase && user && !isDemoMode) {
           const { error } = await supabase.from('products').insert({
             vendor_id:         user.id,
             name_i18n:         { fr: name },
