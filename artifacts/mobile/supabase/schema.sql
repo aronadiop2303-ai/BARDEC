@@ -290,9 +290,14 @@ ALTER TABLE disputes      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendors       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs    ENABLE ROW LEVEL SECURITY;
 
--- Helper: get current user role
+-- Helper: get current user role.
+-- SECURITY DEFINER + search_path = public is mandatory: the function queries
+-- the `users` table, which itself has an RLS policy that calls this same
+-- function.  Without SECURITY DEFINER the query would trigger the `users`
+-- RLS, which calls current_user_role() again → infinite recursion →
+-- "stack depth limit exceeded" on every table in the schema.
 CREATE OR REPLACE FUNCTION current_user_role()
-RETURNS user_role LANGUAGE sql STABLE AS $$
+RETURNS user_role LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT role FROM users WHERE id = auth.uid()
 $$;
 
@@ -306,6 +311,8 @@ CREATE POLICY "products_public_read"    ON products FOR SELECT USING (is_active 
 CREATE POLICY "products_vendor_manage"  ON products FOR ALL    USING (vendor_id = auth.uid() OR current_user_role() = 'ADMIN');
 
 -- ORDERS: clients voient les leurs; vendors voient commandes liées; approvers voient celles de l'entreprise
+-- INSERT policy is required separately — without it authenticated customers get a 403 on checkout.
+CREATE POLICY "orders_insert"    ON orders FOR INSERT WITH CHECK (customer_id = auth.uid());
 CREATE POLICY "orders_customer"  ON orders FOR SELECT USING (customer_id = auth.uid());
 CREATE POLICY "orders_vendor"    ON orders FOR SELECT USING (
   EXISTS (SELECT 1 FROM products p, jsonb_array_elements(items) item
