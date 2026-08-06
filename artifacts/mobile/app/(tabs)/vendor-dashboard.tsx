@@ -180,14 +180,24 @@ export default function VendorDashboardScreen() {
     const stock = parseInt(addForm.stock, 10) || 0;
 
     setIsSavingProduct(true);
-    if (isSupabaseConfigured && supabase && user && !isDemoMode) {
+    if (isSupabaseConfigured && supabase && user) {
+      // Always use the real Supabase auth UUID — never user.id from context,
+      // which can be a demo placeholder ("u4") when the role switcher is active.
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const realVendorId = authUser?.id;
+      if (!realVendorId) {
+        setIsSavingProduct(false);
+        Alert.alert('Erreur', 'Session expirée. Reconnecte-toi et réessaie.');
+        return;
+      }
+
       // Upload product images first
       const imageUrls: string[] = [];
       if (pendingImages.length > 0) {
         setIsUploadingImages(true);
         for (const uri of pendingImages) {
           try {
-            const filename = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+            const filename = `${realVendorId}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
             const response = await fetch(uri);
             const blob     = await response.blob();
             const { data: upData, error: upErr } = await supabase.storage
@@ -203,7 +213,7 @@ export default function VendorDashboardScreen() {
       }
 
       const { error } = await supabase.from('products').insert({
-        vendor_id:          user.id,
+        vendor_id:          realVendorId,
         name_i18n:          { fr: name },
         description_i18n:   { fr: '' },
         price_public:       pricePublic,
@@ -416,6 +426,15 @@ export default function VendorDashboardScreen() {
       const errors: string[] = [];
       const newLocal: LocalProduct[] = [];
 
+      // Resolve the real Supabase auth UUID once before the loop.
+      // user.id from context can be a demo placeholder ("u4") when the role
+      // switcher is active; supabase.auth.getUser() always returns the real UUID.
+      let realVendorIdForImport: string | null = null;
+      if (isSupabaseConfigured && supabase) {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        realVendorIdForImport = authUser?.id ?? null;
+      }
+
       for (let i = 0; i < rows.length; i++) {
         const row  = rows[i];
         const line = i + 2; // 1 = header row
@@ -444,9 +463,9 @@ export default function VendorDashboardScreen() {
         const minOrderQty     = parseInt(row['min_order_quantity'] || '1', 10) || 1;
         const category        = row['category']?.trim() || 'Général';
 
-        if (isSupabaseConfigured && supabase && user && !isDemoMode) {
+        if (isSupabaseConfigured && supabase && realVendorIdForImport) {
           const { error } = await supabase.from('products').insert({
-            vendor_id:         user.id,
+            vendor_id:         realVendorIdForImport,
             name_i18n:         { fr: name },
             description_i18n:  { fr: '' },
             price_public:      pricePublic,

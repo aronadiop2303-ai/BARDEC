@@ -1,8 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, Image, Pressable, StyleSheet } from 'react-native';
 
-// ─── Logo officiel OMNI (JPEG, ~500 B, bundlé avec l'app) ────────────────────
-const OMNI_ICON = require('../assets/omni-icon.jpg') as number;
+// ─── Logo officiel OMNI (JPEG 1024×1024, bundlé avec l'app) ─────────────────
+const OMNI_ICON = require('../assets/images/omni-logo.jpg') as number;
 
 interface OmniButtonProps {
   onPress: () => void;
