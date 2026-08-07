@@ -212,7 +212,7 @@ export default function VendorDashboardScreen() {
         setIsUploadingImages(false);
       }
 
-      const { error } = await supabase.from('products').insert({
+      const { data: insertedRows, error } = await supabase.from('products').insert({
         vendor_id:          realVendorId,
         name_i18n:          { fr: name },
         description_i18n:   { fr: '' },
@@ -223,11 +223,25 @@ export default function VendorDashboardScreen() {
         category:           addForm.category || 'Général',
         images:             imageUrls,
         is_active:          true,
-      });
+      }).select('id').single();
       setIsSavingProduct(false);
       if (error) { Alert.alert('Erreur Supabase', error.message); return; }
       setPendingImages([]);
-      await fetchProducts();
+
+      // Optimistic update — add the new product to the local list immediately
+      // so the UI reflects the change even if fetchProducts() is blocked by a
+      // temporary RLS or network issue.
+      const newLocalProduct: LocalProduct = {
+        id:            insertedRows?.id ?? `opt-${Date.now()}`,
+        name,
+        stock,
+        priceWholesale,
+        vendorId:      realVendorId,
+      };
+      setSupabaseProducts(prev => [newLocalProduct, ...prev]);
+
+      // Also try a real refetch in the background (updates id / server values).
+      fetchProducts().catch(() => { /* silent — optimistic entry is already visible */ });
     } else {
       // Demo mode — append to local state
       setImportedProducts(prev => [...prev, {
@@ -246,11 +260,16 @@ export default function VendorDashboardScreen() {
 
   // ─── Fetch products from Supabase ─────────────────────────────────────────
   const fetchProducts = useCallback(async () => {
-    if (!isSupabaseConfigured || !supabase || !user) return;
+    if (!isSupabaseConfigured || !supabase) return;
+    // Use the real Supabase auth UUID — user.id from context can be a demo
+    // placeholder that doesn't match the vendor_id stored in the DB.
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const vendorId = authUser?.id;
+    if (!vendorId) return;
     const { data, error } = await supabase
       .from('products')
       .select('id, name_i18n, price_wholesale, stock_quantity')
-      .eq('vendor_id', user.id)
+      .eq('vendor_id', vendorId)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
     if (error) return;
@@ -260,10 +279,10 @@ export default function VendorDashboardScreen() {
         name: p.name_i18n?.fr ?? p.name_i18n?.en ?? Object.values(p.name_i18n ?? {})[0] ?? '—',
         stock: p.stock_quantity ?? 0,
         priceWholesale: p.price_wholesale ?? 0,
-        vendorId: user.id,
+        vendorId,
       })),
     );
-  }, [user]);
+  }, []);
 
   // ─── Fetch vendor orders from Supabase ─────────────────────────────────────
   const fetchVendorOrders = useCallback(async () => {
