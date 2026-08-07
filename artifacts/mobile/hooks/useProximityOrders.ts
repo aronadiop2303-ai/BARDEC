@@ -109,6 +109,14 @@ export const DEMO_ORDERS: ProximityOrder[] = [
 // suppress the false "customer cancelled" notification.
 const _vendorCancelledOrderIds = new Set<string>();
 
+// ── Demo-mode customer cancellation registry ─────────────────────────────────
+//
+// When Supabase is not configured, cancelled orders are tracked here for the
+// lifetime of the session.  The queryFn for useMyProximityOrders applies these
+// overrides so that the 30-second refetchInterval never restores a cancelled
+// order to 'pending', keeping the badge count accurate.
+const _demoCancelledOrderIds = new Set<string>();
+
 // ── Fetch ────────────────────────────────────────────────────────────────────
 
 async function fetchShopOrders(shopId: string): Promise<ProximityOrder[]> {
@@ -327,20 +335,12 @@ export function useCancelMyOrder() {
   return useMutation({
     mutationFn: async (orderId: string) => {
       if (!isSupabaseConfigured || !supabase) {
-        // Demo mode — update the cache directly so the customer UI reflects the
-        // cancellation immediately.
+        // Demo mode — register the cancellation so the query function never
+        // restores this order to 'pending' on subsequent refetches.
         // NOTE: no vendor push notification is sent in demo mode because there is
         // no Supabase Realtime channel to deliver the UPDATE event.  In production
         // the vendor's useProximityOrders UPDATE subscription handles it automatically.
-        qc.setQueryData<CustomerProximityOrder[]>(
-          ['my_proximity_orders', customerId],
-          (prev) =>
-            (prev ?? []).map((o) =>
-              o.id === orderId
-                ? { ...o, status: 'cancelled' as ProximityOrderStatus, cancelled_by: 'customer' as const }
-                : o,
-            ),
-        );
+        _demoCancelledOrderIds.add(orderId);
         return;
       }
       // The cancel_my_proximity_order RPC automatically sets cancelled_by = 'customer'.
@@ -349,8 +349,24 @@ export function useCancelMyOrder() {
       });
       if (error) throw new Error(error.message);
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['my_proximity_orders', customerId] });
+    onSuccess: (_data, orderId) => {
+      // Optimistically mark the order as cancelled in the cache immediately so
+      // the badge count drops without waiting for a background refetch to complete.
+      qc.setQueryData<CustomerProximityOrder[]>(
+        ['my_proximity_orders', customerId],
+        (prev) =>
+          (prev ?? []).map((o) =>
+            o.id === orderId
+              ? { ...o, status: 'cancelled' as ProximityOrderStatus, cancelled_by: 'customer' as const }
+              : o,
+          ),
+      );
+      // In Supabase mode, also trigger a background refetch to keep the cache
+      // in sync with the database.  Skip this in demo mode — the static
+      // DEMO_CUSTOMER_ORDERS would overwrite the optimistic update above.
+      if (isSupabaseConfigured && supabase) {
+        qc.invalidateQueries({ queryKey: ['my_proximity_orders', customerId] });
+      }
     },
   });
 }
@@ -362,7 +378,17 @@ export function useMyProximityOrders() {
 
   return useQuery({
     queryKey: ['my_proximity_orders', customerId],
-    queryFn: () => (customerId ? fetchMyOrders(customerId) : DEMO_CUSTOMER_ORDERS),
+    queryFn: () => {
+      if (customerId) return fetchMyOrders(customerId);
+      // Demo mode: apply any customer-initiated cancellations recorded during
+      // this session so refetches never restore a cancelled order to 'pending'.
+      if (_demoCancelledOrderIds.size === 0) return DEMO_CUSTOMER_ORDERS;
+      return DEMO_CUSTOMER_ORDERS.map((o) =>
+        _demoCancelledOrderIds.has(o.id)
+          ? { ...o, status: 'cancelled' as ProximityOrderStatus, cancelled_by: 'customer' as const }
+          : o,
+      );
+    },
     enabled: true,
     staleTime: 1000 * 30,
     refetchInterval: 1000 * 30,
