@@ -4,99 +4,77 @@ import { Animated, Easing, Image, Pressable, StyleSheet } from 'react-native';
 // ─── Logo officiel OMNI (JPEG 1024×1024, bundlé avec l'app) ─────────────────
 const OMNI_ICON = require('../assets/images/omni-logo.jpg') as number;
 
+// Button diameter — large enough to show the globe cleanly, fits the FAB slot.
+const SIZE   = 52;
+const RADIUS = SIZE / 2;
+
 interface OmniButtonProps {
   onPress: () => void;
 }
 
 export function OmniButton({ onPress }: OmniButtonProps) {
-  const floatAnim = useRef(new Animated.Value(0)).current;   // translateY  0 → -5 → 0
-  const scaleAnim = useRef(new Animated.Value(1)).current;   // scale       1 → 1.08 → 1
+  // Only translateY — no scale, which caused the animated View to escape
+  // the circular clip and produce a moving square effect.
+  const floatAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Both animations run on the same 2.5 s cycle using Animated.parallel so
-    // they stay perfectly in sync.
     const loop = Animated.loop(
-      Animated.parallel([
-        // Floating lift — up 5 px then back down
-        Animated.sequence([
-          Animated.timing(floatAnim, {
-            toValue:         -5,
-            duration:        1250,
-            easing:          Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(floatAnim, {
-            toValue:         0,
-            duration:        1250,
-            easing:          Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
-        // Gentle pulse — grows slightly while it lifts
-        Animated.sequence([
-          Animated.timing(scaleAnim, {
-            toValue:         1.08,
-            duration:        1250,
-            easing:          Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(scaleAnim, {
-            toValue:         1,
-            duration:        1250,
-            easing:          Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ]),
+      Animated.sequence([
+        Animated.timing(floatAnim, {
+          toValue:         -4,
+          duration:        1400,
+          easing:          Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(floatAnim, {
+          toValue:         0,
+          duration:        1400,
+          easing:          Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
       ])
     );
     loop.start();
     return () => loop.stop();
-  }, [floatAnim, scaleAnim]);
+  }, [floatAnim]);
 
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel="Ouvrir OMNI, l'assistant IA de BARDEC"
-      style={({ pressed }) => [styles.button, pressed && styles.pressed]}
-    >
-      <Animated.View
-        style={{
-          transform: [
-            { translateY: floatAnim },
-            { scale:      scaleAnim  },
-          ],
-        }}
+    // Float wraps the whole Pressable so the shadow moves with the button.
+    <Animated.View style={{ transform: [{ translateY: floatAnim }] }}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel="Ouvrir OMNI, l'assistant IA de BARDEC"
+        style={({ pressed }) => [styles.button, pressed && styles.pressed]}
       >
+        {/* Image fills the full circle — overflow:'hidden' on button clips it. */}
         <Image
           source={OMNI_ICON}
           style={styles.icon}
-          resizeMode="contain"
+          resizeMode="cover"
         />
-      </Animated.View>
-    </Pressable>
+      </Pressable>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
-    width:           44,
-    height:          44,
-    borderRadius:    22,
-    backgroundColor: '#0F2444',          // fond navy foncé
-    alignItems:      'center',
-    justifyContent:  'center',
-    // halo bleu-acier
-    shadowColor:     '#4A90D9',
-    shadowOffset:    { width: 0, height: 2 },
-    shadowOpacity:   0.55,
-    shadowRadius:    8,
-    elevation:       6,
+    width:        SIZE,
+    height:       SIZE,
+    borderRadius: RADIUS,
+    overflow:     'hidden',   // enforces the circular clip on the image
+    // halo bleu-acier — unchanged
+    shadowColor:   '#4A90D9',
+    shadowOffset:  { width: 0, height: 3 },
+    shadowOpacity: 0.55,
+    shadowRadius:  10,
+    elevation:     7,
   },
   pressed: { opacity: 0.75 },
   icon: {
-    width:        30,
-    height:       30,
-    borderRadius: 4,
+    width:  SIZE,
+    height: SIZE,
+    // No borderRadius needed — the button's overflow:'hidden' handles clipping.
   },
 });
