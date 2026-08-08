@@ -49,7 +49,13 @@ export default function ProfileScreen() {
     setIsUploadingAvatar(true);
     try {
       if (isSupabaseConfigured && supabase && user && !isDemoMode) {
-        const filename = `${user.id}/avatar.jpg`;
+        // Always use the real Supabase auth UUID — user.id from AuthContext
+        // can be a mock placeholder when the role-switcher is active.
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        const realUserId = authUser?.id;
+        if (!realUserId) throw new Error('Session expirée — reconnecte-toi.');
+
+        const filename = `${realUserId}/avatar.jpg`;
 
         // Read file as base64 via expo-file-system (reliable for local URIs in RN)
         console.log('[Avatar] Lecture du fichier local:', uri);
@@ -70,7 +76,7 @@ export default function ProfileScreen() {
           .upload(filename, bytes, { contentType: 'image/jpeg', upsert: true });
         if (upErr) {
           console.error('[Avatar] Erreur upload Storage:', upErr);
-          throw upErr;
+          throw new Error(`Storage upload: ${upErr.message ?? JSON.stringify(upErr)}`);
         }
 
         const { data: { publicUrl } } = supabase.storage
@@ -78,14 +84,14 @@ export default function ProfileScreen() {
           .getPublicUrl(upData.path);
         console.log('[Avatar] URL publique récupérée:', publicUrl);
 
-        console.log('[Avatar] Mise à jour table users — id:', user.id);
+        console.log('[Avatar] Mise à jour table users — id:', realUserId);
         const { error: updateErr } = await supabase
           .from('users')
           .update({ avatar_url: publicUrl })
-          .eq('id', user.id);
+          .eq('id', realUserId);
         if (updateErr) {
           console.error('[Avatar] Erreur mise à jour users:', updateErr);
-          throw updateErr;
+          throw new Error(`DB update: ${updateErr.message ?? JSON.stringify(updateErr)}`);
         }
 
         await updateUserAvatar(publicUrl);
@@ -95,8 +101,9 @@ export default function ProfileScreen() {
         await updateUserAvatar(uri);
       }
     } catch (err: any) {
-      console.error('[Avatar] Échec handleConfirmAvatar:', err);
-      Alert.alert('Erreur', 'Impossible de changer la photo. Réessaie dans un instant.');
+      const msg = err?.message ?? String(err);
+      console.error('[Avatar] Échec handleConfirmAvatar:', msg);
+      Alert.alert('Erreur photo de profil', msg);
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -254,7 +261,16 @@ export default function ProfileScreen() {
             <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
             <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>B2B</Text>
             <MenuItem icon="file-text" label={t('purchase_order')} colors={colors} />
-            <MenuItem icon="check-circle" label="Approbations en attente" colors={colors} badge={user?.pendingApprovals} />
+            <MenuItem
+              icon="check-circle"
+              label="Approbations en attente"
+              colors={colors}
+              badge={user?.pendingApprovals}
+              onPress={() => router.push({
+                pathname: '/(tabs)/orders',
+                params: { tab: 'pending_approval' },
+              } as any)}
+            />
           </>
         )}
 

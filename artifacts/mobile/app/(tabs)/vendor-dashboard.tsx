@@ -421,12 +421,31 @@ export default function VendorDashboardScreen() {
     if (!statusOrder || !newStatus) return;
     setIsUpdatingStatus(true);
     if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase
+      // Use .select('id') so Supabase returns the updated rows — if the array
+      // is empty, the RLS vendor-update policy is missing (0 rows affected).
+      const { data: updated, error } = await supabase
         .from('orders')
         .update({ status: newStatus, tracking_number: trackingNumber || null })
-        .eq('id', statusOrder.id);
+        .eq('id', statusOrder.id)
+        .select('id');
       setIsUpdatingStatus(false);
-      if (error) { Alert.alert('Erreur', error.message); return; }
+      if (error) {
+        Alert.alert('Erreur Supabase', error.message);
+        return;
+      }
+      if (!updated || updated.length === 0) {
+        // The UPDATE ran but RLS blocked it — no vendor-update policy yet.
+        // Remind the operator to apply the SQL from supabase/schema.sql.
+        Alert.alert(
+          'Permission refusée',
+          'Le statut n\'a pas pu être mis à jour.\n\n' +
+          'La politique RLS "orders_vendor_update" n\'est pas encore appliquée ' +
+          'sur ce projet Supabase. Exécute le SQL depuis supabase/schema.sql ' +
+          'dans le SQL Editor du dashboard Supabase.',
+        );
+        return;
+      }
+      // Optimistic local update
       setVendorOrders(prev =>
         prev.map(o => o.id === statusOrder.id
           ? { ...o, status: newStatus, tracking_number: trackingNumber || o.tracking_number }
@@ -434,6 +453,13 @@ export default function VendorDashboardScreen() {
         )
       );
     } else {
+      // Demo mode — update local state only
+      setVendorOrders(prev =>
+        prev.map(o => o.id === statusOrder.id
+          ? { ...o, status: newStatus }
+          : o
+        )
+      );
       setIsUpdatingStatus(false);
     }
     setStatusOrder(null);
@@ -981,7 +1007,7 @@ export default function VendorDashboardScreen() {
               </View>
             );
           })}
-          <TouchableOpacity style={[styles.viewAllBtn, { borderColor: colors.border }]} onPress={() => router.push('/(tabs)/orders' as any)}>
+          <TouchableOpacity style={[styles.viewAllBtn, { borderColor: colors.border }]} onPress={() => setActiveTab('orders')}>
             <Text style={[styles.viewAllText, { color: colors.primary }]}>Voir toutes les commandes</Text>
             <Feather name="arrow-right" size={16} color={colors.primary} />
           </TouchableOpacity>

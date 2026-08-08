@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import {
   ActivityIndicator, Alert, KeyboardAvoidingView, Modal,
   Platform, ScrollView, StyleSheet, Text, TextInput,
@@ -66,7 +66,10 @@ export default function OrdersScreen() {
     }, [markSeen]),
   );
 
-  const [activeTab,    setActiveTab]    = useState('all');
+  // Support deep-linking to a specific tab, e.g. from the Approver profile badge.
+  // router.push({ pathname: '/(tabs)/orders', params: { tab: 'pending_approval' } })
+  const { tab: initialTab } = useLocalSearchParams<{ tab?: string }>();
+  const [activeTab,    setActiveTab]    = useState(initialTab ?? 'all');
   const [searchQuery,  setSearchQuery]  = useState('');
   const [refreshing,   setRefreshing]   = useState(false);
   const [orders,       setOrders]       = useState<Order[]>([]);
@@ -89,11 +92,24 @@ export default function OrdersScreen() {
       const realId = authUser?.id;
       if (!realId) { setLoading(false); return; }
 
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('customer_id', realId)
-        .order('created_at', { ascending: false });
+      const isApprover = user?.role === 'APPROVER';
+
+      // APPROVERs need to see pending_approval orders from their company, not
+      // just their own orders. The RLS "orders_approver" policy (once applied)
+      // limits what they can see server-side; we just lift the customer_id filter.
+      const query = isApprover
+        ? supabase
+            .from('orders')
+            .select('*')
+            .in('status', ['pending_approval', 'pending'])
+            .order('created_at', { ascending: false })
+        : supabase
+            .from('orders')
+            .select('*')
+            .eq('customer_id', realId)
+            .order('created_at', { ascending: false });
+
+      const { data, error } = await query;
 
       if (error) {
         console.warn('Orders fetch error:', error.message);

@@ -314,6 +314,21 @@ CREATE POLICY "products_vendor_manage"  ON products FOR ALL    USING (vendor_id 
 -- INSERT policy is required separately — without it authenticated customers get a 403 on checkout.
 CREATE POLICY "orders_insert"    ON orders FOR INSERT WITH CHECK (customer_id = auth.uid());
 CREATE POLICY "orders_customer"  ON orders FOR SELECT USING (customer_id = auth.uid());
+-- ⚠️  MUST BE RUN IN SUPABASE DASHBOARD — allows vendors to update status of
+--     orders that contain their products (without this, UPDATE returns 0 rows
+--     silently and the vendor dashboard shows "Permission refusée").
+CREATE POLICY "orders_vendor_update" ON orders FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM products p
+      WHERE p.vendor_id = auth.uid()
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements(orders.items) AS item
+          WHERE (item->>'product_id')::uuid = p.id
+        )
+    )
+  );
+
 CREATE POLICY "orders_vendor"    ON orders FOR SELECT USING (
   EXISTS (SELECT 1 FROM products p, jsonb_array_elements(items) item
           WHERE p.vendor_id = auth.uid() AND p.id = (item->>'productId')::UUID)
