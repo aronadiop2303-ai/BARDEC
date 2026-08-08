@@ -92,7 +92,10 @@ interface LocalProduct {
   id: string;
   name: string;
   stock: number;
+  pricePublic: number;
   priceWholesale: number;
+  category: string;
+  images: string[];
   vendorId: string;
   _imported?: boolean;
 }
@@ -154,17 +157,55 @@ export default function VendorDashboardScreen() {
     { value: 'cancelled',        label: 'Annulé' },
   ];
 
-  // ─── Add product modal ────────────────────────────────────────────────────
-  const [showAddModal, setShowAddModal] = useState(false);
+  // ─── Add / Edit product modal ─────────────────────────────────────────────
+  const [showAddModal,    setShowAddModal]    = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [editingProduct,  setEditingProduct]  = useState<LocalProduct | null>(null);
   const [addForm, setAddForm] = useState({
     name: '', category: 'Général',
     pricePublic: '', priceWholesale: '', stock: '',
   });
 
   function openAddModal() {
+    setEditingProduct(null);
     setAddForm({ name: '', category: 'Général', pricePublic: '', priceWholesale: '', stock: '' });
+    setPendingImages([]);
     setShowAddModal(true);
+  }
+
+  function openEditModal(product: LocalProduct) {
+    setEditingProduct(product);
+    setAddForm({
+      name:          product.name,
+      category:      product.category ?? 'Général',
+      pricePublic:   product.pricePublic ? String(product.pricePublic) : '',
+      priceWholesale: product.priceWholesale ? String(product.priceWholesale) : '',
+      stock:         String(product.stock ?? ''),
+    });
+    setPendingImages([]);
+    setShowAddModal(true);
+  }
+
+  function handleDeleteProduct(product: LocalProduct) {
+    Alert.alert(
+      'Supprimer le produit',
+      `Supprimer "${product.name}" définitivement ? Cette action est irréversible.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            if (isSupabaseConfigured && supabase && !product._imported) {
+              const { error } = await supabase.from('products').delete().eq('id', product.id);
+              if (error) { Alert.alert('Erreur', error.message); return; }
+            }
+            setSupabaseProducts(prev => prev.filter(p => p.id !== product.id));
+            setImportedProducts(prev => prev.filter(p => p.id !== product.id));
+          },
+        },
+      ],
+    );
   }
 
   async function handleAddProduct() {
@@ -245,43 +286,72 @@ export default function VendorDashboardScreen() {
         }
       }
 
-      const { data: insertedRows, error } = await supabase.from('products').insert({
-        vendor_id:          realVendorId,
-        name_i18n:          { fr: name },
-        description_i18n:   { fr: '' },
-        price_public:       pricePublic,
-        price_wholesale:    priceWholesale,
-        min_order_quantity: 1,
-        stock_quantity:     stock,
-        category:           addForm.category || 'Général',
-        images:             imageUrls,
-        is_active:          true,
-      }).select('id').single();
-      setIsSavingProduct(false);
-      if (error) { Alert.alert('Erreur Supabase', error.message); return; }
-      setPendingImages([]);
+      const category = addForm.category || 'Général';
 
-      // Optimistic update — add the new product to the local list immediately
-      // so the UI reflects the change even if fetchProducts() is blocked by a
-      // temporary RLS or network issue.
-      const newLocalProduct: LocalProduct = {
-        id:            insertedRows?.id ?? `opt-${Date.now()}`,
-        name,
-        stock,
-        priceWholesale,
-        vendorId:      realVendorId,
-      };
-      setSupabaseProducts(prev => [newLocalProduct, ...prev]);
-
-      // Also try a real refetch in the background (updates id / server values).
-      fetchProducts().catch(() => { /* silent — optimistic entry is already visible */ });
+      if (editingProduct) {
+        // ── UPDATE ────────────────────────────────────────────────────────────
+        const updatedImages = imageUrls.length > 0
+          ? [...(editingProduct.images ?? []), ...imageUrls]
+          : (editingProduct.images ?? []);
+        const { error } = await supabase.from('products').update({
+          name_i18n:       { fr: name },
+          price_public:    pricePublic,
+          price_wholesale: priceWholesale,
+          stock_quantity:  stock,
+          category,
+          ...(imageUrls.length > 0 ? { images: updatedImages } : {}),
+        }).eq('id', editingProduct.id);
+        setIsSavingProduct(false);
+        if (error) { Alert.alert('Erreur Supabase', error.message); return; }
+        setPendingImages([]);
+        // Optimistic update
+        setSupabaseProducts(prev => prev.map(p =>
+          p.id === editingProduct.id
+            ? { ...p, name, stock, pricePublic, priceWholesale, category, images: updatedImages }
+            : p,
+        ));
+        setEditingProduct(null);
+      } else {
+        // ── INSERT ────────────────────────────────────────────────────────────
+        const { data: insertedRows, error } = await supabase.from('products').insert({
+          vendor_id:          realVendorId,
+          name_i18n:          { fr: name },
+          description_i18n:   { fr: '' },
+          price_public:       pricePublic,
+          price_wholesale:    priceWholesale,
+          min_order_quantity: 1,
+          stock_quantity:     stock,
+          category,
+          images:             imageUrls,
+          is_active:          true,
+        }).select('id').single();
+        setIsSavingProduct(false);
+        if (error) { Alert.alert('Erreur Supabase', error.message); return; }
+        setPendingImages([]);
+        // Optimistic update — product appears immediately even if SELECT is blocked
+        const newLocalProduct: LocalProduct = {
+          id:            insertedRows?.id ?? `opt-${Date.now()}`,
+          name,
+          stock,
+          pricePublic,
+          priceWholesale,
+          category,
+          images:        imageUrls,
+          vendorId:      realVendorId,
+        };
+        setSupabaseProducts(prev => [newLocalProduct, ...prev]);
+        fetchProducts().catch(() => {});
+      }
     } else {
       // Demo mode — append to local state
       setImportedProducts(prev => [...prev, {
         id:            `add-${Date.now()}`,
         name,
         stock,
+        pricePublic,
         priceWholesale,
+        category:      addForm.category || 'Général',
+        images:        [],
         vendorId:      'v1',
         _imported:     true,
       }]);
@@ -301,17 +371,20 @@ export default function VendorDashboardScreen() {
     if (!vendorId) return;
     const { data, error } = await supabase
       .from('products')
-      .select('id, name_i18n, price_wholesale, stock_quantity')
+      .select('id, name_i18n, price_public, price_wholesale, stock_quantity, category, images')
       .eq('vendor_id', vendorId)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
     if (error) return;
     setSupabaseProducts(
       (data ?? []).map((p: any) => ({
-        id: p.id,
-        name: p.name_i18n?.fr ?? p.name_i18n?.en ?? Object.values(p.name_i18n ?? {})[0] ?? '—',
-        stock: p.stock_quantity ?? 0,
+        id:            p.id,
+        name:          p.name_i18n?.fr ?? p.name_i18n?.en ?? Object.values(p.name_i18n ?? {})[0] ?? '—',
+        stock:         p.stock_quantity ?? 0,
+        pricePublic:   p.price_public ?? 0,
         priceWholesale: p.price_wholesale ?? 0,
+        category:      p.category ?? 'Général',
+        images:        p.images ?? [],
         vendorId,
       })),
     );
@@ -405,7 +478,11 @@ export default function VendorDashboardScreen() {
     : [
         ...mockProducts.map(p => ({
           id: p.id, name: p.name, stock: p.stock,
-          priceWholesale: p.priceWholesale, vendorId: p.vendorId,
+          pricePublic: p.priceWholesale,
+          priceWholesale: p.priceWholesale,
+          category: 'Général',
+          images: p.images ?? [],
+          vendorId: p.vendorId,
         })),
         ...importedProducts,
       ];
@@ -534,12 +611,15 @@ export default function VendorDashboardScreen() {
         } else {
           // Demo mode — keep in local state
           newLocal.push({
-            id: `imp-${Date.now()}-${i}`,
+            id:            `imp-${Date.now()}-${i}`,
             name,
-            stock: stockQty,
+            stock:         stockQty,
+            pricePublic:   pricePublic,
             priceWholesale,
-            vendorId: 'v1',
-            _imported: true,
+            category,
+            images:        [],
+            vendorId:      'v1',
+            _imported:     true,
           });
         }
         imported++;
@@ -936,12 +1016,21 @@ export default function VendorDashboardScreen() {
 
           {displayedProducts.map(product => (
             <View key={product.id} style={[styles.productRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <View style={[styles.productIcon, { backgroundColor: product._imported ? '#DCFCE7' : colors.muted }]}>
-                <Feather
-                  name={product._imported ? 'check' : 'package'}
-                  size={18}
-                  color={product._imported ? '#16A34A' : colors.mutedForeground}
-                />
+              {/* Thumbnail — real image if available, package icon otherwise */}
+              <View style={[styles.productIcon, { backgroundColor: colors.muted, overflow: 'hidden' }]}>
+                {product.images?.[0] ? (
+                  <Image
+                    source={{ uri: product.images[0] }}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Feather
+                    name={product._imported ? 'check' : 'package'}
+                    size={18}
+                    color={product._imported ? '#16A34A' : colors.mutedForeground}
+                  />
+                )}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.productName, { color: colors.foreground }]} numberOfLines={1}>{product.name}</Text>
@@ -951,10 +1040,16 @@ export default function VendorDashboardScreen() {
                 </Text>
               </View>
               <View style={styles.productActions}>
-                <TouchableOpacity style={styles.prodActionBtn}>
+                <TouchableOpacity
+                  style={styles.prodActionBtn}
+                  onPress={() => openEditModal(product)}
+                >
                   <Feather name="edit-2" size={15} color={colors.primary} />
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.prodActionBtn}>
+                <TouchableOpacity
+                  style={styles.prodActionBtn}
+                  onPress={() => handleDeleteProduct(product)}
+                >
                   <Feather name="trash-2" size={15} color={colors.destructive} />
                 </TouchableOpacity>
               </View>
@@ -976,8 +1071,10 @@ export default function VendorDashboardScreen() {
           <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             {/* Header */}
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.foreground }]}>Nouveau produit</Text>
-              <TouchableOpacity onPress={() => setShowAddModal(false)}>
+              <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+                {editingProduct ? 'Modifier le produit' : 'Nouveau produit'}
+              </Text>
+              <TouchableOpacity onPress={() => { setShowAddModal(false); setEditingProduct(null); }}>
                 <Feather name="x" size={22} color={colors.mutedForeground} />
               </TouchableOpacity>
             </View>
@@ -1042,7 +1139,10 @@ export default function VendorDashboardScreen() {
                 ? <ActivityIndicator size="small" color="white" />
                 : <Feather name="check" size={18} color="white" />}
               <Text style={styles.modalSaveTxt}>
-                {isUploadingImages ? 'Upload photos…' : isSavingProduct ? 'Enregistrement…' : 'Enregistrer le produit'}
+                {isUploadingImages ? 'Upload photos…'
+                  : isSavingProduct ? 'Enregistrement…'
+                  : editingProduct ? 'Modifier le produit'
+                  : 'Enregistrer le produit'}
               </Text>
             </TouchableOpacity>
           </View>
