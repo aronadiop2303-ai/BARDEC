@@ -64,7 +64,15 @@ export default function CartScreen() {
       {items.map(item => (
         <View key={item.productId} style={[styles.itemCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={[styles.itemImage, { backgroundColor: colors.muted }]}>
-            <Feather name="package" size={24} color={colors.mutedForeground} />
+            {item.image ? (
+              <Image
+                source={{ uri: item.image }}
+                style={styles.itemImagePhoto}
+                resizeMode="cover"
+              />
+            ) : (
+              <Feather name="package" size={24} color={colors.mutedForeground} />
+            )}
           </View>
           <View style={styles.itemInfo}>
             <Text style={[styles.itemName, { color: colors.foreground }]} numberOfLines={2}>
@@ -182,8 +190,13 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 10,
+    overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  itemImagePhoto: {
+    width: 60,
+    height: 60,
   },
   itemInfo: { flex: 1, gap: 4 },
   itemName: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
