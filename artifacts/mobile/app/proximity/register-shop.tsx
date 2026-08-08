@@ -146,17 +146,26 @@ export default function RegisterShopScreen() {
         return;
       }
 
+      // Use the real Supabase auth UUID — user.id from context can be a mock
+      // placeholder ("u1"…) when the role-switcher is active.
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const realOwnerId = authUser?.id;
+      if (!realOwnerId) {
+        Alert.alert('Session expirée', 'Reconnecte-toi et réessaie.');
+        return;
+      }
+
       // Upload photos
       const photoUrls: string[] = [];
       for (const uri of form.photos) {
         try {
-          const url = await uploadPhoto(uri, user.id);
+          const url = await uploadPhoto(uri, realOwnerId);
           photoUrls.push(url);
         } catch { photoUrls.push(uri); }
       }
 
       const { error } = await supabase.from('proximity_shops').insert({
-        owner_id: user.id,
+        owner_id: realOwnerId,
         name: form.name.trim(),
         category: form.category,
         subcategory: form.subcategory.trim() || null,

@@ -50,9 +50,15 @@ export default function ProductDetailScreen() {
   const { products } = useProducts();
   // Prefer Supabase data; fall back to MOCK_PRODUCTS for demo IDs
   const product = products.find(p => p.id === id) ?? MOCK_PRODUCTS.find(p => p.id === id) ?? MOCK_PRODUCTS[0];
+
+  // isB2B must be computed BEFORE the quantity useState so the initial value
+  // can be role-aware. B2B buyers start at minQuantity (e.g. 50 for bulk items);
+  // B2C customers always start at 1 to avoid absurd cart totals.
+  const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
+
   const [activeImage, setActiveImage] = useState(0);
   const [activeTab, setActiveTab] = useState<ProductTab>('description');
-  const [quantity, setQuantity] = useState(product?.minQuantity ?? 1);
+  const [quantity, setQuantity] = useState(isB2B ? (product?.minQuantity ?? 1) : 1);
   const [wishlist, setWishlist] = useState(false);
   const [omniVisible, setOmniVisible] = useState(false);
 
@@ -78,8 +84,6 @@ export default function ProductDetailScreen() {
     }
   }, [id]);
   useEffect(() => { fetchReviews(); }, [fetchReviews]);
-
-  const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
   const displayPrice = isB2B ? product.priceWholesale : product.pricePublic;
   const savings = isB2B ? ((product.pricePublic - product.priceWholesale) / product.pricePublic * 100).toFixed(0) : null;
   const similar = (products.length > 0 ? products : MOCK_PRODUCTS)

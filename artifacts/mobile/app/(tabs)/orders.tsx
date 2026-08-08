@@ -83,10 +83,16 @@ export default function OrdersScreen() {
     if (!user) { setLoading(false); return; }
 
     if (isSupabaseConfigured && supabase) {
+      // Use the real Supabase auth UUID — user.id from context can be a mock
+      // placeholder ("u1"…) when the role-switcher is active.
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const realId = authUser?.id;
+      if (!realId) { setLoading(false); return; }
+
       const { data, error } = await supabase
         .from('orders')
         .select('*')
-        .eq('customer_id', user.id)
+        .eq('customer_id', realId)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -158,10 +164,17 @@ export default function OrdersScreen() {
 
     setSubmittingReview(true);
     if (isSupabaseConfigured && supabase) {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const realId = authUser?.id;
+      if (!realId) {
+        setSubmittingReview(false);
+        Alert.alert('Session expirée', 'Reconnecte-toi et réessaie.');
+        return;
+      }
       const { error } = await supabase.from('reviews').insert({
         product_id:        productId,
         order_id:          reviewOrder.id,
-        user_id:           user.id,
+        user_id:           realId,
         rating:            reviewRating,
         comment:           reviewComment.trim() || null,
         verified_purchase: true,

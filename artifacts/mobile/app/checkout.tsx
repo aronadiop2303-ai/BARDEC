@@ -277,8 +277,20 @@ export default function CheckoutScreen() {
       // ── INSERT ORDER TO SUPABASE ─────────────────────────────────────────
       if (isSupabaseConfigured && supabase && user) {
         setSubmitting(true);
+
+        // Always use the real Supabase auth UUID — user.id from AuthContext
+        // can be a mock placeholder ("u1", "u4", etc.) when the role-switcher
+        // is active, which causes "invalid input syntax for type uuid" in Supabase.
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        const realCustomerId = authUser?.id;
+        if (!realCustomerId) {
+          setSubmitting(false);
+          Alert.alert('Session expirée', 'Reconnecte-toi et réessaie.');
+          return;
+        }
+
         const { error: dbErr } = await supabase.from('orders').insert({
-          customer_id:           user.id,
+          customer_id:           realCustomerId,
           order_number:          orderRef,
           status:                isB2B ? 'pending_approval' : 'pending',
           items:                 items.map(i => ({

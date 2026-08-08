@@ -42,13 +42,23 @@ export default function ProximityCartScreen() {
 
     setOrdering(true);
     try {
+      // Use the real Supabase auth UUID — user.id from context can be a mock
+      // placeholder ("u1"…) when the role-switcher is active.
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const realCustomerId = authUser?.id;
+      if (!realCustomerId) {
+        Alert.alert('Session expirée', 'Reconnecte-toi et réessaie.');
+        setOrdering(false);
+        return;
+      }
+
       // Récupérer les coordonnées client depuis le profil (best-effort)
       let customerName: string | null = user.email ?? null;
       let customerPhone: string | null = null;
       const { data: profile } = await supabase
         .from('users')
         .select('display_name, phone')
-        .eq('id', user.id)
+        .eq('id', realCustomerId)
         .maybeSingle();
       if (profile) {
         if (profile.display_name) customerName = profile.display_name;
@@ -64,7 +74,7 @@ export default function ProximityCartScreen() {
       }));
 
       const { error } = await supabase.from('proximity_orders').insert({
-        customer_id:       user.id,
+        customer_id:       realCustomerId,
         proximity_shop_id: shopId,
         customer_name:     customerName,
         customer_phone:    customerPhone,
