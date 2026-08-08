@@ -191,25 +191,58 @@ export default function VendorDashboardScreen() {
         return;
       }
 
-      // Upload product images first
+      // Upload product images first.
+      // fetch(uri).blob() is unreliable in Expo for local file URIs — use
+      // FileSystem.readAsStringAsync (base64) → Uint8Array instead.
       const imageUrls: string[] = [];
+      const failedUploads: number[] = [];
       if (pendingImages.length > 0) {
         setIsUploadingImages(true);
-        for (const uri of pendingImages) {
+        for (let imgIdx = 0; imgIdx < pendingImages.length; imgIdx++) {
+          const uri = pendingImages[imgIdx];
           try {
             const filename = `${realVendorId}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
-            const response = await fetch(uri);
-            const blob     = await response.blob();
+
+            // Read as base64, decode to binary Uint8Array
+            const base64 = await FileSystem.readAsStringAsync(uri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            const binaryString = atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            console.log(`[ProductImg ${imgIdx + 1}/${pendingImages.length}] Uploading → ${filename}`);
             const { data: upData, error: upErr } = await supabase.storage
               .from('products')
-              .upload(filename, blob, { contentType: 'image/jpeg', upsert: true });
-            if (!upErr && upData) {
-              const { data: { publicUrl } } = supabase.storage.from('products').getPublicUrl(upData.path);
+              .upload(filename, bytes, { contentType: 'image/jpeg', upsert: true });
+
+            if (upErr) {
+              console.error(`[ProductImg ${imgIdx + 1}] Upload error:`, upErr);
+              failedUploads.push(imgIdx + 1);
+            } else if (upData) {
+              const { data: { publicUrl } } = supabase.storage
+                .from('products')
+                .getPublicUrl(upData.path);
+              console.log(`[ProductImg ${imgIdx + 1}] Public URL:`, publicUrl);
               imageUrls.push(publicUrl);
             }
-          } catch { /* skip failed image */ }
+          } catch (err: any) {
+            console.error(`[ProductImg ${imgIdx + 1}] Exception:`, err);
+            failedUploads.push(imgIdx + 1);
+          }
         }
         setIsUploadingImages(false);
+
+        if (failedUploads.length > 0) {
+          Alert.alert(
+            'Photos partiellement uploadées',
+            `${imageUrls.length} photo(s) enregistrée(s) avec succès.\n` +
+            `${failedUploads.length} photo(s) ont échoué (photo${failedUploads.join(', ')}) et ne seront pas incluses.\n\n` +
+            `Le produit sera quand même enregistré.`,
+          );
+        }
       }
 
       const { data: insertedRows, error } = await supabase.from('products').insert({
