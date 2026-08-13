@@ -314,9 +314,8 @@ CREATE POLICY "products_vendor_manage"  ON products FOR ALL    USING (vendor_id 
 -- INSERT policy is required separately — without it authenticated customers get a 403 on checkout.
 CREATE POLICY "orders_insert"    ON orders FOR INSERT WITH CHECK (customer_id = auth.uid());
 CREATE POLICY "orders_customer"  ON orders FOR SELECT USING (customer_id = auth.uid());
--- ⚠️  MUST BE RUN IN SUPABASE DASHBOARD — allows vendors to update status of
---     orders that contain their products (without this, UPDATE returns 0 rows
---     silently and the vendor dashboard shows "Permission refusée").
+-- Allows vendors to update the status of orders that contain their products.
+-- Applied in production 2026-08-13 (migration: add_orders_vendor_update_and_fix_orders_vendor_key).
 CREATE POLICY "orders_vendor_update" ON orders FOR UPDATE
   USING (
     EXISTS (
@@ -329,9 +328,11 @@ CREATE POLICY "orders_vendor_update" ON orders FOR UPDATE
     )
   );
 
+-- Key is 'product_id' (snake_case) to match how checkout.tsx inserts order items.
+-- Was 'productId' (camelCase) until 2026-08-13, which silently matched zero rows.
 CREATE POLICY "orders_vendor"    ON orders FOR SELECT USING (
   EXISTS (SELECT 1 FROM products p, jsonb_array_elements(items) item
-          WHERE p.vendor_id = auth.uid() AND p.id = (item->>'productId')::UUID)
+          WHERE p.vendor_id = auth.uid() AND p.id = (item->>'product_id')::UUID)
 );
 CREATE POLICY "orders_approver"  ON orders FOR ALL USING (
   company_id IN (SELECT company_id FROM users WHERE id = auth.uid())
