@@ -4,7 +4,6 @@ import {
   StyleSheet, Switch, Text, TouchableOpacity, View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import { router } from 'expo-router';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
@@ -15,6 +14,7 @@ import { DEMO_USERS, UserRole } from '@/constants/mockData';
 import RoleBadge from '@/components/RoleBadge';
 import BardecLayout from '@/components/BardecLayout';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { readLocalImageBytes } from '@/lib/imageUpload';
 
 export default function ProfileScreen() {
   const colors = useColors();
@@ -61,18 +61,9 @@ export default function ProfileScreen() {
 
         const filename = `${realUserId}/avatar.jpg`;
 
-        // Read file as base64 via expo-file-system (reliable for local URIs in RN)
+        // Read file as bytes (content:// safe — see lib/imageUpload.ts)
         console.log('[Avatar] Lecture du fichier local:', uri);
-        const base64 = await FileSystem.readAsStringAsync(uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-
-        // Decode base64 → Uint8Array for Supabase Storage upload
-        const binaryString = atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
+        const bytes = await readLocalImageBytes(uri);
 
         console.log('[Avatar] Upload vers Supabase Storage — bucket: avatars, path:', filename);
         const { data: upData, error: upErr } = await supabase.storage

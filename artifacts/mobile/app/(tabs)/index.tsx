@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   FlatList,
   ScrollView,
@@ -9,7 +9,7 @@ import {
   View,
   Dimensions,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, Redirect } from 'expo-router';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
@@ -48,17 +48,12 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, [refetch]);
 
-  // ── Route guard (MUST be before any conditional return) ──────────────────
-  // Rules of Hooks: every hook must be called on every render, in the same
-  // order. Placing this useEffect after the `if (!isAuthenticated)` early
-  // return caused "Rendered more hooks than during the previous render" on
-  // role switches because the hook count differed between renders.
-  useEffect(() => {
-    if (isVendor) router.replace('/vendor-dashboard');
-    else if (isAdmin) router.replace('/admin');
-  }, [isVendor, isAdmin]);
-
-  // ── Conditional returns (safe now — all hooks are above) ─────────────────
+  // ── Conditional returns (all hooks above are called unconditionally on
+  // every render — Rules of Hooks). Role-based redirects use the declarative
+  // <Redirect> component rather than an imperative router.replace() call in
+  // a useEffect: the imperative call could fire before the tab navigator had
+  // registered its screens, producing "The action 'REPLACE' ... was not
+  // handled by any navigator" in dev. <Redirect> defers correctly.
   if (!isAuthenticated) {
     return (
       <View style={[styles.loginPrompt, { backgroundColor: colors.background }]}>
@@ -84,8 +79,8 @@ export default function HomeScreen() {
     );
   }
 
-  // Show nothing while the redirect is in flight.
-  if (isVendor || isAdmin) return null;
+  if (isVendor) return <Redirect href="/vendor-dashboard" />;
+  if (isAdmin) return <Redirect href="/admin" />;
 
   return (
     <BardecLayout onRefresh={onRefresh} refreshing={refreshing}>

@@ -27,6 +27,7 @@ import {
 } from '@/constants/proximityData';
 import ProximityMap from '@/components/proximity/ProximityMap';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { readLocalImageBytes } from '@/lib/imageUpload';
 import { useAuth } from '@/context/AuthContext';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -120,12 +121,14 @@ export default function RegisterShopScreen() {
 
   async function uploadPhoto(uri: string, userId: string): Promise<string> {
     if (!supabase) return uri;
-    const response = await fetch(uri);
-    const blob = await response.blob();
+    // fetch(uri).blob() is unreliable for local URIs in Expo, and doesn't
+    // support Android's content:// Photo Picker URIs at all — use
+    // readLocalImageBytes (content:// safe) instead.
+    const bytes = await readLocalImageBytes(uri);
     const fileName = `${userId}/${Date.now()}.jpg`;
     const { data, error } = await supabase.storage
       .from('proximity-shop-photos')
-      .upload(fileName, blob, { contentType: 'image/jpeg', upsert: false });
+      .upload(fileName, bytes, { contentType: 'image/jpeg', upsert: false });
     if (error) throw error;
     const { data: { publicUrl } } = supabase.storage.from('proximity-shop-photos').getPublicUrl(fileName);
     return publicUrl;

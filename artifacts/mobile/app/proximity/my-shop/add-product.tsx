@@ -19,6 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@/components/Icon';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { readLocalImageBytes } from '@/lib/imageUpload';
 import { useQueryClient } from '@tanstack/react-query';
 
 const GREEN = '#22C55E';
@@ -73,13 +74,16 @@ export default function AddProductScreen() {
   }
 
   async function uploadImage(uri: string): Promise<string> {
-    if (!supabase || !uri.startsWith('file')) return uri;
-    const response = await fetch(uri);
-    const blob = await response.blob();
+    // Previously bailed out (returning the raw local uri unchanged) for any
+    // uri not starting with 'file' — which silently skipped the upload for
+    // every content:// URI from Android's Photo Picker. readLocalImageBytes
+    // handles both file:// and content:// schemes.
+    if (!supabase) return uri;
+    const bytes = await readLocalImageBytes(uri);
     const fileName = `products/${shopId}/${Date.now()}.jpg`;
     const { error } = await supabase.storage
       .from('proximity-shop-photos')
-      .upload(fileName, blob, { contentType: 'image/jpeg' });
+      .upload(fileName, bytes, { contentType: 'image/jpeg' });
     if (error) return uri;
     const { data: { publicUrl } } = supabase.storage.from('proximity-shop-photos').getPublicUrl(fileName);
     return publicUrl;

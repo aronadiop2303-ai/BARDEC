@@ -18,6 +18,7 @@ import { SkeletonBox } from '@/components/SkeletonCard';
 import { router } from 'expo-router';
 import { CATEGORIES, MOCK_ORDERS, MOCK_PRODUCTS, VENDOR_STATS } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { readLocalImageBytes } from '@/lib/imageUpload';
 
 const { width } = Dimensions.get('window');
 
@@ -242,7 +243,7 @@ export default function VendorDashboardScreen() {
 
       // Upload product images first.
       // fetch(uri).blob() is unreliable in Expo for local file URIs — use
-      // FileSystem.readAsStringAsync (base64) → Uint8Array instead.
+      // readLocalImageBytes (base64 → Uint8Array, content:// safe) instead.
       const imageUrls: string[] = [];
       const failedUploads: number[] = [];
       if (pendingImages.length > 0) {
@@ -251,16 +252,7 @@ export default function VendorDashboardScreen() {
           const uri = pendingImages[imgIdx];
           try {
             const filename = `${realVendorId}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
-
-            // Read as base64, decode to binary Uint8Array
-            const base64 = await FileSystem.readAsStringAsync(uri, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
-            const binaryString = atob(base64);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
+            const bytes = await readLocalImageBytes(uri);
 
             console.log(`[ProductImg ${imgIdx + 1}/${pendingImages.length}] Uploading → ${filename}`);
             const { data: upData, error: upErr } = await supabase.storage
@@ -487,10 +479,14 @@ export default function VendorDashboardScreen() {
       Alert.alert('Permission refusée', 'L\'accès à la galerie est nécessaire.');
       return;
     }
+    // quality < 1 combined with allowsMultipleSelection crashes on Android
+    // ("Uri lacks 'file' scheme: content://...") — a documented expo-image-picker
+    // bug where the native module fails to re-compress content:// Photo Picker
+    // results. quality: 1 skips that re-compression entirely.
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
-      quality: 0.7,
+      quality: 1,
     });
     if (result.canceled) return;
     setPendingImages(prev => [...prev, ...result.assets.map(a => a.uri)]);
