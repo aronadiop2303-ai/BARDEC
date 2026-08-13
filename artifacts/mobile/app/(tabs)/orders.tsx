@@ -125,6 +125,17 @@ export default function OrdersScreen() {
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
+  // Refetch whenever this tab regains focus — Expo Router keeps tab screens
+  // mounted, so without this a status change made elsewhere (e.g. the vendor
+  // updating an order) never shows here until the user manually pulls to
+  // refresh. Separate from the markSeen() useFocusEffect above since that one
+  // is declared before fetchOrders exists.
+  useFocusEffect(
+    useCallback(() => {
+      fetchOrders();
+    }, [fetchOrders]),
+  );
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchOrders();

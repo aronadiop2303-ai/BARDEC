@@ -15,7 +15,7 @@ import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
 import BardecLayout from '@/components/BardecLayout';
 import { SkeletonBox } from '@/components/SkeletonCard';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { CATEGORIES, MOCK_ORDERS, MOCK_PRODUCTS, VENDOR_STATS } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { readLocalImageBytes } from '@/lib/imageUpload';
@@ -494,6 +494,17 @@ export default function VendorDashboardScreen() {
 
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
   useEffect(() => { fetchVendorOrders(); }, [fetchVendorOrders]);
+
+  // Refetch on tab focus too — Expo Router keeps tab screens mounted, so a
+  // new order placed (or a product/order changed elsewhere) while the vendor
+  // was on another tab would otherwise never show up without a manual
+  // pull-to-refresh.
+  useFocusEffect(
+    useCallback(() => {
+      fetchProducts();
+      fetchVendorOrders();
+    }, [fetchProducts, fetchVendorOrders]),
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

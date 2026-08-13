@@ -1,6 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
-  Dimensions, Image, ScrollView, StyleSheet, Text,
+  ActivityIndicator, Dimensions, Image, ScrollView, StyleSheet, Text,
   TouchableOpacity, View, Alert, TextInput,
 } from 'react-native';
 import { Feather } from '@/components/Icon';
@@ -9,7 +9,9 @@ import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
 import BardecLayout from '@/components/BardecLayout';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { useFocusEffect } from 'expo-router';
 import { ADMIN_STATS, DEMO_USERS, MOCK_ORDERS } from '@/constants/mockData';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 const { width } = Dimensions.get('window');
 type AdminTab = 'dashboard' | 'users' | 'vendors' | 'orders' | 'disputes' | 'payments' | 'settings' | 'apikeys';
@@ -148,13 +150,68 @@ function AdminScreenInner() {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [refreshing, setRefreshing] = useState(false);
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await new Promise(r => setTimeout(r, 900));
-    setRefreshing(false);
+  // ── Real Supabase data — dashboard/users/vendors/orders only.
+  // Payments/disputes/API keys/settings stay mock: disputes has RLS enabled
+  // with zero policies (blocks even ADMIN reads — needs a CREATE POLICY
+  // decision), and payments/API-keys have no real backing feature yet.
+  interface RealUser {
+    id: string; email: string; display_name: string | null; phone: string | null;
+    role: string; is_approved: boolean; created_at: string;
+  }
+  interface RealOrder {
+    id: string; order_number: string; status: string; total: number; created_at: string;
+  }
+  const [realUsers,        setRealUsers]        = useState<RealUser[]>([]);
+  const [realOrders,       setRealOrders]        = useState<RealOrder[]>([]);
+  const [loadingAdminData, setLoadingAdminData]  = useState(isSupabaseConfigured);
+
+  const fetchAdminData = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingAdminData(false); return; }
+    setLoadingAdminData(true);
+    const [{ data: usersData }, { data: ordersData }] = await Promise.all([
+      supabase.from('users').select('id, email, display_name, phone, role, is_approved, created_at')
+        .order('created_at', { ascending: false }),
+      supabase.from('orders').select('id, order_number, status, total, created_at')
+        .order('created_at', { ascending: false }).limit(200),
+    ]);
+    setRealUsers((usersData ?? []) as RealUser[]);
+    setRealOrders((ordersData ?? []) as RealOrder[]);
+    setLoadingAdminData(false);
   }, []);
 
-  const kpis = [
+  useEffect(() => { fetchAdminData(); }, [fetchAdminData]);
+  useFocusEffect(useCallback(() => { fetchAdminData(); }, [fetchAdminData]));
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    if (isSupabaseConfigured) {
+      await fetchAdminData();
+    } else {
+      await new Promise(r => setTimeout(r, 900));
+    }
+    setRefreshing(false);
+  }, [fetchAdminData]);
+
+  async function handleApproveVendor(id: string, name: string) {
+    if (!supabase) return;
+    const { error } = await supabase.from('users').update({ is_approved: true }).eq('id', id);
+    if (error) { Alert.alert('Erreur', error.message); return; }
+    setRealUsers(prev => prev.map(u => u.id === id ? { ...u, is_approved: true } : u));
+    Alert.alert('Approuvé', `${name} a été approuvé comme vendeur.`);
+  }
+
+  const realVendors        = realUsers.filter(u => u.role === 'VENDOR');
+  const realPendingVendors = realVendors.filter(u => !u.is_approved);
+  const realRevenueTotal   = realOrders.reduce((sum, o) => sum + (o.total ?? 0), 0);
+
+  const kpis = isSupabaseConfigured ? [
+    { icon: 'users', label: 'Utilisateurs', value: realUsers.length.toLocaleString(), color: colors.primary, trend: '' },
+    { icon: 'briefcase', label: 'Vendeurs', value: realVendors.length, color: '#7C3AED', trend: '' },
+    { icon: 'shopping-cart', label: 'Commandes', value: realOrders.length.toLocaleString(), color: colors.secondary, trend: '' },
+    { icon: 'dollar-sign', label: 'Revenus (total commandes)', value: `${realRevenueTotal.toLocaleString('fr-FR')} FCFA`, color: '#22C55E', trend: '' },
+    { icon: 'clock', label: 'Vendeurs en attente', value: realPendingVendors.length, color: '#F59E0B', trend: '' },
+    { icon: 'alert-triangle', label: 'Litiges actifs', value: '—', color: '#EF4444', trend: '' },
+  ] : [
     { icon: 'users', label: 'Utilisateurs', value: ADMIN_STATS.totalUsers.toLocaleString(), color: colors.primary, trend: '+8.2%' },
     { icon: 'briefcase', label: 'Vendeurs', value: ADMIN_STATS.totalVendors, color: '#7C3AED', trend: '+3.1%' },
     { icon: 'shopping-cart', label: 'Commandes', value: ADMIN_STATS.totalOrders.toLocaleString(), color: colors.secondary, trend: '+12.4%' },
@@ -163,11 +220,29 @@ function AdminScreenInner() {
     { icon: 'alert-triangle', label: 'Litiges actifs', value: ADMIN_STATS.activeDisputes, color: '#EF4444', trend: '' },
   ];
 
-  const pendingVendors = [
+  // Demo-mode-only mock vendor cards (kept as-is — never shown when Supabase is configured)
+  const mockPendingVendors = [
     { id: 'v10', name: 'Lagos Tech Hub', country: 'Nigeria', docs: true, kyc: 'pending' },
     { id: 'v11', name: 'Cairo Fabrics Co.', country: 'Egypt', docs: true, kyc: 'pending' },
     { id: 'v12', name: 'Nairobi Solar Ltd.', country: 'Kenya', docs: false, kyc: 'incomplete' },
   ];
+
+  // Normalized shapes so the JSX below doesn't need to branch per-field.
+  const displayUsers = isSupabaseConfigured
+    ? realUsers.map(u => ({ id: u.id, name: u.display_name ?? u.email, email: u.email, role: u.role }))
+    : DEMO_USERS.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role }));
+
+  const displayOrders = isSupabaseConfigured
+    ? realOrders.map(o => ({
+        id: o.id, orderNumber: o.order_number,
+        date: new Date(o.created_at).toLocaleDateString('fr-FR'),
+        totalLabel: `${(o.total ?? 0).toLocaleString('fr-FR')} FCFA`,
+        status: o.status,
+      }))
+    : MOCK_ORDERS.map(o => ({
+        id: o.id, orderNumber: o.orderNumber, date: o.date,
+        totalLabel: `$${o.total.toLocaleString()}`, status: o.status,
+      }));
 
   const activeDisputes = [
     { id: 'd1', order: 'BDC-2024-001100', buyer: 'Ahmed D.', vendor: 'Vega Electronics', amount: 5200, status: 'investigating' },
@@ -297,7 +372,9 @@ function AdminScreenInner() {
         </View>
         <View style={styles.alertBadge}>
           <Feather name="bell" size={16} color="white" />
-          <Text style={styles.alertBadgeText}>{ADMIN_STATS.pendingVendors + ADMIN_STATS.activeDisputes + pendingCount}</Text>
+          <Text style={styles.alertBadgeText}>
+            {(isSupabaseConfigured ? realPendingVendors.length : ADMIN_STATS.pendingVendors) + ADMIN_STATS.activeDisputes + pendingCount}
+          </Text>
         </View>
       </LinearGradient>
 
@@ -358,23 +435,19 @@ function AdminScreenInner() {
       {activeTab === 'users' && (
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Gestion des utilisateurs</Text>
-          {DEMO_USERS.map(u => (
+          {loadingAdminData && <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />}
+          {!loadingAdminData && displayUsers.length === 0 && (
+            <Text style={{ color: colors.mutedForeground, padding: 12 }}>Aucun utilisateur.</Text>
+          )}
+          {displayUsers.map(u => (
             <View key={u.id} style={[styles.userRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={[styles.userAvatar, { backgroundColor: colors.primary }]}>
-                <Text style={styles.userAvatarText}>{u.name[0]}</Text>
+                <Text style={styles.userAvatarText}>{u.name[0]?.toUpperCase()}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.userName, { color: colors.foreground }]}>{u.name}</Text>
                 <Text style={[styles.userEmail, { color: colors.mutedForeground }]}>{u.email}</Text>
                 <Text style={[styles.userRole, { color: colors.primary }]}>{u.role}</Text>
-              </View>
-              <View style={styles.userActions}>
-                <TouchableOpacity style={[styles.actionChip, { backgroundColor: '#D1FAE5' }]}>
-                  <Feather name="check" size={12} color="#059669" />
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionChip, { backgroundColor: '#FEE2E2' }]}>
-                  <Feather name="x" size={12} color="#DC2626" />
-                </TouchableOpacity>
               </View>
             </View>
           ))}
@@ -384,48 +457,81 @@ function AdminScreenInner() {
       {/* VENDORS */}
       {activeTab === 'vendors' && (
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Validation KYC vendeurs</Text>
-          {pendingVendors.map(v => (
-            <View key={v.id} style={[styles.vendorCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <View style={styles.vendorHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.vendorName, { color: colors.foreground }]}>{v.name}</Text>
-                  <Text style={[styles.vendorCountry, { color: colors.mutedForeground }]}>{v.country}</Text>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+            {isSupabaseConfigured ? 'Vendeurs en attente d\'approbation' : 'Validation KYC vendeurs'}
+          </Text>
+          {loadingAdminData && <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />}
+          {isSupabaseConfigured ? (
+            <>
+              {!loadingAdminData && realPendingVendors.length === 0 && (
+                <Text style={{ color: colors.mutedForeground, padding: 12 }}>Aucun vendeur en attente.</Text>
+              )}
+              {realPendingVendors.map(v => (
+                <View key={v.id} style={[styles.vendorCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <View style={styles.vendorHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.vendorName, { color: colors.foreground }]}>{v.display_name ?? v.email}</Text>
+                      <Text style={[styles.vendorCountry, { color: colors.mutedForeground }]}>{v.email}</Text>
+                    </View>
+                    <View style={[styles.kycStatusBadge, { backgroundColor: '#FEF3C7' }]}>
+                      <Text style={[styles.kycStatusText, { color: '#D97706' }]}>En attente</Text>
+                    </View>
+                  </View>
+                  <View style={styles.vendorActions}>
+                    <TouchableOpacity
+                      style={[styles.vendorActionBtn, { backgroundColor: '#D1FAE5', borderColor: '#22C55E' }]}
+                      onPress={() => handleApproveVendor(v.id, v.display_name ?? v.email)}
+                    >
+                      <Feather name="check" size={14} color="#059669" />
+                      <Text style={[styles.vendorActionText, { color: '#059669' }]}>{t('approve')}</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-                <View style={[styles.kycStatusBadge, { backgroundColor: v.kyc === 'pending' ? '#FEF3C7' : '#FEE2E2' }]}>
-                  <Text style={[styles.kycStatusText, { color: v.kyc === 'pending' ? '#D97706' : '#DC2626' }]}>
-                    {v.kyc === 'pending' ? 'En attente' : 'Incomplet'}
+              ))}
+            </>
+          ) : (
+            mockPendingVendors.map(v => (
+              <View key={v.id} style={[styles.vendorCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={styles.vendorHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.vendorName, { color: colors.foreground }]}>{v.name}</Text>
+                    <Text style={[styles.vendorCountry, { color: colors.mutedForeground }]}>{v.country}</Text>
+                  </View>
+                  <View style={[styles.kycStatusBadge, { backgroundColor: v.kyc === 'pending' ? '#FEF3C7' : '#FEE2E2' }]}>
+                    <Text style={[styles.kycStatusText, { color: v.kyc === 'pending' ? '#D97706' : '#DC2626' }]}>
+                      {v.kyc === 'pending' ? 'En attente' : 'Incomplet'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.docStatus}>
+                  <Feather name={v.docs ? 'check-circle' : 'x-circle'} size={14} color={v.docs ? '#22C55E' : '#EF4444'} />
+                  <Text style={[styles.docStatusText, { color: colors.mutedForeground }]}>
+                    Documents {v.docs ? 'soumis' : 'manquants'}
                   </Text>
                 </View>
+                <View style={styles.vendorActions}>
+                  <TouchableOpacity
+                    style={[styles.vendorActionBtn, { backgroundColor: '#D1FAE5', borderColor: '#22C55E' }]}
+                    onPress={() => Alert.alert('Approuvé', `${v.name} a été approuvé comme vendeur.`)}
+                  >
+                    <Feather name="check" size={14} color="#059669" />
+                    <Text style={[styles.vendorActionText, { color: '#059669' }]}>{t('approve')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.vendorActionBtn, { backgroundColor: '#FEE2E2', borderColor: '#EF4444' }]}
+                    onPress={() => Alert.alert('Rejeté', `${v.name} a été rejeté.`)}
+                  >
+                    <Feather name="x" size={14} color="#DC2626" />
+                    <Text style={[styles.vendorActionText, { color: '#DC2626' }]}>{t('reject')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.vendorActionBtn, { backgroundColor: colors.accent, borderColor: colors.border }]}>
+                    <Feather name="file-text" size={14} color={colors.primary} />
+                    <Text style={[styles.vendorActionText, { color: colors.primary }]}>Docs</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-              <View style={styles.docStatus}>
-                <Feather name={v.docs ? 'check-circle' : 'x-circle'} size={14} color={v.docs ? '#22C55E' : '#EF4444'} />
-                <Text style={[styles.docStatusText, { color: colors.mutedForeground }]}>
-                  Documents {v.docs ? 'soumis' : 'manquants'}
-                </Text>
-              </View>
-              <View style={styles.vendorActions}>
-                <TouchableOpacity
-                  style={[styles.vendorActionBtn, { backgroundColor: '#D1FAE5', borderColor: '#22C55E' }]}
-                  onPress={() => Alert.alert('Approuvé', `${v.name} a été approuvé comme vendeur.`)}
-                >
-                  <Feather name="check" size={14} color="#059669" />
-                  <Text style={[styles.vendorActionText, { color: '#059669' }]}>{t('approve')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.vendorActionBtn, { backgroundColor: '#FEE2E2', borderColor: '#EF4444' }]}
-                  onPress={() => Alert.alert('Rejeté', `${v.name} a été rejeté.`)}
-                >
-                  <Feather name="x" size={14} color="#DC2626" />
-                  <Text style={[styles.vendorActionText, { color: '#DC2626' }]}>{t('reject')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.vendorActionBtn, { backgroundColor: colors.accent, borderColor: colors.border }]}>
-                  <Feather name="file-text" size={14} color={colors.primary} />
-                  <Text style={[styles.vendorActionText, { color: colors.primary }]}>Docs</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))}
+            ))
+          )}
         </View>
       )}
 
@@ -433,13 +539,17 @@ function AdminScreenInner() {
       {activeTab === 'orders' && (
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Toutes les commandes</Text>
-          {MOCK_ORDERS.map(order => (
+          {loadingAdminData && <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />}
+          {!loadingAdminData && displayOrders.length === 0 && (
+            <Text style={{ color: colors.mutedForeground, padding: 12 }}>Aucune commande.</Text>
+          )}
+          {displayOrders.map(order => (
             <View key={order.id} style={[styles.userRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.userName, { color: colors.foreground }]}>{order.orderNumber}</Text>
                 <Text style={[styles.userEmail, { color: colors.mutedForeground }]}>{order.date}</Text>
               </View>
-              <Text style={[styles.orderTotal, { color: colors.primary }]}>${order.total.toLocaleString()}</Text>
+              <Text style={[styles.orderTotal, { color: colors.primary }]}>{order.totalLabel}</Text>
               <View style={[styles.kycStatusBadge, { backgroundColor: order.status === 'completed' ? '#D1FAE5' : order.status === 'shipped' ? '#E0F2FE' : '#FEF3C7' }]}>
                 <Text style={[styles.kycStatusText, { color: order.status === 'completed' ? '#059669' : order.status === 'shipped' ? '#0369A1' : '#D97706' }]}>
                   {order.status}
