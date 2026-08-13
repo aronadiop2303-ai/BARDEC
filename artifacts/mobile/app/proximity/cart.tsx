@@ -29,8 +29,11 @@ export default function ProximityCartScreen() {
   async function handleOrder() {
     if (items.length === 0) return;
 
-    if (!isSupabaseConfigured || !supabase || !user) {
-      // Demo mode
+    if (!isSupabaseConfigured || !supabase) {
+      // Demo mode — Supabase genuinely not configured. Do NOT gate on `user`
+      // here: it can be transiently null (auth state change) or a fake demo
+      // object without Supabase being unavailable, which used to make a real
+      // order silently skip the insert while still showing "Commande passée !".
       clearCart();
       Alert.alert(
         '✅ Commande passée !',
@@ -53,7 +56,7 @@ export default function ProximityCartScreen() {
       }
 
       // Récupérer les coordonnées client depuis le profil (best-effort)
-      let customerName: string | null = user.email ?? null;
+      let customerName: string | null = user?.email ?? null;
       let customerPhone: string | null = null;
       const { data: profile } = await supabase
         .from('users')

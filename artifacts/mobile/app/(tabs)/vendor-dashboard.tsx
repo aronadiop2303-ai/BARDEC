@@ -16,7 +16,7 @@ import { useAuth } from '@/context/AuthContext';
 import BardecLayout from '@/components/BardecLayout';
 import { SkeletonBox } from '@/components/SkeletonCard';
 import { router } from 'expo-router';
-import { MOCK_ORDERS, MOCK_PRODUCTS, VENDOR_STATS } from '@/constants/mockData';
+import { CATEGORIES, MOCK_ORDERS, MOCK_PRODUCTS, VENDOR_STATS } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 const { width } = Dimensions.get('window');
@@ -162,13 +162,13 @@ export default function VendorDashboardScreen() {
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [editingProduct,  setEditingProduct]  = useState<LocalProduct | null>(null);
   const [addForm, setAddForm] = useState({
-    name: '', category: 'Général',
+    name: '', category: '',
     pricePublic: '', priceWholesale: '', stock: '',
   });
 
   function openAddModal() {
     setEditingProduct(null);
-    setAddForm({ name: '', category: 'Général', pricePublic: '', priceWholesale: '', stock: '' });
+    setAddForm({ name: '', category: '', pricePublic: '', priceWholesale: '', stock: '' });
     setPendingImages([]);
     setShowAddModal(true);
   }
@@ -177,7 +177,7 @@ export default function VendorDashboardScreen() {
     setEditingProduct(product);
     setAddForm({
       name:          product.name,
-      category:      product.category ?? 'Général',
+      category:      CATEGORIES.some(c => c.id === product.category) ? product.category : '',
       pricePublic:   product.pricePublic ? String(product.pricePublic) : '',
       priceWholesale: product.priceWholesale ? String(product.priceWholesale) : '',
       stock:         String(product.stock ?? ''),
@@ -211,6 +211,7 @@ export default function VendorDashboardScreen() {
   async function handleAddProduct() {
     const name = addForm.name.trim();
     if (!name) { Alert.alert('Erreur', 'Le nom du produit est requis.'); return; }
+    if (!addForm.category) { Alert.alert('Erreur', 'Sélectionne une catégorie.'); return; }
     const pricePublic = parseFloat(addForm.pricePublic.replace(',', '.'));
     if (isNaN(pricePublic) || pricePublic < 0) {
       Alert.alert('Erreur', 'Prix public invalide.'); return;
@@ -221,7 +222,14 @@ export default function VendorDashboardScreen() {
     const stock = parseInt(addForm.stock, 10) || 0;
 
     setIsSavingProduct(true);
-    if (isSupabaseConfigured && supabase && user) {
+    // Gate on isSupabaseConfigured/supabase only — never on context `user`.
+    // `user` can be transiently null (auth state change on a flaky connection)
+    // or a fake DEMO_USERS object (role switcher) without that meaning Supabase
+    // is unavailable. The real auth UUID is always re-resolved below via
+    // supabase.auth.getUser(); if that comes back empty we surface "Session
+    // expirée" instead of silently falling through to the local-only demo
+    // branch, which used to save nothing to the DB while looking like success.
+    if (isSupabaseConfigured && supabase) {
       // Always use the real Supabase auth UUID — never user.id from context,
       // which can be a demo placeholder ("u4") when the role switcher is active.
       const { data: { user: authUser } } = await supabase.auth.getUser();
@@ -286,7 +294,7 @@ export default function VendorDashboardScreen() {
         }
       }
 
-      const category = addForm.category || 'Général';
+      const category = addForm.category;
 
       if (editingProduct) {
         // ── UPDATE ────────────────────────────────────────────────────────────
@@ -350,7 +358,7 @@ export default function VendorDashboardScreen() {
         stock,
         pricePublic,
         priceWholesale,
-        category:      addForm.category || 'Général',
+        category:      addForm.category,
         images:        [],
         vendorId:      'v1',
         _imported:     true,
@@ -392,13 +400,18 @@ export default function VendorDashboardScreen() {
 
   // ─── Fetch vendor orders from Supabase ─────────────────────────────────────
   const fetchVendorOrders = useCallback(async () => {
-    if (!isSupabaseConfigured || !supabase || !user) return;
+    if (!isSupabaseConfigured || !supabase) return;
     setOrdersLoading(true);
+    // Always use the real Supabase auth UUID — never user.id from context,
+    // which can be a demo placeholder ("u4") when the role switcher is active.
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const realVendorId = authUser?.id;
+    if (!realVendorId) { setOrdersLoading(false); return; }
     // Get this vendor's product IDs
     const { data: prods } = await supabase
       .from('products')
       .select('id')
-      .eq('vendor_id', user.id);
+      .eq('vendor_id', realVendorId);
     const productIds = (prods ?? []).map((p: any) => p.id);
     if (productIds.length === 0) { setOrdersLoading(false); return; }
 
@@ -414,7 +427,7 @@ export default function VendorDashboardScreen() {
     });
     setVendorOrders(filtered);
     setOrdersLoading(false);
-  }, [user]);
+  }, []);
 
   // ─── Update order status ───────────────────────────────────────────────────
   async function handleUpdateOrderStatus() {
@@ -700,14 +713,23 @@ export default function VendorDashboardScreen() {
         ['Numéro commande', 'Date', 'Client', 'Statut', 'Total (FCFA)'],
       ];
 
-      if (isSupabaseConfigured && supabase && user) {
+      if (isSupabaseConfigured && supabase) {
+        // Always use the real Supabase auth UUID — never user.id from context,
+        // which can be a demo placeholder ("u4") when the role switcher is active.
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        const realVendorId = authUser?.id;
+        if (!realVendorId) {
+          Alert.alert('Erreur', 'Session expirée. Reconnecte-toi et réessaie.');
+          return;
+        }
+
         // Fetch orders; filter those whose items include at least one product
         // owned by this vendor.  We first fetch the vendor's product IDs, then
         // query orders that contain any of them via JSONB containment.
         const { data: prodIds } = await supabase
           .from('products')
           .select('id')
-          .eq('vendor_id', user.id);
+          .eq('vendor_id', realVendorId);
 
         const ids: string[] = (prodIds ?? []).map((p: any) => p.id);
 
@@ -726,7 +748,7 @@ export default function VendorDashboardScreen() {
           return ids.length === 0
             ? true // no products yet → export everything
             : items.some((it: any) =>
-                ids.includes(it.product_id) || it.vendor_id === user.id,
+                ids.includes(it.product_id) || it.vendor_id === realVendorId,
               );
         });
 
@@ -1107,8 +1129,55 @@ export default function VendorDashboardScreen() {
 
             {/* Form */}
             {[
-              { key: 'name',           label: 'Nom du produit *',      placeholder: 'Ex: Riz parfumé 25 kg',   keyboard: 'default'  as const },
-              { key: 'category',       label: 'Catégorie',             placeholder: 'Ex: Alimentation',         keyboard: 'default'  as const },
+              { key: 'name', label: 'Nom du produit *', placeholder: 'Ex: Riz parfumé 25 kg', keyboard: 'default' as const },
+            ].map(f => (
+              <View key={f.key} style={styles.modalField}>
+                <Text style={[styles.modalLabel, { color: colors.foreground }]}>{f.label}</Text>
+                <TextInput
+                  style={[styles.modalInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                  placeholder={f.placeholder}
+                  placeholderTextColor={colors.mutedForeground}
+                  value={(addForm as any)[f.key]}
+                  onChangeText={v => setAddForm(prev => ({ ...prev, [f.key]: v }))}
+                  keyboardType={f.keyboard}
+                />
+              </View>
+            ))}
+
+            {/* Category picker — same CATEGORIES list/ids used to filter the home screen,
+                so a product's category always matches a filter chip there. */}
+            <View style={styles.modalField}>
+              <Text style={[styles.modalLabel, { color: colors.foreground }]}>Catégorie *</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {CATEGORIES.filter(cat => cat.id !== 'all').map(cat => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[
+                      styles.catChip,
+                      {
+                        backgroundColor: addForm.category === cat.id ? colors.primary : colors.background,
+                        borderColor:     addForm.category === cat.id ? colors.primary : colors.border,
+                      },
+                    ]}
+                    onPress={() => setAddForm(prev => ({ ...prev, category: cat.id }))}
+                  >
+                    <Feather
+                      name={cat.icon as keyof typeof Feather.glyphMap}
+                      size={14}
+                      color={addForm.category === cat.id ? 'white' : colors.mutedForeground}
+                    />
+                    <Text style={[
+                      styles.catChipText,
+                      { color: addForm.category === cat.id ? 'white' : colors.foreground },
+                    ]}>
+                      {cat.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            {[
               { key: 'pricePublic',    label: 'Prix public (FCFA) *',  placeholder: 'Ex: 12000',               keyboard: 'numeric'  as const },
               { key: 'priceWholesale', label: 'Prix gros (FCFA)',      placeholder: 'Auto = 80 % du prix public', keyboard: 'numeric' as const },
               { key: 'stock',          label: 'Stock (unités)',         placeholder: 'Ex: 100',                 keyboard: 'number-pad' as const },
@@ -1338,6 +1407,12 @@ const styles = StyleSheet.create({
   modalTitle:    { fontSize: 18, fontWeight: '800' },
   modalField:    { gap: 5 },
   modalLabel:    { fontSize: 13, fontWeight: '600' },
+  catChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 20, borderWidth: 1, marginRight: 8,
+  },
+  catChipText: { fontSize: 13, fontWeight: '500' },
   modalInput:    { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
   modalSaveBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 14, marginTop: 4 },
   modalSaveTxt:  { color: 'white', fontSize: 16, fontWeight: '700' },

@@ -275,7 +275,15 @@ export default function CheckoutScreen() {
       setPaymentStatus(newPayStatus);
 
       // ── INSERT ORDER TO SUPABASE ─────────────────────────────────────────
-      if (isSupabaseConfigured && supabase && user) {
+      // Gate on isSupabaseConfigured/supabase only — never on context `user`,
+      // which can be transiently null (auth state change) or a fake demo
+      // object without Supabase actually being unavailable. Previously, a
+      // falsy `user` here silently skipped the whole insert block and still
+      // advanced to the step-4 "confirmation" screen — the order was never
+      // written to the DB but looked successful to the customer. The real
+      // auth UUID is re-resolved below via supabase.auth.getUser(); if that
+      // is empty we now stop with "Session expirée" instead of pretending.
+      if (isSupabaseConfigured && supabase) {
         setSubmitting(true);
 
         // Always use the real Supabase auth UUID — user.id from AuthContext

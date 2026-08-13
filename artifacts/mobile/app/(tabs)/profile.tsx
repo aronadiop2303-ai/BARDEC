@@ -48,7 +48,11 @@ export default function ProfileScreen() {
     setPendingAvatarUri(null);
     setIsUploadingAvatar(true);
     try {
-      if (isSupabaseConfigured && supabase && user && !isDemoMode) {
+      // Gate on isSupabaseConfigured/supabase only — never on context `user`
+      // (can be transiently null or a fake demo object without Supabase being
+      // unavailable); `isSupabaseConfigured && !isDemoMode` was also redundant
+      // since isDemoMode is defined as !isSupabaseConfigured.
+      if (isSupabaseConfigured && supabase) {
         // Always use the real Supabase auth UUID — user.id from AuthContext
         // can be a mock placeholder when the role-switcher is active.
         const { data: { user: authUser } } = await supabase.auth.getUser();
