@@ -409,11 +409,20 @@ export default function VendorDashboardScreen() {
     if (productIds.length === 0) { setOrdersLoading(false); return; }
 
     // Fetch recent orders and filter by those containing vendor's products
-    const { data: orders } = await supabase
+    const { data: orders, error } = await supabase
       .from('orders')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50);
+    if (error) {
+      // Was silently swallowed before — a single malformed order.items row
+      // (non-UUID product_id) breaks the orders_vendor RLS check for this
+      // entire query, and every vendor saw an empty list with no explanation.
+      console.warn('Vendor orders fetch error:', error.message);
+      setVendorOrders([]);
+      setOrdersLoading(false);
+      return;
+    }
     const filtered = (orders ?? []).filter((o: any) => {
       const items = Array.isArray(o.items) ? o.items : [];
       return items.some((item: any) => productIds.includes(item.product_id));

@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { useNearbyBadge } from '@/hooks/useProximityOrders';
 import { useActiveOrdersCount } from '@/hooks/useActiveOrdersCount';
+import { useVendorPendingOrdersCount } from '@/hooks/useVendorPendingOrdersCount';
 
 // NOTE: expo-symbols (SF Symbols) is iOS-only and its native module is
 // unavailable on Android — importing it crashes the tab layout on Android.
@@ -32,7 +33,8 @@ export default function TabLayout() {
   const { count: nearbyBadgeCount } = useNearbyBadge();
   // Count of active BARDEC orders (pending / pending_approval / shipped / out_for_delivery).
   // Only runs when Supabase is configured; returns 0 in demo mode.
-  const activeOrdersCount = useActiveOrdersCount();
+  const activeOrdersCount = useActiveOrdersCount(user?.role === 'APPROVER');
+  const vendorPendingCount = useVendorPendingOrdersCount(isVendor);
 
   // Properly account for the gesture-navigation bar on Android and home-indicator on iOS.
   // Without this, tab icons overlap the system gesture area on modern Android phones.
@@ -107,6 +109,8 @@ export default function TabLayout() {
         options={{
           title: t('vendor_dashboard'),
           href: isVendor ? undefined : null,
+          tabBarBadge: vendorPendingCount > 0 ? vendorPendingCount : undefined,
+          tabBarBadgeStyle: { backgroundColor: colors.primary, fontSize: 10 },
           tabBarIcon: ({ color }) => <Feather name="bar-chart-2" size={22} color={color} />,
         }}
       />

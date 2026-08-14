@@ -47,6 +47,9 @@ export default function OrdersScreen() {
   const [refreshing,   setRefreshing]   = useState(false);
   const [orders,       setOrders]       = useState<Order[]>([]);
   const [loading,      setLoading]      = useState(true);
+  const [approving,    setApproving]    = useState<string | null>(null);
+
+  const isApprover = user?.role === 'APPROVER';
 
   // ── Review modal state ──────────────────────────────────────────────────────
   const [reviewOrder,      setReviewOrder]      = useState<Order | null>(null);
@@ -85,8 +88,13 @@ export default function OrdersScreen() {
       const { data, error } = await query;
 
       if (error) {
+        // Was falling back to MOCK_ORDERS here — a real backend error (e.g.
+        // a malformed order breaking the orders_vendor RLS check) looked
+        // like a normal, populated order list of fake data instead of a
+        // visible failure. Show an empty list with a real error instead.
         console.warn('Orders fetch error:', error.message);
-        setOrders(MOCK_ORDERS);
+        Alert.alert('Erreur', `Impossible de charger les commandes : ${error.message}`);
+        setOrders([]);
       } else {
         setOrders((data ?? []).map(mapDbOrder));
       }
@@ -114,6 +122,43 @@ export default function OrdersScreen() {
     await fetchOrders();
     setRefreshing(false);
   }, [fetchOrders]);
+
+  // ── Approver: approve / reject a pending_approval order ─────────────────────
+  // This was the missing piece that made the APPROVER role purely visual —
+  // orders_approver RLS already allows the UPDATE, but no UI ever called it.
+  const handleApproverAction = useCallback(async (order: Order, approve: boolean) => {
+    Alert.alert(
+      approve ? 'Approuver la commande' : 'Rejeter la commande',
+      `${approve ? 'Approuver' : 'Rejeter'} la commande ${order.orderNumber} ?`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: approve ? 'Approuver' : 'Rejeter',
+          style: approve ? 'default' : 'destructive',
+          onPress: async () => {
+            setApproving(order.id);
+            const nextStatus = approve ? 'approved' : 'cancelled';
+            if (isSupabaseConfigured && supabase) {
+              const { data: updated, error } = await supabase
+                .from('orders')
+                .update({ status: nextStatus })
+                .eq('id', order.id)
+                .select('id');
+              setApproving(null);
+              if (error) { Alert.alert('Erreur', error.message); return; }
+              if (!updated || updated.length === 0) {
+                Alert.alert('Permission refusée', "Tu n'as pas les droits pour approuver cette commande.");
+                return;
+              }
+            } else {
+              setApproving(null);
+            }
+            setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: nextStatus } : o));
+          },
+        },
+      ],
+    );
+  }, []);
 
   // ── Confirm receipt ──────────────────────────────────────────────────────────
   const handleConfirmReceipt = useCallback((order: Order) => {
@@ -264,6 +309,29 @@ export default function OrdersScreen() {
                   <Text style={styles.confirmBtnText}>Confirmer la réception</Text>
                 </TouchableOpacity>
               )}
+              {/* Approve / reject CTA — approver only, pending_approval only */}
+              {isApprover && order.status === 'pending_approval' && (
+                <View style={styles.approveRow}>
+                  <TouchableOpacity
+                    style={[styles.approveBtn, styles.rejectBtn]}
+                    onPress={() => handleApproverAction(order, false)}
+                    disabled={approving === order.id}
+                  >
+                    {approving === order.id
+                      ? <ActivityIndicator size="small" color="#EF4444" />
+                      : <><Feather name="x-circle" size={16} color="#EF4444" /><Text style={[styles.approveBtnText, { color: '#EF4444' }]}>Rejeter</Text></>}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.approveBtn, styles.approveBtnGreen]}
+                    onPress={() => handleApproverAction(order, true)}
+                    disabled={approving === order.id}
+                  >
+                    {approving === order.id
+                      ? <ActivityIndicator size="small" color="white" />
+                      : <><Feather name="check-circle" size={16} color="white" /><Text style={styles.approveBtnText}>Approuver</Text></>}
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           ))
         )}
@@ -359,6 +427,17 @@ const styles = StyleSheet.create({
     marginTop: -4, marginBottom: 4, backgroundColor: '#22C55E',
   },
   confirmBtnText: { color: 'white', fontSize: 14, fontWeight: '700' },
+  approveRow: {
+    flexDirection: 'row', gap: 8,
+    marginTop: -4, marginBottom: 4,
+  },
+  approveBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 10, borderRadius: 10,
+  },
+  rejectBtn: { borderWidth: 1.5, borderColor: '#EF4444' },
+  approveBtnGreen: { backgroundColor: '#22C55E' },
+  approveBtnText: { color: 'white', fontSize: 14, fontWeight: '700' },
   // Review modal
   reviewOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   reviewCard:    {

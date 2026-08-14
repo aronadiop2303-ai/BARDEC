@@ -308,10 +308,39 @@ export default function CheckoutScreen() {
           return;
         }
 
+        // Cart items can carry over stale MOCK_PRODUCTS entries (ids like
+        // "p2") from before Supabase was configured — AsyncStorage persists
+        // the cart across app restarts and demo-mode sessions. A mock id
+        // written into a real order's `items` breaks the orders_vendor RLS
+        // policy for EVERY vendor (jsonb_array_elements(...)::uuid cast
+        // throws on the whole query, not just this row) — block checkout
+        // instead of silently writing it.
+        const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const invalidItems = items.filter(i => !UUID_RE.test(i.productId));
+        if (invalidItems.length > 0) {
+          setSubmitting(false);
+          Alert.alert(
+            'Panier à mettre à jour',
+            `"${invalidItems[0].productName}" n'est plus disponible et doit être retiré du panier avant de continuer.`,
+          );
+          return;
+        }
+
+        // Real role/company from the DB, not AuthContext — user.role can be a
+        // UI-only preview via the role switcher (switchDemoRole), which must
+        // never decide a real order's status or company_id.
+        const { data: realProfile } = await supabase
+          .from('users')
+          .select('role, company_id')
+          .eq('id', realCustomerId)
+          .maybeSingle();
+        const realIsB2B = realProfile?.role === 'BUYER' || realProfile?.role === 'APPROVER';
+
         const { error: dbErr } = await supabase.from('orders').insert({
           customer_id:           realCustomerId,
+          company_id:            realProfile?.company_id ?? null,
           order_number:          orderRef,
-          status:                isB2B ? 'pending_approval' : 'pending',
+          status:                realIsB2B ? 'pending_approval' : 'pending',
           items:                 items.map(i => ({
             product_id:   i.productId,
             product_name: i.productName,

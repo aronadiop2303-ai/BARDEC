@@ -168,12 +168,14 @@ function AdminScreenInner() {
   const fetchAdminData = useCallback(async () => {
     if (!isSupabaseConfigured || !supabase) { setLoadingAdminData(false); return; }
     setLoadingAdminData(true);
-    const [{ data: usersData }, { data: ordersData }] = await Promise.all([
+    const [{ data: usersData, error: usersErr }, { data: ordersData, error: ordersErr }] = await Promise.all([
       supabase.from('users').select('id, email, display_name, phone, role, is_approved, created_at')
         .order('created_at', { ascending: false }),
       supabase.from('orders').select('id, order_number, status, total, created_at')
         .order('created_at', { ascending: false }).limit(200),
     ]);
+    if (usersErr) console.warn('Admin users fetch error:', usersErr.message);
+    if (ordersErr) console.warn('Admin orders fetch error:', ordersErr.message);
     setRealUsers((usersData ?? []) as RealUser[]);
     setRealOrders((ordersData ?? []) as RealOrder[]);
     setLoadingAdminData(false);
