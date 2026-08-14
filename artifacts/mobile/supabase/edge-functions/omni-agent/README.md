@@ -2,7 +2,7 @@
 
 **Runtime**: Supabase Edge Function (Deno), `verify_jwt: true`
 **Endpoint**: `POST https://asawazxocogumygptdwh.supabase.co/functions/v1/omni-agent`
-**Model**: Anthropic Claude (`OMNI_MODEL` secret, default `claude-sonnet-5`)
+**Model**: provider-agnostic — see [Model Layer](#model-layer) below.
 
 OMNI is BARDEC's conversational AI assistant. It keeps a per-user conversation
 history in Supabase (3 normalized tables) and can call BARDEC catalog/order/shop
@@ -16,27 +16,55 @@ tools through the `mcp-server` edge function.
 
 ---
 
-## Prerequisites — 3 secrets, all missing as of 2026-08-14
+## Model Layer
+
+`lib/model-layer.ts` decouples OMNI from any single model provider — the
+original blocker was being hard-stuck when the Anthropic account ran out of
+credit. Two provider shapes exist today, both "ExternalModel" (hosted APIs
+over HTTP); `ModelProvider` is the interface any future LocalModel /
+HuggingFaceModel / FutureOmniModel provider would implement to plug into the
+same chain:
+
+- **Anthropic-shaped** — Anthropic itself, and DeepSeek's Anthropic-compatible
+  endpoint (`https://api.deepseek.com/anthropic`). Identical request/response
+  format (Messages API, `x-api-key`/`anthropic-version` headers) — just a
+  different base URL, key, and model name. No translation needed.
+- **OpenAI-shaped** — OpenRouter (Chat Completions format). Translated both
+  ways: request (content-block messages/tools → OpenAI messages/function-tools)
+  and response (`choices[0].message` → content blocks).
+
+**Routing**: `MODEL_PROVIDER` secret (`anthropic` | `deepseek` | `openrouter`),
+if set, forces that one provider with no fallback — useful for isolating a
+provider during testing. Unset (default): automatic fallback chain, skipping
+any provider whose key isn't configured, falling through to the next on
+failure — **DeepSeek (free tier) → OpenRouter (backup) → Anthropic (paid,
+last resort)**.
+
+### Secrets
 
 Set these under **Supabase Dashboard → Edge Functions → omni-agent → Secrets**.
-Without `ANTHROPIC_API_KEY`, every request fails after the user's message is
-already saved (confirmed: `omni_messages` in production only ever has `role:
-'user'` rows, never `'assistant'` — the Claude call throws before a reply is
-generated).
+At least one of `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY`
+must be set, or every request fails immediately with "no provider configured".
 
 | Secret | Required | Value |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | **Yes** | A real Anthropic API key — sensitive, provided out-of-band by the project owner. |
+| `DEEPSEEK_API_KEY` | For the DeepSeek path (free tier, tried first) | Generated at platform.deepseek.com — sensitive, provided out-of-band. |
+| `DEEPSEEK_MODEL` | Optional | Default `deepseek-v4-flash`. DeepSeek's model names churn fast (`deepseek-chat`/`deepseek-reasoner` were deprecated 2026-07-24) — override here if the default goes stale. |
+| `OPENROUTER_API_KEY` | For the OpenRouter path (backup) | Generated at openrouter.ai — sensitive, provided out-of-band. |
+| `OPENROUTER_MODEL` | Optional | Default `deepseek/deepseek-chat` — check which free/cheap models are actually available on your OpenRouter account and adjust. |
+| `MODEL_PROVIDER` | Optional | Forces a single provider (`anthropic`/`deepseek`/`openrouter`); omit for automatic fallback. |
+| `ANTHROPIC_API_KEY` | For the Anthropic path (paid, last resort) | A real Anthropic API key — sensitive, provided out-of-band. |
+| `OMNI_MODEL` | Optional | Anthropic model name, default `claude-sonnet-5`. |
 | `MCP_SERVER_URL` | For tool use (search/stock/order lookups) | `https://asawazxocogumygptdwh.supabase.co/functions/v1/mcp-server` |
 | `OMNI_MCP_API_KEY` | For tool use | The `api_keys` row named `omni-agent-v0.1` (read-only permissions) — copy its `key` column value from the `api_keys` table. |
 
 `SUPABASE_URL` and `SUPABASE_ANON_KEY` are injected automatically by the
 Supabase runtime.
 
-Without `MCP_SERVER_URL`/`OMNI_MCP_API_KEY`, chat replies still work once
-`ANTHROPIC_API_KEY` is set — tool calls (search a product, check an order
-status, etc.) just fail individually and Claude is told the tool errored, so
-it answers from general knowledge instead.
+Without `MCP_SERVER_URL`/`OMNI_MCP_API_KEY`, chat replies still work once a
+model provider is configured — tool calls (search a product, check an order
+status, etc.) just fail individually and the model is told the tool errored,
+so it answers from general knowledge instead.
 
 ---
 

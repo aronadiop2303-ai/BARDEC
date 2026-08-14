@@ -3,6 +3,7 @@ import { OMNI_TOOLS, OMNI_TOOL_NAMES } from './lib/mcp-tools.ts';
 import { callMcpTool, McpToolError } from './lib/mcp-client.ts';
 import { buildSystemPrompt } from './lib/system-prompt.ts';
 import { updateMemory } from './lib/memory.ts';
+import { callModel } from './lib/model-layer.ts';
 import { ClaudeContentBlock, OmniMemory, OmniRequestBody } from './lib/types.ts';
 
 const ALLOWED_ORIGINS = new Set([
@@ -27,43 +28,8 @@ function jsonResponse(body: unknown, status: number, cors: HeadersInit) {
   });
 }
 
-const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
-const CLAUDE_MODEL = Deno.env.get('OMNI_MODEL') ?? 'claude-sonnet-5';
 const MAX_TOOL_ITERATIONS = 4;
 const MAX_HISTORY_MESSAGES = 20;
-
-async function callClaude(
-  systemPrompt: string,
-  messages: Array<{ role: string; content: unknown }>,
-): Promise<{ content: ClaudeContentBlock[] }> {
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY manquant dans les secrets de la fonction.');
-  }
-
-  const response = await fetch(CLAUDE_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages,
-      tools: OMNI_TOOLS,
-    }),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Erreur API Claude (${response.status}) : ${errText}`);
-  }
-
-  return response.json();
-}
 
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get('origin');
@@ -150,7 +116,7 @@ Deno.serve(async (req: Request) => {
       .insert({ conversation_id: conversationId, role: 'user', content: body.message });
 
     const systemPrompt = buildSystemPrompt(memory);
-    const claudeMessages: Array<{ role: string; content: unknown }> = [
+    const modelMessages: Array<{ role: string; content: unknown }> = [
       ...history.map((m) => ({ role: m.role === 'tool' ? 'user' : m.role, content: m.content })),
       { role: 'user', content: body.message },
     ];
@@ -163,17 +129,17 @@ Deno.serve(async (req: Request) => {
     };
 
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-      const claudeResponse = await callClaude(systemPrompt, claudeMessages);
+      const modelResponse = await callModel(systemPrompt, modelMessages, OMNI_TOOLS);
 
-      const toolUseBlocks = claudeResponse.content.filter((b) => b.type === 'tool_use');
-      const textBlocks = claudeResponse.content.filter((b) => b.type === 'text');
+      const toolUseBlocks = modelResponse.content.filter((b) => b.type === 'tool_use');
+      const textBlocks = modelResponse.content.filter((b) => b.type === 'text');
 
       if (toolUseBlocks.length === 0) {
         finalReply = textBlocks.map((b) => b.text).join('\n');
         break;
       }
 
-      claudeMessages.push({ role: 'assistant', content: claudeResponse.content });
+      modelMessages.push({ role: 'assistant', content: modelResponse.content });
 
       const toolResults: ClaudeContentBlock[] = [];
       for (const block of toolUseBlocks) {
@@ -199,7 +165,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      claudeMessages.push({ role: 'user', content: toolResults });
+      modelMessages.push({ role: 'user', content: toolResults });
 
       if (iteration === MAX_TOOL_ITERATIONS - 1) {
         finalReply =
