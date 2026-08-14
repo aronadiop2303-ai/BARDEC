@@ -1,82 +1,77 @@
-// ─── MCP Tool Definitions for Anthropic ───────────────────────────────────────
-// These are the tools OMNI can invoke via the BARDEC MCP server to retrieve
-// live data (products, orders, shops) in real time.
+import { ClaudeToolDefinition } from './types.ts';
 
-export interface AnthropicTool {
-  name: string;
-  description: string;
-  input_schema: {
-    type: 'object';
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
-}
-
-export const MCP_TOOLS: AnthropicTool[] = [
+export const OMNI_TOOLS: ClaudeToolDefinition[] = [
   {
     name: 'search_products',
-    description:
-      'Search the BARDEC product catalog by keyword, category, or vendor. ' +
-      'Returns a list of matching products with name, price, stock, and ID.',
+    description: 'Recherche des produits dans le catalogue BARDEC par mot-clé, catégorie, ou vendeur.',
     input_schema: {
       type: 'object',
       properties: {
-        query:    { type: 'string',  description: 'Search keywords' },
-        category: { type: 'string',  description: 'Optional product category filter' },
-        limit:    { type: 'integer', description: 'Max results (default 5, max 20)' },
+        query: { type: 'string', description: 'Terme de recherche (nom, description).' },
+        category: { type: 'string', description: 'Filtrer par catégorie exacte.' },
+        vendor_id: { type: 'string', description: "UUID du vendeur pour filtrer sur ses produits." },
+        limit: { type: 'number', description: 'Nombre max de résultats.' },
       },
-      required: ['query'],
     },
   },
   {
-    name: 'get_product',
-    description: 'Retrieve full details for a single product by its ID.',
+    name: 'get_product_details',
+    description: "Détails complets d'un produit (prix, stock, specs) et ses avis récents.",
     input_schema: {
       type: 'object',
-      properties: {
-        product_id: { type: 'string', description: 'UUID of the product' },
-      },
+      properties: { product_id: { type: 'string', description: 'UUID du produit.' } },
       required: ['product_id'],
     },
   },
   {
-    name: 'get_order',
-    description:
-      'Retrieve the current status and details of a customer order. ' +
-      'Only returns orders belonging to the authenticated user.',
+    name: 'get_order_status',
+    description: "Statut détaillé d'une commande à partir de son numéro (ex: BDC-2026-001234).",
     input_schema: {
       type: 'object',
-      properties: {
-        order_id: { type: 'string', description: 'UUID or order number of the order' },
-      },
-      required: ['order_id'],
+      properties: { order_number: { type: 'string', description: 'Numéro de commande, format BDC-AAAA-NNNNNN.' } },
+      required: ['order_number'],
     },
   },
   {
-    name: 'list_orders',
-    description:
-      'List recent orders for the authenticated user (customer or vendor). ' +
-      'Returns order number, status, total, and date.',
+    name: 'list_orders_by_customer',
+    description: "Liste les commandes d'un client (par ID ou email), éventuellement filtrées par statut.",
     input_schema: {
       type: 'object',
       properties: {
-        status: {
+        customer_id: { type: 'string' },
+        customer_email: { type: 'string' },
+        status: { type: 'string' },
+        limit: { type: 'number' },
+      },
+    },
+  },
+  {
+    name: 'check_stock',
+    description: "Vérifie la quantité en stock d'un produit.",
+    input_schema: {
+      type: 'object',
+      properties: { product_id: { type: 'string' } },
+      required: ['product_id'],
+    },
+  },
+  {
+    name: 'nearby_shops',
+    description: 'Trouve les commerces de quartier à proximité de coordonnées GPS données.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        latitude: { type: 'number' },
+        longitude: { type: 'number' },
+        radius_km: { type: 'number', description: 'Rayon de recherche en km.' },
+        category: {
           type: 'string',
-          description: 'Optional status filter (pending, shipped, completed, cancelled)',
+          description:
+            'alimentation_table | restauration_loisirs | bricolage_maison | beaute_mode | sante_hygiene | culture_tech | services_entretien',
         },
-        limit: { type: 'integer', description: 'Max results (default 5, max 20)' },
       },
-    },
-  },
-  {
-    name: 'get_shop',
-    description: 'Retrieve details about a BARDEC Proximity shop by its ID or name.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        shop_id: { type: 'string', description: 'UUID of the proximity shop' },
-      },
-      required: ['shop_id'],
+      required: ['latitude', 'longitude'],
     },
   },
 ];
+
+export const OMNI_TOOL_NAMES = new Set(OMNI_TOOLS.map((t) => t.name));

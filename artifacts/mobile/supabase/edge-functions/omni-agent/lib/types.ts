@@ -1,46 +1,33 @@
 // ─── OMNI Agent — shared types ────────────────────────────────────────────────
+// Type-only — erased at build time, so this file can be empty at runtime, but
+// keeping real declarations here gives editors/tsc something to check against.
 
-export type UserRole = 'CUSTOMER' | 'BUYER' | 'APPROVER' | 'VENDOR' | 'ADMIN';
-
-export type ContextType = 'product' | 'order' | 'shop' | 'vendor_dashboard';
-
-export interface OmniContext {
-  type: ContextType;
-  data: Record<string, unknown>;
-}
-
-/** Role as stored in omni_messages and sent to Anthropic */
-export type MessageRole = 'user' | 'assistant';
-
-export interface ChatMessage {
-  role: MessageRole;
-  content: string;
-}
-
-/** Request body sent by the mobile app */
-export interface OmniRequest {
+export interface OmniRequestBody {
   conversation_id?: string | null;
   message: string;
-  context?: OmniContext;
-  stream?: boolean;
-  /** Caller's declared role — used to personalise the system prompt */
-  user_role?: UserRole;
 }
 
-/** Non-streaming response */
-export interface OmniResponse {
-  reply: string;
-  conversation_id: string | null;
+export interface ClaudeContentBlock {
+  type: 'text' | 'tool_use' | 'tool_result';
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: Record<string, unknown>;
+  tool_use_id?: string;
+  content?: string;
 }
 
-/** Single key–value memory entry from omni_memory */
-export interface MemoryEntry {
-  key: string;
-  value: unknown;
+export interface OmniMemory {
+  summary: string | null;
+  preferences: { language?: 'fr' | 'en'; tone?: string; [key: string]: unknown };
 }
 
-/** Minimal Supabase service-role client type */
-export type ServiceClient = {
-  from: (table: string) => any;
-  auth: { getUser: (jwt: string) => Promise<any> };
-};
+export interface ClaudeToolDefinition {
+  name: string;
+  description: string;
+  input_schema: {
+    type: 'object';
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+}

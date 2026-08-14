@@ -1,83 +1,55 @@
 # OMNI Agent — Setup Guide
 
-**Runtime**: Supabase Edge Function (Deno)  
-**Endpoint**: `POST https://<project-ref>.supabase.co/functions/v1/omni-agent`
+**Runtime**: Supabase Edge Function (Deno), `verify_jwt: true`
+**Endpoint**: `POST https://asawazxocogumygptdwh.supabase.co/functions/v1/omni-agent`
+**Model**: Anthropic Claude (`OMNI_MODEL` secret, default `claude-sonnet-5`)
 
-OMNI is BARDEC's conversational AI assistant. It keeps a per-user conversation history in Supabase so context survives between sessions.
+OMNI is BARDEC's conversational AI assistant. It keeps a per-user conversation
+history in Supabase (3 normalized tables) and can call BARDEC catalog/order/shop
+tools through the `mcp-server` edge function.
 
----
-
-## Prerequisites
-
-Two one-time setup steps are required before the function works correctly. Skip either and OMNI will return a 503 (missing API key) or forget every conversation (missing table).
-
----
-
-## Step 1 — Apply the database migration
-
-OMNI stores conversation history in an `omni_conversations` table. Run the migration **once** in the Supabase SQL Editor:
-
-1. Open **Supabase Dashboard → SQL Editor**
-2. Paste and run the contents of [`../../omni_conversations_schema.sql`](../../omni_conversations_schema.sql):
-
-```sql
--- ═══════════════════════════════════════════════════════════════
--- OMNI AI Conversations table
--- Run this in the Supabase SQL editor to enable OMNI chat history.
---
--- Note: only authenticated users get persistent history.
--- Anonymous callers receive AI replies but no conversation is stored.
--- ═══════════════════════════════════════════════════════════════
-
-CREATE TABLE IF NOT EXISTS omni_conversations (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  messages    JSONB NOT NULL DEFAULT '[]',
-  created_at  TIMESTAMPTZ DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Index for fast per-user lookups
-CREATE INDEX IF NOT EXISTS idx_omni_conv_user
-  ON omni_conversations(user_id);
-
--- Row-level security: each user sees only their own conversations.
-ALTER TABLE omni_conversations ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "omni_conv_owner" ON omni_conversations
-  FOR ALL
-  USING (user_id = auth.uid());
-```
-
-**Without this table**, every request silently falls back to an empty history — OMNI replies but never remembers anything.
+> Note (2026-08-14): this file previously documented an older, single-table,
+> OpenAI-based design (`omni_conversations` with a JSONB `messages` column).
+> That was never what got deployed. This version matches what is actually
+> live — verified directly against the deployed function source and the
+> production `omni_*` table schema.
 
 ---
 
-## Step 2 — Set the OPENAI_API_KEY secret
+## Prerequisites — 3 secrets, all missing as of 2026-08-14
 
-The function calls OpenAI's `gpt-4o-mini` model. It reads the key from the Supabase Edge Function secrets environment, **not** from the app's `.env`.
+Set these under **Supabase Dashboard → Edge Functions → omni-agent → Secrets**.
+Without `ANTHROPIC_API_KEY`, every request fails after the user's message is
+already saved (confirmed: `omni_messages` in production only ever has `role:
+'user'` rows, never `'assistant'` — the Claude call throws before a reply is
+generated).
 
-1. Open **Supabase Dashboard → Project Settings → Edge Functions → Secrets**
-2. Add a secret named exactly `OPENAI_API_KEY` with your OpenAI API key as the value
-3. Click **Save**
+| Secret | Required | Value |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | **Yes** | A real Anthropic API key — sensitive, provided out-of-band by the project owner. |
+| `MCP_SERVER_URL` | For tool use (search/stock/order lookups) | `https://asawazxocogumygptdwh.supabase.co/functions/v1/mcp-server` |
+| `OMNI_MCP_API_KEY` | For tool use | The `api_keys` row named `omni-agent-v0.1` (read-only permissions) — copy its `key` column value from the `api_keys` table. |
 
-**Without this secret**, every request returns:
+`SUPABASE_URL` and `SUPABASE_ANON_KEY` are injected automatically by the
+Supabase runtime.
 
-```json
-{ "error": "OPENAI_API_KEY not configured" }
-```
-
-with HTTP status `503`.
+Without `MCP_SERVER_URL`/`OMNI_MCP_API_KEY`, chat replies still work once
+`ANTHROPIC_API_KEY` is set — tool calls (search a product, check an order
+status, etc.) just fail individually and Claude is told the tool errored, so
+it answers from general knowledge instead.
 
 ---
 
-## Deploy
+## Database
 
-```bash
-supabase functions deploy omni-agent --project-ref <YOUR_PROJECT_REF>
-```
+3 tables already exist in production with RLS (`user_id = auth.uid()`),
+applied via migration `omni_tables_v01` (2026-08-02):
 
-`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically by the Supabase runtime — no extra configuration needed beyond the `OPENAI_API_KEY` secret above.
+- `omni_conversations (id, user_id, title, created_at, updated_at)`
+- `omni_messages (id, conversation_id, role, content, tool_calls jsonb, created_at)`
+- `omni_memory (id, user_id, summary text, preferences jsonb, updated_at)` — one row per user, upserted on `user_id`
+
+No migration needed — this part is done.
 
 ---
 
@@ -85,67 +57,46 @@ supabase functions deploy omni-agent --project-ref <YOUR_PROJECT_REF>
 
 ```json
 {
-  "conversation_id": "<uuid or omit to start new>",
-  "message": "Où en est ma commande BDC-2025-001042 ?",
-  "context": {
-    "type": "order",
-    "data": { "order_id": "...", "status": "pending", "..." : "..." }
-  },
-  "stream": true
+  "conversation_id": "<uuid, omit to start a new conversation>",
+  "message": "Où en est ma commande BDC-2026-001042 ?"
 }
 ```
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `message` | string | ✅ | The user's message |
-| `conversation_id` | UUID | — | Omit to start a new conversation |
-| `context` | object | — | Injects product / order / shop data into the system prompt |
-| `stream` | boolean | — | `true` → Server-Sent Events; `false` (default) → JSON |
+No `stream` field — the function always returns a single JSON reply (no SSE).
+No `context` field either — it isn't read server-side yet; the mobile client
+no longer sends one (see `hooks/useOmniChat.ts` in the mobile app).
 
----
+**Authorization**: a real Supabase user JWT is required (`Authorization: Bearer
+<jwt>`). The anon key is rejected with 401 `"Session invalide ou expirée."` —
+there is no anonymous mode in this version.
 
-## Response formats
-
-### Streaming (`stream: true`) — Server-Sent Events
-
-```
-data: {"chunk":"Votre commande"}
-data: {"chunk":" est en cours de traitement."}
-data: {"done":true,"conversation_id":"<uuid>"}
-```
-
-On error:
-
-```
-data: {"error":"OpenAI error 429: ..."}
-```
-
-### Non-streaming (`stream: false`) — JSON
+## Response format
 
 ```json
-{ "reply": "Votre commande est en cours de traitement.", "conversation_id": "<uuid>" }
+{ "conversation_id": "<uuid>", "reply": "Votre commande est en cours de traitement.", "tools_used": ["get_order_status"] }
 ```
 
----
-
-## Conversation persistence
-
-- **Authenticated users** (valid Supabase JWT): conversation is stored and reloaded on subsequent requests. Pass the returned `conversation_id` to continue the thread.
-- **Anonymous callers**: OMNI replies normally but nothing is persisted. `conversation_id` is `null` in the response.
-- History is trimmed to the last **30 messages** before writing to avoid unbounded growth.
-- The service-role client always filters by `user_id` — a user cannot read or write another user's conversations even without RLS.
+On failure: `{ "error": "<message>" }` with a 4xx/5xx status.
 
 ---
 
-## Authorization
+## CORS
 
-Pass the user's Supabase JWT as a Bearer token to get persistent history:
+Browser calls (Vercel web build) are restricted to:
+- `https://bardec-ard27.vercel.app`
+- `https://bardec-aronadiop2303-6278-ard27.vercel.app`
+
+Native mobile requests (Expo Go, standalone app) aren't subject to CORS —
+this only matters for the web build.
+
+---
+
+## Deploy
+
+Deployed via the Supabase MCP `deploy_edge_function` tool (no local
+`supabase` CLI session configured on this machine). To redeploy from the
+CLI instead:
 
 ```bash
-curl -X POST https://<project-ref>.supabase.co/functions/v1/omni-agent \
-  -H "Authorization: Bearer <supabase-jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Bonjour OMNI !", "stream": false}'
+supabase functions deploy omni-agent --project-ref asawazxocogumygptdwh
 ```
-
-Without the `Authorization` header the request still succeeds — OMNI replies but nothing is stored.
