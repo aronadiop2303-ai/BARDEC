@@ -67,6 +67,28 @@ function escapeCSV(v: string): string {
   return v;
 }
 
+// ─── CSV category resolver ────────────────────────────────────────────────────
+// The manual "add product" form only lets a vendor pick from CATEGORIES (the
+// same list the home/search filters use). Bulk CSV import let any free-text
+// string through — a product imported with category: "Général" (the old
+// fallback) or any other non-matching text was inserted successfully but
+// invisible under every category filter except "Tout". Same fix here: accept
+// only a CATEGORIES id or a known display-name alias, reject anything else.
+const CATEGORY_ALIASES: Record<string, string> = {
+  electronics: 'electronics', 'électronique': 'electronics', electronique: 'electronics',
+  textiles: 'textiles', textile: 'textiles',
+  agri: 'agri', agriculture: 'agri',
+  chemicals: 'chemicals', 'produits chimiques': 'chemicals', chimie: 'chemicals', chimiques: 'chemicals',
+  machinery: 'machinery', machines: 'machinery', machine: 'machinery',
+  food: 'food', 'food & bev': 'food', alimentation: 'food', 'alimentation & boissons': 'food',
+  auto: 'auto', 'auto parts': 'auto', 'pièces auto': 'auto', 'pieces auto': 'auto',
+};
+function resolveCategoryId(raw: string): string | null {
+  const key = raw.trim().toLowerCase();
+  if (CATEGORIES.some(c => c.id === key)) return key;
+  return CATEGORY_ALIASES[key] ?? null;
+}
+
 // ─── Mini bar chart ──────────────────────────────────────────────────────────
 function MiniChart({ data, color }: { data: number[]; color: string }) {
   const max = Math.max(...data);
@@ -594,14 +616,17 @@ export default function VendorDashboardScreen() {
       }
 
       // Validate required columns
-      const required = ['name', 'price_public', 'stock_quantity'];
+      const required = ['name', 'price_public', 'stock_quantity', 'category'];
       const missing  = required.filter(c => !headers.includes(c));
       if (missing.length > 0) {
+        const categoryHint = missing.includes('category')
+          ? `\n\nCatégories valides : ${CATEGORIES.filter(c => c.id !== 'all').map(c => c.id).join(', ')}`
+          : '';
         Alert.alert(
           'Colonnes manquantes',
           `Colonnes requises introuvables : ${missing.join(', ')}\n\n` +
           `Colonnes détectées : ${headers.join(', ')}\n\n` +
-          `Colonnes attendues : name, price_public, price_wholesale, stock_quantity, category, min_order_quantity`,
+          `Colonnes attendues : name, price_public, price_wholesale, stock_quantity, category, min_order_quantity${categoryHint}`,
         );
         return;
       }
@@ -646,7 +671,14 @@ export default function VendorDashboardScreen() {
 
         const priceWholesale  = parseFloat(row['price_wholesale']?.replace(/[^\d.]/g, '') || '') || Math.round(pricePublic * 0.8 * 100) / 100;
         const minOrderQty     = parseInt(row['min_order_quantity'] || '1', 10) || 1;
-        const category        = row['category']?.trim() || 'Général';
+        const category        = resolveCategoryId(row['category'] ?? '');
+        if (!category) {
+          errors.push(
+            `Ligne ${line} : catégorie "${row['category'] ?? ''}" invalide — valeurs acceptées : ` +
+            CATEGORIES.filter(c => c.id !== 'all').map(c => c.id).join(', '),
+          );
+          continue;
+        }
 
         if (isSupabaseConfigured && supabase && realVendorIdForImport) {
           const { error } = await supabase.from('products').insert({

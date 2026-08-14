@@ -16,59 +16,34 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 const { width } = Dimensions.get('window');
 type AdminTab = 'dashboard' | 'users' | 'vendors' | 'orders' | 'disputes' | 'payments' | 'settings' | 'apikeys';
 
-// ── Mock API keys ─────────────────────────────────────────────────────────────
+// ── API keys — matches what mcp-server actually enforces (validateApiKey):
+// hasWrite = perms.includes('write') || perms.includes('*');
+// hasRead  = hasWrite || perms.includes('read') || perms.some(p => p.endsWith('.read'));
+// i.e. real grants are just "read" / "write" / "*" — no per-resource split.
+// (Was a mocked 6-checkbox products/orders/messages × read/write grid that
+// implied fine-grained control the server has never enforced.)
 const ALL_PERMISSIONS = [
-  { id: 'products.read',  label: 'Produits — lecture'   },
-  { id: 'products.write', label: 'Produits — écriture'  },
-  { id: 'orders.read',    label: 'Commandes — lecture'  },
-  { id: 'orders.write',   label: 'Commandes — écriture' },
-  { id: 'messages.read',  label: 'Messages — lecture'   },
-  { id: 'messages.write', label: 'Messages — écriture'  },
+  { id: 'read',  label: 'Lecture (produits, commandes, boutiques…)' },
+  { id: 'write', label: 'Écriture (créer/modifier des commandes, du stock…)' },
 ];
 
-interface MockApiKey {
+interface ApiKey {
   id: string;
   name: string;
-  key: string;       // full key — only shown once at creation
-  preview: string;   // first 8 chars + "..."
+  preview: string;   // key isn't re-readable after creation — derived from `key` only once
   permissions: string[];
   active: boolean;
   created_at: string;
   last_used: string | null;
 }
 
-const MOCK_API_KEYS: MockApiKey[] = [
-  {
-    id: 'k1', name: 'Claude Desktop — Full access',
-    key: 'bdc_a1b2c3d4e5f6g7h8i9j0k1l2', preview: 'bdc_a1b2...',
-    permissions: ['products.read', 'orders.read', 'orders.write', 'messages.read', 'messages.write'],
-    active: true, created_at: '12 juil. 2026', last_used: 'Aujourd\'hui 09:42',
-  },
-  {
-    id: 'k2', name: 'Zapier — Lecture seule',
-    key: 'bdc_zapier123456789abcdef', preview: 'bdc_zapi...',
-    permissions: ['products.read', 'orders.read'],
-    active: true, created_at: '5 juil. 2026', last_used: 'Hier 17:18',
-  },
-  {
-    id: 'k3', name: 'Ancien agent n8n (révoqué)',
-    key: 'bdc_n8n_old_revoked_key_xyz', preview: 'bdc_n8n_...',
-    permissions: ['orders.read', 'orders.write'],
-    active: false, created_at: '1 juin 2026', last_used: '28 juin 2026',
-  },
-];
-
-interface MockAuditEntry {
-  id: string; action: string; key_name: string; created_at: string; success: boolean;
+interface AuditRow {
+  id: string;
+  action: string;
+  api_key_id: string | null;
+  created_at: string;
+  success: boolean;
 }
-const MOCK_AUDIT: MockAuditEntry[] = [
-  { id: 'a1', action: 'mcp.list_orders_by_customer', key_name: 'Claude Desktop — Full access', created_at: 'Aujourd\'hui 09:42', success: true },
-  { id: 'a2', action: 'mcp.update_order_status',     key_name: 'Claude Desktop — Full access', created_at: 'Aujourd\'hui 09:41', success: true },
-  { id: 'a3', action: 'mcp.get_order_status',        key_name: 'Zapier — Lecture seule',       created_at: 'Hier 17:18',        success: true },
-  { id: 'a4', action: 'mcp.search_products',         key_name: 'Zapier — Lecture seule',       created_at: 'Hier 16:55',        success: true },
-  { id: 'a5', action: 'mcp.process_refund',          key_name: 'Claude Desktop — Full access', created_at: 'Hier 14:23',        success: false },
-  { id: 'a6', action: 'mcp.nearby_shops',            key_name: 'Zapier — Lecture seule',       created_at: 'Hier 11:07',        success: true },
-];
 
 // ── XOF formatter (same as checkout) ─────────────────────────────────────────
 const XOF_RATE = 656;
@@ -266,19 +241,74 @@ function AdminScreenInner() {
 
   const pendingCount = payments.filter(p => p.status === 'awaiting_verification').length;
 
-  // ── API keys state ──────────────────────────────────────────────────────────
-  const [apiKeys, setApiKeys] = useState<MockApiKey[]>(MOCK_API_KEYS);
+  // ── API keys state — real Supabase (api_keys / audit_logs tables already
+  // exist with real data; RLS is enabled on api_keys with no policy yet, so
+  // these calls 403 until an admin policy is added — see BUGS.md). ──────────
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
+  const [loadingKeys, setLoadingKeys] = useState(isSupabaseConfigured);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
   const [newKeyPerms, setNewKeyPerms] = useState<Record<string, boolean>>({});
   const [justCreatedKey, setJustCreatedKey] = useState<string | null>(null); // shown once
   const [auditFilter, setAuditFilter] = useState<string | null>(null); // filter by key id
+  const [creatingKey, setCreatingKey] = useState(false);
+
+  const fetchApiKeysData = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingKeys(false); return; }
+    setLoadingKeys(true);
+    const [{ data: keysData, error: keysErr }, { data: logsData, error: logsErr }] = await Promise.all([
+      supabase.from('api_keys')
+        .select('id, name, key, permissions, active, created_at, last_used')
+        .order('created_at', { ascending: false }),
+      supabase.from('audit_logs')
+        .select('id, action, details, created_at')
+        .like('action', 'mcp.%')
+        .order('created_at', { ascending: false })
+        .limit(100),
+    ]);
+    if (keysErr) console.warn('API keys fetch error:', keysErr.message);
+    if (logsErr) console.warn('Audit logs fetch error:', logsErr.message);
+    setApiKeys((keysData ?? []).map((k: any) => ({
+      id: k.id,
+      name: k.name,
+      preview: k.key ? `${k.key.slice(0, 8)}...` : '—',
+      permissions: k.permissions ?? [],
+      active: k.active,
+      created_at: new Date(k.created_at).toLocaleDateString('fr-FR'),
+      last_used: k.last_used ? new Date(k.last_used).toLocaleString('fr-FR') : null,
+    })));
+    setAuditRows((logsData ?? []).map((a: any) => ({
+      id: a.id,
+      action: a.action,
+      api_key_id: a.details?.api_key_id ?? null,
+      created_at: new Date(a.created_at).toLocaleString('fr-FR'),
+      success: !a.details?.result_summary?.error,
+    })));
+    setLoadingKeys(false);
+  }, []);
+
+  useEffect(() => { fetchApiKeysData(); }, [fetchApiKeysData]);
+  useFocusEffect(useCallback(() => { fetchApiKeysData(); }, [fetchApiKeysData]));
+
+  // webhook_configs is a real table with a real admin RLS policy
+  // (webhook_configs_admin) but no CRUD UI was ever built for it — this just
+  // shows the real count instead of the hardcoded "3 endpoints configurés".
+  const [webhookCount, setWebhookCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    supabase.from('webhook_configs').select('id', { count: 'exact', head: true })
+      .then(({ count, error }) => {
+        if (error) { console.warn('Webhook configs fetch error:', error.message); return; }
+        setWebhookCount(count ?? 0);
+      });
+  }, []);
 
   function togglePerm(permId: string) {
     setNewKeyPerms(p => ({ ...p, [permId]: !p[permId] }));
   }
 
-  function createApiKey() {
+  async function createApiKey() {
     if (!newKeyName.trim()) {
       Alert.alert('Nom requis', 'Donnez un nom à cette clé avant de la créer.');
       return;
@@ -288,39 +318,48 @@ function AdminScreenInner() {
       Alert.alert('Permissions requises', 'Sélectionnez au moins une permission.');
       return;
     }
-    const rawKey = 'bdc_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-    const newKey: MockApiKey = {
-      id: 'k' + Date.now(),
-      name: newKeyName.trim(),
-      key: rawKey,
-      preview: rawKey.slice(0, 8) + '...',
-      permissions: selectedPerms,
-      active: true,
-      created_at: 'Aujourd\'hui',
-      last_used: null,
-    };
-    setApiKeys(ks => [newKey, ...ks]);
-    setJustCreatedKey(rawKey);
+    if (!isSupabaseConfigured || !supabase) return;
+    setCreatingKey(true);
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    // `key` has a DB default (bdc_ + 24 random bytes hex) — don't set it
+    // ourselves, just read it back once via select().
+    const { data, error } = await supabase
+      .from('api_keys')
+      .insert({ name: newKeyName.trim(), permissions: selectedPerms, created_by: authUser?.id ?? null })
+      .select('id, key')
+      .single();
+    setCreatingKey(false);
+    if (error) { Alert.alert('Erreur', error.message); return; }
+    setJustCreatedKey(data.key);
     setShowCreateForm(false);
     setNewKeyName('');
     setNewKeyPerms({});
+    await fetchApiKeysData();
   }
 
-  function revokeKey(id: string) {
+  async function revokeKey(id: string) {
     const key = apiKeys.find(k => k.id === id);
     Alert.alert(
       'Révoquer la clé',
       `Révoquer "${key?.name}" ? Elle ne fonctionnera plus immédiatement.`,
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Révoquer', style: 'destructive', onPress: () => setApiKeys(ks => ks.map(k => k.id === id ? { ...k, active: false } : k)) },
+        {
+          text: 'Révoquer', style: 'destructive',
+          onPress: async () => {
+            if (!supabase) return;
+            const { error } = await supabase.from('api_keys').update({ active: false }).eq('id', id);
+            if (error) { Alert.alert('Erreur', error.message); return; }
+            setApiKeys(ks => ks.map(k => k.id === id ? { ...k, active: false } : k));
+          },
+        },
       ]
     );
   }
 
   const filteredAudit = auditFilter
-    ? MOCK_AUDIT.filter(a => apiKeys.find(k => k.id === auditFilter)?.name === a.key_name)
-    : MOCK_AUDIT;
+    ? auditRows.filter(a => a.api_key_id === auditFilter)
+    : auditRows;
 
   function validatePayment(id: string) {
     Alert.alert(
@@ -760,7 +799,11 @@ function AdminScreenInner() {
               </Text>
               <View style={[styles.newKeyBox, { backgroundColor: '#F0FDF4', borderColor: '#86EFAC' }]}>
                 <Text style={[styles.newKeyValue, { color: '#065F46' }]} selectable>{justCreatedKey}</Text>
-                <TouchableOpacity onPress={() => Alert.alert('Copié !', 'Clé copiée dans le presse-papiers.')}>
+                {/* No clipboard module installed (expo-clipboard) — the key
+                    text below is `selectable`, so a long-press already lets
+                    you copy it manually. Claiming a tap copied it without
+                    actually copying would be worse than this. */}
+                <TouchableOpacity onPress={() => Alert.alert('Astuce', 'Fais un appui long sur la clé ci-dessus pour la sélectionner et la copier.')}>
                   <Feather name="copy" size={16} color="#059669" />
                 </TouchableOpacity>
               </View>
@@ -819,11 +862,13 @@ function AdminScreenInner() {
                   <Text style={[styles.formCancelText, { color: colors.mutedForeground }]}>Annuler</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.formConfirmBtn, { backgroundColor: colors.primary }]}
+                  style={[styles.formConfirmBtn, { backgroundColor: colors.primary, opacity: creatingKey ? 0.7 : 1 }]}
                   onPress={createApiKey}
+                  disabled={creatingKey}
                 >
-                  <Feather name="key" size={14} color="white" />
-                  <Text style={styles.formConfirmText}>Générer la clé</Text>
+                  {creatingKey
+                    ? <ActivityIndicator size="small" color="white" />
+                    : <><Feather name="key" size={14} color="white" /><Text style={styles.formConfirmText}>Générer la clé</Text></>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -833,6 +878,7 @@ function AdminScreenInner() {
           <Text style={[styles.keysListTitle, { color: colors.foreground }]}>
             Clés existantes ({apiKeys.length})
           </Text>
+          {loadingKeys && <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 12 }} />}
           {apiKeys.map(k => (
             <View
               key={k.id}
@@ -921,7 +967,9 @@ function AdminScreenInner() {
               <View style={[styles.auditDot, { backgroundColor: entry.success ? '#22C55E' : '#EF4444' }]} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.auditAction, { color: colors.foreground }]}>{entry.action}</Text>
-                <Text style={[styles.auditKey, { color: colors.mutedForeground }]}>{entry.key_name}</Text>
+                <Text style={[styles.auditKey, { color: colors.mutedForeground }]}>
+                  {apiKeys.find(k => k.id === entry.api_key_id)?.name ?? 'Clé inconnue'}
+                </Text>
               </View>
               <Text style={[styles.auditTime, { color: colors.mutedForeground }]}>{entry.created_at}</Text>
             </View>
@@ -946,7 +994,11 @@ function AdminScreenInner() {
                   <Text style={[styles.settingLabel, { color: colors.foreground }]}>{s.label}</Text>
                   <View style={styles.settingValueRow}>
                     <Text style={[styles.settingValue, { color: colors.primary }]}>{s.value}</Text>
-                    <TouchableOpacity>
+                    {/* No platform_settings table exists yet — these 5 values are
+                        hardcoded, not read from or writable to the database. Real
+                        editing needs a new table (DDL, needs validation) + this
+                        form wired to it. Honest placeholder instead of a dead tap. */}
+                    <TouchableOpacity onPress={() => Alert.alert('Bientôt disponible', "L'édition des paramètres de plateforme arrive prochainement.")}>
                       <Feather name="edit-2" size={14} color={colors.mutedForeground} />
                     </TouchableOpacity>
                   </View>
@@ -959,31 +1011,48 @@ function AdminScreenInner() {
           {/* API Keys section */}
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Clés API & Webhooks</Text>
           <View style={[styles.settingsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <TouchableOpacity style={styles.apiKeyRow}>
+            {/* Real value: the app's own Supabase anon/publishable key (safe to
+                display — it's the same key already embedded in every build,
+                meant to be public, protected by RLS). Was a fake masked string. */}
+            <View style={styles.apiKeyRow}>
               <Feather name="key" size={16} color={colors.primary} />
               <View style={{ flex: 1 }}>
-                <Text style={[styles.settingLabel, { color: colors.foreground }]}>Clé API publique</Text>
-                <Text style={[styles.settingValue, { color: colors.mutedForeground, fontFamily: 'monospace' }]}>bdc_pub_••••••••••••••••</Text>
+                <Text style={[styles.settingLabel, { color: colors.foreground }]}>Clé API publique (Supabase)</Text>
+                <Text style={[styles.settingValue, { color: colors.mutedForeground, fontFamily: 'monospace' }]} numberOfLines={1}>
+                  {(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '').slice(0, 24) || '—'}…
+                </Text>
               </View>
-              <Feather name="copy" size={15} color={colors.mutedForeground} />
-            </TouchableOpacity>
+            </View>
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
-            <TouchableOpacity style={styles.apiKeyRow}>
+            {/* webhook_configs is a real table with a real admin RLS policy —
+                shows the real count (0 today) but no CRUD UI was ever built to
+                create/edit entries. Honest placeholder rather than a dead tap
+                pretending "3 endpoints configurés" like before. */}
+            <TouchableOpacity
+              style={styles.apiKeyRow}
+              onPress={() => Alert.alert('Bientôt disponible', "La gestion des webhooks sortants arrive prochainement (la table existe déjà côté base, l'écran de configuration reste à construire).")}
+            >
               <Feather name="link" size={16} color={colors.secondary} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.settingLabel, { color: colors.foreground }]}>Webhooks sortants</Text>
-                <Text style={[styles.settingValue, { color: colors.mutedForeground }]}>3 endpoints configurés</Text>
+                <Text style={[styles.settingValue, { color: colors.mutedForeground }]}>
+                  {webhookCount === null ? '…' : `${webhookCount} endpoint${webhookCount === 1 ? '' : 's'} configuré${webhookCount === 1 ? '' : 's'}`}
+                </Text>
               </View>
               <Feather name="chevron-right" size={15} color={colors.mutedForeground} />
             </TouchableOpacity>
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
-            <TouchableOpacity style={styles.apiKeyRow}>
+            {/* No API documentation was ever written or generated — nothing
+                real to link to. */}
+            <TouchableOpacity
+              style={styles.apiKeyRow}
+              onPress={() => Alert.alert('Bientôt disponible', "La documentation de l'API MCP arrive prochainement.")}
+            >
               <Feather name="code" size={16} color='#7C3AED' />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.settingLabel, { color: colors.foreground }]}>Documentation API</Text>
-                <Text style={[styles.settingValue, { color: colors.mutedForeground }]}>REST · OpenAPI 3.0</Text>
+                <Text style={[styles.settingValue, { color: colors.mutedForeground }]}>Pas encore rédigée</Text>
               </View>
-              <Feather name="external-link" size={15} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
         </View>
