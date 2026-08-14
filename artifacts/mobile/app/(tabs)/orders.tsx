@@ -14,35 +14,8 @@ import OrderCard from '@/components/OrderCard';
 import { SkeletonOrderCard } from '@/components/SkeletonCard';
 import { Order, MOCK_ORDERS } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { mapDbOrder } from '@/lib/orders';
 import { useNearbyBadge } from '@/hooks/useProximityOrders';
-
-// ─── Map Supabase row → Order interface ───────────────────────────────────────
-function mapDbOrder(row: any): Order {
-  return {
-    id:                  row.id,
-    orderNumber:         row.order_number ?? row.id,
-    status:              row.status ?? 'pending',
-    items:               Array.isArray(row.items)
-      ? row.items.map((item: any) => ({
-          productId:   item.product_id ?? item.id ?? '',
-          productName: item.product_name ?? item.name ?? '—',
-          quantity:    item.quantity ?? 1,
-          price:       item.price ?? 0,
-          image:       item.image ?? '',
-        }))
-      : [],
-    subtotal:            row.subtotal ?? row.total ?? 0,
-    shipping:            row.shipping_cost ?? 0,
-    tax:                 row.tax_amount ?? 0,
-    total:               row.total ?? 0,
-    date:                row.created_at
-      ? new Date(row.created_at).toLocaleDateString('fr-FR')
-      : '—',
-    trackingNumber:      row.tracking_number ?? undefined,
-    purchaseOrderNumber: row.purchase_order_number ?? undefined,
-    estimatedDelivery:   row.estimated_delivery ?? undefined,
-  };
-}
 
 const STATUS_TABS = [
   { id: 'all',              label: 'Tout' },
@@ -199,12 +172,12 @@ export default function OrdersScreen() {
         return;
       }
       const { error } = await supabase.from('reviews').insert({
-        product_id:        productId,
-        order_id:          reviewOrder.id,
-        user_id:           realId,
-        rating:            reviewRating,
-        comment:           reviewComment.trim() || null,
-        verified_purchase: true,
+        product_id: productId,
+        order_id:   reviewOrder.id,
+        user_id:    realId,
+        rating:     reviewRating,
+        comment:    reviewComment.trim() || null,
+        verified:   true,
       });
       setSubmittingReview(false);
       if (error) { Alert.alert('Erreur', error.message); return; }

@@ -68,7 +68,7 @@ export default function ProductDetailScreen() {
     if (!id || !isSupabaseConfigured || !supabase) return;
     const { data } = await supabase
       .from('reviews')
-      .select('id, rating, comment, verified_purchase, created_at, users(display_name)')
+      .select('id, rating, comment, verified, created_at, users(display_name)')
       .eq('product_id', id)
       .order('created_at', { ascending: false })
       .limit(20);
@@ -79,7 +79,7 @@ export default function ProductDetailScreen() {
         rating:   r.rating ?? 5,
         comment:  r.comment ?? '',
         date:     r.created_at ? new Date(r.created_at).toLocaleDateString('fr-FR') : '',
-        verified: r.verified_purchase ?? false,
+        verified: r.verified ?? false,
       })));
     }
   }, [id]);
