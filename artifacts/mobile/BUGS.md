@@ -4,6 +4,8 @@ Dernière mise à jour : 14 août 2026
 
 ## 🔴 BLOQUANT
 
+- [ ] **[nouveau lot, priorité absolue]** Cycle de commande complet cassé : une commande passée depuis le panier (checkout confirmé) n'apparaît nulle part — ni "Mes commandes" buyer, ni côté vendeur, ni admin, aucun badge à jour. À diagnostiquer en base (pas juste visuellement) avant de corriger — suspects : mode démo silencieux, désync `switchDemoRole`, policy RLS manquante sur une opération précise. Une fois la cause trouvée : synchroniser en temps réel (refetch ou realtime Supabase) les 4 vues (buyer/approver/vendor/admin) sur les 5 statuts (en attente/approbation/expédié/terminé/annulé), avec les bons droits par rôle (vendor fait avancer le statut, approver approuve/rejette, personne ne saute une étape sans droit) ; vérifier que l'approver a un rôle fonctionnel réel dans le cycle (pas juste visuel) ; badges de notification exacts partout, jamais hardcodés.
+
 - [x] Produits ajoutés par le vendeur n'apparaissent pas dans l'accueil/liste produits publique — **cause racine trouvée et corrigée** : `handleAddProduct` (vendor-dashboard.tsx) basculait silencieusement en branche locale/démo (`_imported:true`, aucun insert Supabase) dès que `user` du contexte était faux à l'instant du tap, sans jamais toucher la base ni afficher d'erreur. Guard changé pour ne dépendre que de `isSupabaseConfigured`/`supabase` ; l'UUID réel est toujours résolu via `supabase.auth.getUser()`, avec message "Session expirée" explicite si absent. À confirmer sur téléphone.
 - [x] Produits avec une catégorie assignée invisibles nulle part — picker de catégorie (CATEGORIES partagé avec l'accueil) posé lors d'une session précédente ; combiné au fix ci-dessus, l'insert atteint désormais réellement la base avec un `category` valide. À confirmer sur téléphone.
   - [ ] Point lié : l'import CSV en masse (vendor-dashboard.tsx) a le même mismatch de taxonomie catégorie (texte libre non validé) — non corrigé par le picker du formulaire manuel, à traiter dans une session séparée
@@ -42,6 +44,8 @@ Dernière mise à jour : 14 août 2026
 - [x] Boutique de quartier (Près de moi) : pas de barre de recherche boutique — barre de recherche ajoutée sur la liste produits d'une boutique (filtre local par nom).
   - [ ] Point lié : "pas de bouton confirmer après ajout photo" — non reproduit dans le code (add-product et register-shop ont déjà un bouton Enregistrer/Suivant), à préciser sur quel écran exact ça se produit pour investiguer plus loin.
 - [x] Micro sur la barre de recherche accueil ne fonctionne pas — reconnaissance vocale nécessite un module natif non installé (build natif requis, casserait Expo Go) ; "Bientôt disponible" honnête plutôt qu'un tap mort.
+- [ ] **[nouveau lot]** Admin — fonctionnalités à activer : export/import CSV vendeur (bug signalé à diagnostiquer avant correction), clés API publiques, webhooks sortants, documentation API, paramètres de plateforme, clés API/MCP pour agents IA/LLM externes. Pour chacune : vérifier s'il existe une vraie table/policy en base ou si c'est entièrement mocké (comme l'était tout admin.tsx ce matin) — distinguer clairement bug réel vs fonctionnalité jamais construite.
+- [ ] **[nouveau lot]** Notifications push : rien de fonctionnel actuellement. État des lieux à faire (tokens Expo push configurés ? permissions demandées ? backend d'envoi existant ?) puis plan à valider avant construction — chantier à plusieurs pièces mobiles (client + serveur + service Expo).
 
 ## 🟡 AMÉLIORATIONS / MANQUANT
 
@@ -52,7 +56,10 @@ Dernière mise à jour : 14 août 2026
 - [x] Numéro de suivi (tracking) à ajouter côté vendeur lors de la mise à jour de statut — déjà câblé (champ "Numéro de suivi" dans la modale de changement de statut, vendor-dashboard.tsx), non reflété dans ce fichier
 - [ ] Paramètres admin non éditables (commission, crédit max, clés API, webhooks) — pas traité, chantier UI admin à part entière
 - [x] Actions détail commande non fonctionnelles (suivre commande, détail, recommander, laisser un avis) — **écran `/order/[id]` créé** (n'existait pas du tout — `OrderCard` naviguait vers une route inexistante). Affiche le détail complet (articles, totaux, adresse, n° de suivi), une frise de suivi visuelle (reçue → approuvée → expédiée → en livraison → livrée), et les actions confirmer réception / laisser un avis / recommander (réinjecte les articles dans le panier). À confirmer sur téléphone.
+- [ ] **[nouveau lot]** Audit traductions complet : au-delà des catégories, vérifier qu'aucun texte en dur (anglais ou français statique) ne reste affiché quand la langue change. Corriger ce qui est simple (texte en dur → clé existante) ; lister ce qui nécessite du contenu nouveau à traduire dans les 20 langues (trop long pour cette session).
+- [ ] **[nouveau lot]** KYC vendeur : `vendors` a maintenant ses policies RLS. Vérifier s'il existe un flow KYC (upload documents, statut de vérification) déjà esquissé dans le code, ou si c'est à construire de zéro — état des lieux + plan à valider avant de coder quoi que ce soit.
+- [ ] **[nouveau lot]** Cartes — Leaflet fonctionne mais pas OpenStreetMap seul : diagnostiquer (erreur console, tuiles qui ne chargent pas, clé API manquante, CORS ?) avant de corriger. Ne pas intégrer Google Maps (clé payante, à valider séparément) — se concentrer sur réparer OSM/Leaflet existant.
 
 ## 🔵 FEATURE MAJEURE (hors bug fix, chantier à part)
 
-- [ ] Intégration paiement réelle Wave/Orange Money/MTN MoMo : flow complet (demande de paiement → redirection agrégateur → confirmation → mise à jour commande)
+- [ ] Intégration paiement réelle Wave/Orange Money/MTN MoMo : flow complet (demande de paiement → appel API Wave/agrégateur → URL de paiement renvoyée → redirection utilisateur → validation Wave → notification retour → confirmation commande). **Non commencé volontairement** — le plus gros chantier, touche à de vrais paiements, à faire dans une session dédiée avec attention complète d'Arona.
