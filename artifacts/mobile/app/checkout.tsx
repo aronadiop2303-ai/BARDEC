@@ -247,6 +247,17 @@ export default function CheckoutScreen() {
         Alert.alert('Erreur', 'Veuillez remplir les champs obligatoires.');
         return;
       }
+      // Country and phone are optional, but if filled in they must look like
+      // a real country/phone rather than garbage — the fields let anything
+      // through before (e.g. "1234" as a country).
+      if (address.country && !/[a-zA-ZÀ-ÿ]/.test(address.country)) {
+        Alert.alert('Pays invalide', 'Le pays doit contenir des lettres, pas seulement des chiffres.');
+        return;
+      }
+      if (address.phone && !/^[+\d][\d\s().-]{5,19}$/.test(address.phone.trim())) {
+        Alert.alert('Téléphone invalide', 'Entrez un numéro de téléphone valide (chiffres uniquement, 6 à 20 caractères).');
+        return;
+      }
     }
     if (step === 2) {
       if (delivery.type === 'relay_point' && !delivery.relayPoint) {

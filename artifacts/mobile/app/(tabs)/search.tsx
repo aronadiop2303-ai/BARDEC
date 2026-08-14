@@ -13,6 +13,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
+import type { TranslationKey } from '@/constants/translations';
 import BardecLayout from '@/components/BardecLayout';
 import ProductCard from '@/components/ProductCard';
 import { SkeletonProductCard } from '@/components/SkeletonCard';
@@ -146,7 +147,7 @@ export default function SearchScreen() {
             style={[styles.catChip, { backgroundColor: selectedCategory === cat.id ? colors.accent : 'transparent', borderColor: selectedCategory === cat.id ? colors.primary : colors.border }]}
             onPress={() => setSelectedCategory(cat.id)}
           >
-            <Text style={[styles.catChipText, { color: selectedCategory === cat.id ? colors.primary : colors.mutedForeground }]}>{cat.name}</Text>
+            <Text style={[styles.catChipText, { color: selectedCategory === cat.id ? colors.primary : colors.mutedForeground }]}>{t(`cat_${cat.id}` as TranslationKey)}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>

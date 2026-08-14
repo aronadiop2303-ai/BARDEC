@@ -14,6 +14,7 @@ import { router, Redirect } from 'expo-router';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
+import type { TranslationKey } from '@/constants/translations';
 import { useAuth } from '@/context/AuthContext';
 import BardecLayout from '@/components/BardecLayout';
 import ProductCard from '@/components/ProductCard';
@@ -171,7 +172,7 @@ export default function HomeScreen() {
                 styles.catChipText,
                 { color: selectedCategory === cat.id ? 'white' : colors.foreground },
               ]}>
-                {cat.name}
+                {t(`cat_${cat.id}` as TranslationKey)}
               </Text>
             </TouchableOpacity>
           ))}

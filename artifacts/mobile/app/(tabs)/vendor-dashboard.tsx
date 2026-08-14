@@ -12,6 +12,7 @@ import { Feather } from '@/components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
+import type { TranslationKey } from '@/constants/translations';
 import { useAuth } from '@/context/AuthContext';
 import BardecLayout from '@/components/BardecLayout';
 import { SkeletonBox } from '@/components/SkeletonCard';
@@ -1177,7 +1178,7 @@ export default function VendorDashboardScreen() {
                       styles.catChipText,
                       { color: addForm.category === cat.id ? 'white' : colors.foreground },
                     ]}>
-                      {cat.name}
+                      {t(`cat_${cat.id}` as TranslationKey)}
                     </Text>
                   </TouchableOpacity>
                 ))}
