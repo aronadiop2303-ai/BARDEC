@@ -21,6 +21,15 @@ export interface OmniContext {
   data: Record<string, unknown>;
 }
 
+// Safe, actionable messages we wrote ourselves — the only ones ever shown as
+// the small error line under the chat bubble. Anything sourced from the
+// server (provider names, upstream API error bodies, error codes) must
+// never reach this UI — real users should only ever see the generic bubble
+// text below. Server-side detail belongs in Supabase function logs only.
+const DEMO_MODE_ERROR = "OMNI n'est pas disponible en mode démo. Configure Supabase pour l'activer.";
+const NOT_LOGGED_IN_ERROR = 'Connecte-toi pour discuter avec OMNI.';
+const SAFE_CLIENT_ERRORS = new Set([DEMO_MODE_ERROR, NOT_LOGGED_IN_ERROR]);
+
 export function useOmniChat(context?: OmniContext) {
   const [messages, setMessages] = useState<OmniChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -108,9 +117,7 @@ export function useOmniChat(context?: OmniContext) {
 
       try {
         if (!isSupabaseConfigured || !supabase) {
-          throw new Error(
-            "OMNI n'est pas disponible en mode démo. Configure Supabase pour l'activer.",
-          );
+          throw new Error(DEMO_MODE_ERROR);
         }
 
         // omni-agent requires a real authenticated session — it rejects the
@@ -118,7 +125,7 @@ export function useOmniChat(context?: OmniContext) {
         // up front instead of a doomed request.
         const { data: sessionData } = await supabase.auth.getSession();
         if (!sessionData?.session) {
-          throw new Error('Connecte-toi pour discuter avec OMNI.');
+          throw new Error(NOT_LOGGED_IN_ERROR);
         }
 
         // The deployed omni-agent function only supports a single non-streaming
@@ -140,15 +147,18 @@ export function useOmniChat(context?: OmniContext) {
         if (invokeError) {
           // FunctionsHttpError only carries a generic message by default —
           // read the real { error: "..." } body off its .context response.
+          // This detail is for our own console only — never shown to the
+          // user (see the catch block below and SAFE_CLIENT_ERRORS above).
           const ctx = (invokeError as any)?.context;
           let detail: string | null = null;
           if (ctx?.json) {
             const body = await ctx.json().catch(() => null);
             if (typeof body?.error === 'string') detail = body.error;
           }
-          throw new Error(detail ?? invokeError.message);
+          console.warn('[OMNI] server error:', detail ?? invokeError.message);
+          throw new Error('server_error');
         }
-        if (!data?.reply) throw new Error('Réponse vide reçue.');
+        if (!data?.reply) throw new Error('server_error');
 
         if (data.conversation_id && data.conversation_id !== conversationId) {
           setConversationId(data.conversation_id);
@@ -166,9 +176,13 @@ export function useOmniChat(context?: OmniContext) {
         // Ignore errors from stale requests
         if (generationRef.current !== requestGeneration) return;
 
-        const message =
-          err instanceof Error ? err.message : 'Une erreur est survenue.';
-        setError(message);
+        // Only ever surface the small error line for messages we wrote
+        // ourselves (SAFE_CLIENT_ERRORS) — anything else (server/provider
+        // detail, unexpected exceptions) stays out of the UI entirely. The
+        // chat bubble below always shows the same generic, reassuring text
+        // regardless of cause.
+        const rawMessage = err instanceof Error ? err.message : null;
+        setError(rawMessage && SAFE_CLIENT_ERRORS.has(rawMessage) ? rawMessage : null);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === pendingId

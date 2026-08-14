@@ -197,8 +197,20 @@ Deno.serve(async (req: Request) => {
       CORS,
     );
   } catch (err) {
-    console.error('omni-agent error:', err);
-    const message = err instanceof Error ? err.message : 'Erreur interne.';
-    return jsonResponse({ error: message }, 500, CORS);
+    // Full detail (provider name, upstream error body, stack) goes to the
+    // Supabase function logs only — never to the client. The client always
+    // gets a fixed, generic message; real users must never see provider
+    // names, API error codes, or raw upstream response bodies.
+    console.error('omni-agent error:', {
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      user_id: user.id,
+      conversation_id: body.conversation_id ?? null,
+    });
+    return jsonResponse(
+      { error: "Une erreur s'est produite. Réessaie dans un instant." },
+      500,
+      CORS,
+    );
   }
 });
