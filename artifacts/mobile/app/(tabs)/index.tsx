@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
+  Alert,
   FlatList,
   ScrollView,
   StyleSheet,
@@ -19,6 +20,8 @@ import ProductCard from '@/components/ProductCard';
 import { SkeletonProductCard } from '@/components/SkeletonCard';
 import { CATEGORIES } from '@/constants/mockData';
 import { useProducts } from '@/hooks/useProducts';
+import { usePendingApprovalsCount } from '@/hooks/usePendingApprovalsCount';
+import { isSupabaseConfigured } from '@/lib/supabase';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -34,6 +37,8 @@ export default function HomeScreen() {
   const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
   const isVendor = user?.role === 'VENDOR';
   const isAdmin = user?.role === 'ADMIN';
+  const realPendingApprovals = usePendingApprovalsCount(isB2B);
+  const pendingApprovalsValue = isSupabaseConfigured ? (realPendingApprovals ?? 0) : (user?.pendingApprovals ?? 0);
 
   // ── Supabase products (falls back to MOCK_PRODUCTS in demo mode) ──────────
   const { products, loading, refetch } = useProducts();
@@ -97,7 +102,11 @@ export default function HomeScreen() {
             onSubmitEditing={() => router.push({ pathname: '/(tabs)/search', params: { q: searchQuery } })}
             returnKeyType="search"
           />
-          <TouchableOpacity onPress={() => {}}>
+          {/* Voice search needs a native speech-recognition module (none
+              installed) — adding one requires a new native build, which
+              would break Expo Go testing mid-session. Honest "coming soon"
+              instead of a silent no-op. */}
+          <TouchableOpacity onPress={() => Alert.alert('Bientôt disponible', 'La recherche vocale arrive prochainement.')}>
             <Feather name="mic" size={18} color={colors.primary} />
           </TouchableOpacity>
         </View>
@@ -110,7 +119,7 @@ export default function HomeScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.kpiScroll}>
             <View style={[styles.kpiCard, { backgroundColor: colors.primary }]}>
               <Feather name="clock" size={18} color="white" />
-              <Text style={styles.kpiValue}>{user?.pendingApprovals ?? 0}</Text>
+              <Text style={styles.kpiValue}>{pendingApprovalsValue}</Text>
               <Text style={styles.kpiLabel}>{t('pending_orders')}</Text>
             </View>
             <View style={[styles.kpiCard, { backgroundColor: colors.secondary }]}>

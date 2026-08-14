@@ -225,7 +225,17 @@ export function useOmniChat(context?: OmniContext) {
     );
 
     if (!res.ok) {
-      throw new Error(`Erreur serveur: ${res.status}`);
+      // The edge function returns { error: "..." } with the real cause (e.g.
+      // a missing ANTHROPIC_API_KEY secret) — surface it instead of just the
+      // HTTP status, which is all that was ever shown before.
+      let detail = '';
+      try {
+        const body = await res.json();
+        if (typeof body?.error === 'string') detail = ` — ${body.error}`;
+      } catch {
+        // response wasn't JSON — fall back to status-only message
+      }
+      throw new Error(`Erreur serveur (${res.status})${detail}`);
     }
 
     // Guard: context may have changed while the fetch was in flight
@@ -348,7 +358,17 @@ export function useOmniChat(context?: OmniContext) {
     // Context may have changed while the request was in flight — discard
     if (generationRef.current !== requestGeneration) return;
 
-    if (invokeError) throw invokeError;
+    if (invokeError) {
+      // FunctionsHttpError only carries a generic message by default — read
+      // the real { error: "..." } body off its .context response for detail.
+      const ctx = (invokeError as any)?.context;
+      let detail: string | null = null;
+      if (ctx?.json) {
+        const body = await ctx.json().catch(() => null);
+        if (typeof body?.error === 'string') detail = body.error;
+      }
+      throw new Error(detail ?? invokeError.message);
+    }
     if (!data?.reply) throw new Error('Réponse vide reçue.');
 
     if (data.conversation_id && data.conversation_id !== conversationId) {

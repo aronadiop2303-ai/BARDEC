@@ -111,7 +111,10 @@ export default function ShopProductsScreen() {
   const { mutate: submitReview, isPending: submitting } = useSubmitProximityReview(id ?? '');
 
   const shop = data?.shop ?? null;
-  const products = data?.products ?? [];
+  const allProducts = data?.products ?? [];
+  const [productQuery, setProductQuery] = useState('');
+  const q = productQuery.trim().toLowerCase();
+  const products = q ? allProducts.filter((p: ProximityProduct) => p.name.toLowerCase().includes(q)) : allProducts;
   const catColor = shop ? (CATEGORY_COLORS[shop.category] ?? GREEN) : GREEN;
 
   async function handleAdd(product: ProximityProduct) {
@@ -302,17 +305,35 @@ export default function ShopProductsScreen() {
               </View>
             )}
 
-            {/* Products title */}
+            {/* Products title + search */}
             <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
               Produits disponibles
             </Text>
+            {allProducts.length > 0 && (
+              <View style={[styles.productSearchRow, { backgroundColor: colors.muted, borderColor: colors.border }]}>
+                <Feather name="search" size={15} color={colors.mutedForeground} />
+                <TextInput
+                  style={[styles.productSearchInput, { color: colors.foreground }]}
+                  placeholder="Rechercher un produit…"
+                  placeholderTextColor={colors.mutedForeground}
+                  value={productQuery}
+                  onChangeText={setProductQuery}
+                  returnKeyType="search"
+                />
+                {productQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setProductQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Feather name="x" size={15} color={colors.mutedForeground} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
           </>
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Feather name="package" size={36} color={colors.mutedForeground} />
             <Text style={[styles.emptyTxt, { color: colors.mutedForeground }]}>
-              Aucun produit pour l'instant.
+              {q ? `Aucun résultat pour « ${productQuery.trim()} »` : "Aucun produit pour l'instant."}
             </Text>
           </View>
         }
@@ -405,6 +426,13 @@ const styles = StyleSheet.create({
   submitBtn: { flex: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingVertical: 12 },
   submitBtnTxt: { color: 'white', fontWeight: '700', fontSize: 14 },
   sectionTitle: { fontSize: 15, fontWeight: '700', paddingHorizontal: 16, paddingVertical: 10 },
+  productSearchRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 16, marginBottom: 12,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: 20, borderWidth: 1,
+  },
+  productSearchInput: { flex: 1, fontSize: 14, padding: 0, margin: 0 },
   productCard: { flexDirection: 'row', alignItems: 'center', borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 10, marginHorizontal: 16, gap: 12 },
   productName: { fontSize: 15, fontWeight: '700', marginBottom: 2 },
   productUnit: { fontSize: 12, marginBottom: 4 },

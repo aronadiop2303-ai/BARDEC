@@ -1,6 +1,6 @@
 # BUGS.md — BARDEC
 
-Dernière mise à jour : 13 août 2026
+Dernière mise à jour : 14 août 2026
 
 ## 🔴 BLOQUANT
 
@@ -9,7 +9,7 @@ Dernière mise à jour : 13 août 2026
   - [ ] Point lié : l'import CSV en masse (vendor-dashboard.tsx) a le même mismatch de taxonomie catégorie (texte libre non validé) — non corrigé par le picker du formulaire manuel, à traiter dans une session séparée
 - [x] Image produit ne s'affiche pas dans "Mes produits" côté vendeur — même cause racine que l'item ImagePicker ci-dessous (upload échouait silencieusement, produit enregistré sans image)
 - [x] Commande passée par le buyer n'apparaît pas dans sa liste de commandes — **même cause racine** que le bug produit ci-dessus, trouvée dans `checkout.tsx` : le bloc d'insert vers `orders` était sauté silencieusement si `user` était faux, et le flow avançait quand même à l'étape "confirmation" comme si la commande avait réussi. Même correctif appliqué. Bug identique corrigé en prime dans `profile.tsx` (upload avatar) et `app/proximity/cart.tsx` (commande boutique de quartier), qui avaient exactement le même défaut. À confirmer sur téléphone.
-- [ ] Statut de commande mis à jour par le vendeur n'apparaît pas côté commande réelle (reproduit après le fix RLS : le vendeur peut changer le statut mais ça ne se reflète pas ailleurs)
+- [x] Statut de commande mis à jour par le vendeur n'apparaît pas côté commande réelle (reproduit après le fix RLS : le vendeur peut changer le statut mais ça ne se reflète pas ailleurs) — **cause racine trouvée** : `switchDemoRole` (AuthContext.tsx), le sélecteur de rôle utilisé pour tester plusieurs rôles depuis un même compte, remplaçait `user` par un faux profil `DEMO_USERS` (id `"u1"`…) **même en mode Supabase réel**. La session Supabase Auth réelle (`auth.uid()`) ne change pas, donc en prévisualisant "ACHETEUR" depuis un compte vendeur réel, l'onglet Commandes interrogeait `orders_customer` avec l'UUID du vendeur (propriétaire d'aucune commande) — d'où l'impression que la mise à jour de statut "ne se reflète nulle part", alors que ce n'était juste pas le bon compte. Corrigé : en mode réel, le switcher ne modifie plus que le champ `role` sur l'utilisateur authentifié réel (id/email inchangés) ; c'est désormais une prévisualisation UI uniquement, RLS reste appliqué selon le vrai rôle en base. À confirmer sur téléphone avec deux vrais comptes (vendeur + acheteur), pas via le switcher.
 - [x] Admin ne voit aucune donnée réelle (dashboard, utilisateurs, vendeurs, commandes semblent être des données de test) — **partiellement corrigé**. `admin.tsx` n'avait strictement aucune intégration Supabase (pas un bug, une fonctionnalité jamais câblée). Onglets **Dashboard/Utilisateurs/Vendeurs en attente/Commandes** branchés sur les vraies tables `users`/`orders` (policies `users_admin`/`orders_admin` déjà en place, confirmées). Bouton "Approuver" un vendeur écrit réellement `users.is_approved = true`.
   - [ ] Point découvert : une vraie table `vendors` existe en base avec exactement les colonnes KYC qu'utilisait l'ancien UI mocké (`kyc_status`, `documents`, `country`, `verified`, `response_rate`, `total_sales`, `avg_rating`) — mais RLS activé **sans aucune policy**, donc illisible par personne, même ADMIN. Pour l'utiliser il faut décider et créer des policies (`CREATE POLICY` en production — nécessite ta validation). En attendant, l'onglet Vendeurs utilise `users` (role=VENDOR, is_approved) en version simplifiée, sans les champs KYC détaillés.
   - [ ] Restent mock (non câblés, hors périmètre de cette session) : Paiements, Litiges (même blocage RLS que `vendors` sur `disputes`), Clés API/MCP, Paramètres, et le graphique B2B vs B2C du Dashboard.
@@ -18,21 +18,22 @@ Dernière mise à jour : 13 août 2026
 
 ## 🟠 FONCTIONNALITÉS NON CONNECTÉES
 
-- [ ] Profil customer : aucun sous-menu ne réagit (info perso, liste de souhaits, avis, support, vider le cache)
-- [ ] Buyer : rien ne fonctionne (bon de commande, approbation en cours toujours à 0, badges incorrects)
-- [ ] Approver : mêmes bugs que Buyer
-- [ ] OMNI (assistant IA) : répond toujours "désolé, je n'ai pas pu répondre, réessayer dans un instant"
-- [ ] BARDEC UNLIMITED : aucune action au clic
-- [ ] "Contacter le vendeur" sur une fiche produit : aucune action
-- [ ] Boutique de quartier (Près de moi) : pas de bouton confirmer après ajout photo ; pas de barre de recherche boutique
-- [ ] Micro sur la barre de recherche accueil ne fonctionne pas
+- [x] Profil customer : aucun sous-menu ne réagit (info perso, liste de souhaits, avis, support, vider le cache) — **Informations personnelles** ouvre un vrai formulaire (écrit `display_name` en base) ; **Support** et **Infos appli** affichent du contenu réel ; **Vider le cache** vide `AsyncStorage` (hors session) ; **Liste de souhaits**/**Avis** restent non câblés côté backend (pas de table dédiée pour la première, `reviews` bloquée par RLS sans policy pour la seconde) donc "Bientôt disponible" honnête plutôt qu'un tap mort. À confirmer sur téléphone.
+- [x] Buyer : rien ne fonctionne (bon de commande, approbation en cours toujours à 0, badges incorrects) — **Bon de commande** navigue vers l'onglet Commandes ; le badge "approbation en cours" utilise désormais un vrai comptage Supabase (`usePendingApprovalsCount`, RLS `orders_customer`/`orders_approver`) au lieu de `user.pendingApprovals` qui n'existe pas en base et valait toujours 0 — appliqué sur le profil **et** le tableau de bord B2B de l'accueil. À confirmer sur téléphone.
+- [x] Approver : mêmes bugs que Buyer — même correctif (`usePendingApprovalsCount` scope déjà correctement la file de l'entreprise via `orders_approver`). À confirmer sur téléphone.
+- [ ] OMNI (assistant IA) : répond toujours "désolé, je n'ai pas pu répondre, réessayer dans un instant" — **pas encore résolu**, mais le diagnostic est amélioré : `useOmniChat` affichait seulement le code HTTP, masquant la vraie cause renvoyée par l'edge function (`{ error: "..." }`, ex. secret `ANTHROPIC_API_KEY` absent). Le prochain test sur téléphone affichera le message d'erreur réel, à lire pour identifier la cause exacte.
+- [x] BARDEC UNLIMITED : aucune action au clic — pas de backend paiement/abonnement (feature majeure hors périmètre, voir 🔵 ci-dessous) ; "Bientôt disponible" honnête plutôt qu'un tap mort.
+- [x] "Contacter le vendeur" sur une fiche produit : aucune action — `/chat` est un écran mocké (conversations et réponses scriptées), jamais branché aux vraies tables `conversations`/`messages` ; naviguer dessus ferait croire à un vrai échange avec le vendeur, donc "Bientôt disponible" en attendant que ce chantier soit scopé.
+- [x] Boutique de quartier (Près de moi) : pas de barre de recherche boutique — barre de recherche ajoutée sur la liste produits d'une boutique (filtre local par nom).
+  - [ ] Point lié : "pas de bouton confirmer après ajout photo" — non reproduit dans le code (add-product et register-shop ont déjà un bouton Enregistrer/Suivant), à préciser sur quel écran exact ça se produit pour investiguer plus loin.
+- [x] Micro sur la barre de recherche accueil ne fonctionne pas — reconnaissance vocale nécessite un module natif non installé (build natif requis, casserait Expo Go) ; "Bientôt disponible" honnête plutôt qu'un tap mort.
 
 ## 🟡 AMÉLIORATIONS / MANQUANT
 
 - [ ] Traduction des catégories reste en anglais malgré changement de langue
 - [ ] Impossible de créer de nouvelles catégories
 - [ ] Validation d'adresse manquante (accepte pays/numéros invalides)
-- [ ] Pas de badge de notification sur l'icône commandes
+- [x] Pas de badge de notification sur l'icône commandes — déjà câblé (`useActiveOrdersCount`, commit précédent), non reflété dans ce fichier
 - [ ] Numéro de suivi (tracking) à ajouter côté vendeur lors de la mise à jour de statut
 - [ ] Paramètres admin non éditables (commission, crédit max, clés API, webhooks)
 - [ ] Actions détail commande non fonctionnelles (suivre commande, détail, recommander, laisser un avis)

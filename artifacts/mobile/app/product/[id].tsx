@@ -230,7 +230,15 @@ export default function ProductDetailScreen() {
               </View>
               <Text style={[styles.vendorMeta, { color: colors.mutedForeground }]}>Taux de réponse 98% · Dakar, Sénégal</Text>
             </View>
-            <TouchableOpacity style={[styles.contactBtn, { backgroundColor: colors.primary }]}>
+            {/* /chat is a static mock screen (MOCK_CONVERSATIONS, scripted fake
+                replies) — never wired to the real conversations/messages
+                tables (AGENTS.md §7 mentions them as existing for P2P chat).
+                Navigating there would look like messaging the real vendor
+                while being entirely fake, so an honest "coming soon" instead. */}
+            <TouchableOpacity
+              style={[styles.contactBtn, { backgroundColor: colors.primary }]}
+              onPress={() => Alert.alert('Bientôt disponible', 'La messagerie avec le vendeur arrive prochainement.')}
+            >
               <Feather name="message-circle" size={14} color="white" />
               <Text style={styles.contactBtnText}>{t('contact_vendor')}</Text>
             </TouchableOpacity>

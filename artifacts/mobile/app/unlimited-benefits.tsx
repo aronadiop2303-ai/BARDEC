@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import {
-  Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View,
+  Alert, Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -163,7 +163,13 @@ export default function UnlimitedBenefitsScreen() {
 
         {/* CTA */}
         <View style={styles.ctaSection}>
-          <TouchableOpacity style={[styles.ctaBtn, { backgroundColor: colors.primary }]}>
+          {/* No subscription/payment backend exists yet (see BUGS.md — real
+              payment integration is a separate, unbuilt feature) — honest
+              "coming soon" rather than a silent dead tap. */}
+          <TouchableOpacity
+            style={[styles.ctaBtn, { backgroundColor: colors.primary }]}
+            onPress={() => Alert.alert('Bientôt disponible', 'BARDEC Unlimited arrive prochainement.')}
+          >
             <Text style={styles.ctaBtnText}>Activer BARDEC Unlimited</Text>
             <Feather name="arrow-right" size={18} color="white" />
           </TouchableOpacity>

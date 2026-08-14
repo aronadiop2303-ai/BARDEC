@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, Modal, ScrollView,
-  StyleSheet, Switch, Text, TouchableOpacity, View,
+  ActivityIndicator, Alert, Image, Linking, Modal, ScrollView,
+  StyleSheet, Switch, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { Feather } from '@/components/Icon';
@@ -15,16 +17,77 @@ import RoleBadge from '@/components/RoleBadge';
 import BardecLayout from '@/components/BardecLayout';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { readLocalImageBytes } from '@/lib/imageUpload';
+import { usePendingApprovalsCount } from '@/hooks/usePendingApprovalsCount';
 
 export default function ProfileScreen() {
   const colors = useColors();
   const { t, language } = useLanguage();
-  const { user, logout, switchDemoRole, isDemoMode, updateUserAvatar } = useAuth();
+  const { user, logout, switchDemoRole, isDemoMode, updateUserAvatar, updateUserName } = useAuth();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [biometricEnabled,     setBiometricEnabled]     = useState(false);
   const [isUploadingAvatar,    setIsUploadingAvatar]    = useState(false);
   // Pending avatar: URI picked by user but not yet confirmed / uploaded
   const [pendingAvatarUri,     setPendingAvatarUri]     = useState<string | null>(null);
+
+  // ── Edit personal info modal ────────────────────────────────────────────────
+  const [editNameVisible, setEditNameVisible] = useState(false);
+  const [editNameValue,   setEditNameValue]   = useState('');
+  const [savingName,      setSavingName]      = useState(false);
+
+  function handleOpenEditName() {
+    setEditNameValue(user?.name ?? '');
+    setEditNameVisible(true);
+  }
+
+  async function handleSaveName() {
+    const name = editNameValue.trim();
+    if (!name) { Alert.alert('Erreur', 'Le nom ne peut pas être vide.'); return; }
+    setSavingName(true);
+    try {
+      await updateUserName(name);
+      setEditNameVisible(false);
+    } catch (err: any) {
+      Alert.alert('Erreur', err?.message ?? 'Impossible de mettre à jour le nom.');
+    } finally {
+      setSavingName(false);
+    }
+  }
+
+  async function handleClearCache() {
+    Alert.alert(
+      'Vider le cache',
+      'Ça va effacer les données mises en cache localement (le compte reste connecté).',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Vider', style: 'destructive',
+          onPress: async () => {
+            const keys = await AsyncStorage.getAllKeys();
+            // Keep the session/demo-user keys so this doesn't log the user out.
+            const toRemove = keys.filter(k => k !== 'bardec_demo_user' && !k.startsWith('sb-'));
+            if (toRemove.length > 0) await AsyncStorage.multiRemove(toRemove);
+            Alert.alert('Cache vidé', `${toRemove.length} entrée(s) effacée(s).`);
+          },
+        },
+      ],
+    );
+  }
+
+  function handleSupport() {
+    Alert.alert(
+      'Support',
+      'Une question, un problème ? Écris-nous à support@bardec.com.',
+      [
+        { text: 'Fermer', style: 'cancel' },
+        { text: 'Envoyer un email', onPress: () => Linking.openURL('mailto:support@bardec.com') },
+      ],
+    );
+  }
+
+  function handleAppInfo() {
+    const version = Constants.expoConfig?.version ?? '—';
+    Alert.alert('BARDEC', `Version ${version}\nMarketplace B2B & B2C mondial`);
+  }
 
   async function handleChangeAvatar() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -107,6 +170,9 @@ export default function ProfileScreen() {
   const currentLang = LANGUAGES.find(l => l.code === language);
   const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
 
+  const realPendingApprovals = usePendingApprovalsCount(isB2B);
+  const pendingApprovalsValue = isSupabaseConfigured ? (realPendingApprovals ?? 0) : user?.pendingApprovals;
+
   const handleLogout = () => {
     Alert.alert(t('logout'), 'Voulez-vous vous déconnecter?', [
       { text: t('cancel'), style: 'cancel' },
@@ -157,6 +223,48 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
+      {/* Edit name modal */}
+      <Modal
+        visible={editNameVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditNameVisible(false)}
+      >
+        <View style={styles.avatarModalOverlay}>
+          <View style={[styles.avatarModalCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.avatarModalTitle, { color: colors.foreground }]}>
+              Informations personnelles
+            </Text>
+            <TextInput
+              value={editNameValue}
+              onChangeText={setEditNameValue}
+              placeholder="Nom complet"
+              placeholderTextColor={colors.mutedForeground}
+              style={[styles.editNameInput, { borderColor: colors.border, color: colors.foreground }]}
+              autoFocus
+            />
+            <View style={styles.avatarModalActions}>
+              <TouchableOpacity
+                style={[styles.avatarModalBtn, styles.avatarModalBtnCancel, { borderColor: colors.border }]}
+                onPress={() => setEditNameVisible(false)}
+                disabled={savingName}
+              >
+                <Text style={[styles.avatarModalBtnText, { color: colors.mutedForeground }]}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.avatarModalBtn, styles.avatarModalBtnConfirm, { backgroundColor: colors.primary }]}
+                onPress={handleSaveName}
+                disabled={savingName}
+              >
+                {savingName
+                  ? <ActivityIndicator size="small" color="white" />
+                  : <Text style={[styles.avatarModalBtnText, { color: 'white' }]}>Enregistrer</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Profile hero */}
       <View style={[styles.hero, { backgroundColor: colors.primary }]}>
         {/* Tappable avatar with camera-edit overlay */}
@@ -200,11 +308,11 @@ export default function ProfileScreen() {
               </View>
             </View>
           )}
-          {user.pendingApprovals !== undefined && user.pendingApprovals > 0 && (
+          {pendingApprovalsValue !== undefined && pendingApprovalsValue !== null && pendingApprovalsValue > 0 && (
             <View style={[styles.b2bRow, styles.pendingRow, { backgroundColor: '#FEF3C7' }]}>
               <Feather name="alert-circle" size={16} color="#D97706" />
               <Text style={[styles.b2bRowText, { color: '#D97706' }]}>
-                {user.pendingApprovals} commande(s) {t('pending_approval')}
+                {pendingApprovalsValue} commande(s) {t('pending_approval')}
               </Text>
             </View>
           )}
@@ -247,20 +355,28 @@ export default function ProfileScreen() {
       <View style={[styles.menuSection, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground }]}>{t('account')}</Text>
 
-        <MenuItem icon="user" label="Informations personnelles" colors={colors} />
-        <MenuItem icon="heart" label={t('wishlist')} colors={colors} onPress={() => {}} />
-        <MenuItem icon="star" label={t('my_reviews')} colors={colors} onPress={() => {}} />
+        <MenuItem icon="user" label="Informations personnelles" colors={colors} onPress={handleOpenEditName} />
+        {/* No wishlist table and no RLS-readable `reviews` table yet (RLS enabled,
+            zero policies — blocks even ADMIN) — honest "coming soon" rather than
+            a silent dead tap, until that backend work is scoped. */}
+        <MenuItem icon="heart" label={t('wishlist')} colors={colors} onPress={() => Alert.alert('Bientôt disponible', 'La liste de souhaits arrive prochainement.')} />
+        <MenuItem icon="star" label={t('my_reviews')} colors={colors} onPress={() => Alert.alert('Bientôt disponible', 'Tes avis arrivent prochainement.')} />
 
         {isB2B && (
           <>
             <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
             <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>B2B</Text>
-            <MenuItem icon="file-text" label={t('purchase_order')} colors={colors} />
+            <MenuItem
+              icon="file-text"
+              label={t('purchase_order')}
+              colors={colors}
+              onPress={() => router.push('/(tabs)/orders' as any)}
+            />
             <MenuItem
               icon="check-circle"
               label="Approbations en attente"
               colors={colors}
-              badge={user?.pendingApprovals}
+              badge={pendingApprovalsValue}
               onPress={() => router.push({
                 pathname: '/(tabs)/orders',
                 params: { tab: 'pending_approval' },
@@ -320,9 +436,9 @@ export default function ProfileScreen() {
         <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
         <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>Application</Text>
 
-        <MenuItem icon="headphones" label={t('support')} colors={colors} />
-        <MenuItem icon="info" label={t('app_info')} colors={colors} />
-        <MenuItem icon="trash-2" label={t('clear_cache')} colors={colors} />
+        <MenuItem icon="headphones" label={t('support')} colors={colors} onPress={handleSupport} />
+        <MenuItem icon="info" label={t('app_info')} colors={colors} onPress={handleAppInfo} />
+        <MenuItem icon="trash-2" label={t('clear_cache')} colors={colors} onPress={handleClearCache} />
       </View>
 
       {/* Logout */}
@@ -487,6 +603,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  editNameInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    marginTop: 12,
   },
   avatarModalPreview: {
     width: 180,

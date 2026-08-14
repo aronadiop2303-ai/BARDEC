@@ -18,6 +18,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   switchDemoRole: (role: UserRole) => void;
   updateUserAvatar: (url: string) => Promise<void>;
+  updateUserName: (name: string) => Promise<void>;
   isDemoMode: boolean;
 }
 
@@ -30,6 +31,7 @@ const AuthContext = createContext<AuthContextType>({
   logout: async () => {},
   switchDemoRole: () => {},
   updateUserAvatar: async () => {},
+  updateUserName: async () => {},
   isDemoMode: true,
 });
 
@@ -110,7 +112,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isDemoMode) {
       await AsyncStorage.setItem('bardec_demo_user', JSON.stringify(updated));
     } else if (supabase) {
-      await supabase.from('users').update({ avatar_url: url }).eq('id', user.id);
+      // Real Supabase auth UUID — user.id can be a demo placeholder ("u4")
+      // when the role switcher is active.
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser?.id) await supabase.from('users').update({ avatar_url: url }).eq('id', authUser.id);
+    }
+  }
+
+  async function updateUserName(name: string): Promise<void> {
+    if (!user) return;
+    const updated: User = { ...user, name };
+    setUser(updated);
+    if (isDemoMode) {
+      await AsyncStorage.setItem('bardec_demo_user', JSON.stringify(updated));
+    } else if (supabase) {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser?.id) await supabase.from('users').update({ display_name: name }).eq('id', authUser.id);
     }
   }
 
@@ -251,6 +268,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ── Role switcher (always available — needed for multi-role testing) ────────
   function switchDemoRole(role: UserRole) {
+    if (!isDemoMode) {
+      // Real Supabase session: never substitute the authenticated user with a
+      // fake DEMO_USERS profile (id "u1"…) — the real Supabase Auth session
+      // (auth.uid()) does not change, so every RLS-scoped query still runs as
+      // the real account. Swapping in a fake id here previously desynced
+      // context.user from that session: switching to "BUYER" while actually
+      // logged in as a vendor made the Orders tab query orders_customer with
+      // the vendor's own uid (which owns none), looking like "the vendor's
+      // status update never reflects elsewhere" when really the previewed
+      // role just wasn't the account that placed/owns those orders. This is
+      // a UI-only role preview — only the `role` field changes, id/email
+      // stay real, and RLS still enforces the account's actual DB role.
+      if (user) setUser({ ...user, role });
+      return;
+    }
     const found = DEMO_USERS.find(u => u.role === role);
     if (found) {
       setUser(found);
@@ -267,7 +299,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, isLoading, isAuthenticated: !!user,
-      login, register, logout, switchDemoRole, updateUserAvatar, isDemoMode,
+      login, register, logout, switchDemoRole, updateUserAvatar, updateUserName, isDemoMode,
     }}>
       {children}
     </AuthContext.Provider>
