@@ -1,13 +1,18 @@
 /**
  * mapConfig.ts — Couche d'abstraction fournisseur de carte
  *
- * Pour remplacer OSM par Mapbox ou Google Maps :
- *   1. Changer `provider` + `tileUrlTemplate` ici
- *   2. Ajouter la clé API dans les secrets Expo (EXPO_PUBLIC_MAP_TOKEN)
- *   3. ProximityMap.tsx lit cette config — aucune autre modification requise
+ * Pour remplacer le fournisseur de tuiles : changer `provider` +
+ * `tileUrlTemplate` ici. ProximityMap.tsx / .web.tsx lisent cette config —
+ * aucune autre modification requise.
+ *
+ * 2026-08-14 — migré de OSM (tile.openstreetmap.org) vers MapTiler : les
+ * tuiles OSM brutes bloquaient systématiquement les requêtes de l'app
+ * (en-tête `x-blocked`, confirmé par test HTTP direct) — leur politique
+ * d'usage interdit explicitement l'usage in-app/production sur ce domaine.
+ * MapTiler nécessite une clé API (gratuite) dans EXPO_PUBLIC_MAP_TOKEN.
  */
 
-export type MapProvider = 'osm' | 'mapbox' | 'googlemaps';
+export type MapProvider = 'osm' | 'maptiler' | 'mapbox' | 'googlemaps';
 
 export interface MapConfig {
   provider: MapProvider;
@@ -20,17 +25,27 @@ export interface MapConfig {
   subdomains?: string;
 }
 
-const OSM_CONFIG: MapConfig = {
-  provider: 'osm',
-  tileUrlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-  attribution: '&copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>',
+const MAP_TOKEN = process.env.EXPO_PUBLIC_MAP_TOKEN ?? '';
+
+const MAPTILER_CONFIG: MapConfig = {
+  provider: 'maptiler',
+  tileUrlTemplate: `https://api.maptiler.com/maps/streets-v4/{z}/{x}/{y}.png?key=${MAP_TOKEN}`,
+  attribution: '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   defaultZoom: 14,
   minZoom: 10,
-  maxZoom: 19,
-  subdomains: 'abc',
+  maxZoom: 20,
 };
 
-// Pour migrer vers Mapbox, remplacer OSM_CONFIG par :
+// Tuiles OSM brutes — gardé pour référence seulement, ne pas réutiliser
+// telles quelles (bloquées en usage in-app, voir note ci-dessus).
+// const OSM_CONFIG: MapConfig = {
+//   provider: 'osm',
+//   tileUrlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+//   attribution: '&copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>',
+//   defaultZoom: 14, minZoom: 10, maxZoom: 19, subdomains: 'abc',
+// };
+
+// Pour migrer vers Mapbox, remplacer par :
 // const MAPBOX_CONFIG: MapConfig = {
 //   provider: 'mapbox',
 //   tileUrlTemplate: `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=${process.env.EXPO_PUBLIC_MAP_TOKEN}`,
@@ -38,4 +53,4 @@ const OSM_CONFIG: MapConfig = {
 //   defaultZoom: 14, minZoom: 10, maxZoom: 20,
 // };
 
-export const mapConfig: MapConfig = OSM_CONFIG;
+export const mapConfig: MapConfig = MAPTILER_CONFIG;

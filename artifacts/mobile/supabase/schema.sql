@@ -316,6 +316,12 @@ CREATE POLICY "orders_insert"    ON orders FOR INSERT WITH CHECK (customer_id = 
 CREATE POLICY "orders_customer"  ON orders FOR SELECT USING (customer_id = auth.uid());
 -- Allows vendors to update the status of orders that contain their products.
 -- Applied in production 2026-08-13 (migration: add_orders_vendor_update_and_fix_orders_vendor_key).
+-- Regex-guarded 2026-08-14 (migration: guard_orders_vendor_uuid_cast_against_invalid_product_id):
+-- a single order row with a non-UUID product_id (e.g. a stale mock cart item
+-- like "p2" written to a real order) makes the ::uuid cast throw, which
+-- aborts the ENTIRE query for every vendor, not just filters out that row —
+-- checkout.tsx now blocks that class of bad data at the source, but this
+-- guard makes the policy itself resilient regardless.
 CREATE POLICY "orders_vendor_update" ON orders FOR UPDATE
   USING (
     EXISTS (
@@ -323,7 +329,8 @@ CREATE POLICY "orders_vendor_update" ON orders FOR UPDATE
       WHERE p.vendor_id = auth.uid()
         AND EXISTS (
           SELECT 1 FROM jsonb_array_elements(orders.items) AS item
-          WHERE (item->>'product_id')::uuid = p.id
+          WHERE item->>'product_id' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+            AND (item->>'product_id')::uuid = p.id
         )
     )
   );
@@ -331,8 +338,12 @@ CREATE POLICY "orders_vendor_update" ON orders FOR UPDATE
 -- Key is 'product_id' (snake_case) to match how checkout.tsx inserts order items.
 -- Was 'productId' (camelCase) until 2026-08-13, which silently matched zero rows.
 CREATE POLICY "orders_vendor"    ON orders FOR SELECT USING (
-  EXISTS (SELECT 1 FROM products p, jsonb_array_elements(items) item
-          WHERE p.vendor_id = auth.uid() AND p.id = (item->>'product_id')::UUID)
+  EXISTS (
+    SELECT 1 FROM products p, jsonb_array_elements(orders.items) item
+    WHERE p.vendor_id = auth.uid()
+      AND item->>'product_id' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+      AND p.id = (item->>'product_id')::UUID
+  )
 );
 CREATE POLICY "orders_approver"  ON orders FOR ALL USING (
   company_id IN (SELECT company_id FROM users WHERE id = auth.uid())
@@ -347,6 +358,30 @@ CREATE POLICY "carts_own" ON carts FOR ALL USING (user_id = auth.uid());
 CREATE POLICY "messages_participants" ON messages FOR ALL USING (
   EXISTS (SELECT 1 FROM conversations c WHERE c.id = conversation_id AND auth.uid() = ANY(c.participants))
 );
+
+-- vendors/disputes/reviews/audit_logs had RLS enabled with zero policies
+-- (blocked everyone, even ADMIN) until 2026-08-14
+-- (migration: add_vendors_disputes_reviews_audit_logs_policies).
+CREATE POLICY "vendors_own"    ON vendors FOR SELECT USING (id = auth.uid());
+CREATE POLICY "vendors_insert" ON vendors FOR INSERT WITH CHECK (id = auth.uid());
+CREATE POLICY "vendors_update" ON vendors FOR UPDATE USING (id = auth.uid());
+CREATE POLICY "vendors_admin"  ON vendors FOR ALL    USING (current_user_role() = 'ADMIN');
+
+CREATE POLICY "disputes_own"    ON disputes FOR SELECT USING (opened_by = auth.uid());
+CREATE POLICY "disputes_insert" ON disputes FOR INSERT WITH CHECK (opened_by = auth.uid());
+CREATE POLICY "disputes_admin"  ON disputes FOR ALL    USING (current_user_role() = 'ADMIN');
+
+CREATE POLICY "reviews_public_read" ON reviews FOR SELECT USING (true);
+CREATE POLICY "reviews_insert"      ON reviews FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "reviews_update_own"  ON reviews FOR UPDATE USING (user_id = auth.uid());
+CREATE POLICY "reviews_delete_own"  ON reviews FOR DELETE USING (user_id = auth.uid());
+CREATE POLICY "reviews_admin"       ON reviews FOR ALL    USING (current_user_role() = 'ADMIN');
+
+CREATE POLICY "audit_logs_admin" ON audit_logs FOR SELECT USING (current_user_role() = 'ADMIN');
+
+-- api_keys also had RLS enabled with zero policies until 2026-08-14
+-- (migration: fix_orders_vendor_uuid_cast_and_add_api_keys_admin_policy).
+CREATE POLICY "api_keys_admin" ON api_keys FOR ALL USING (current_user_role() = 'ADMIN');
 
 -- ─────────────────────────────────────────────
 -- REALTIME (pour chat et mises à jour commandes)
