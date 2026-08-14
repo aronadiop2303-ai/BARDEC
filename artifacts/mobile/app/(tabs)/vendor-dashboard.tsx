@@ -173,12 +173,16 @@ export default function VendorDashboardScreen() {
   const [isUploadingImages,  setIsUploadingImages]  = useState(false);
 
   const ORDER_STATUSES = [
-    { value: 'pending',          label: 'En attente' },
-    { value: 'approved',         label: 'Approuvé' },
-    { value: 'shipped',          label: 'Expédié' },
+    { value: 'pending',          label: t('pending') },
+    { value: 'approved',         label: t('approved') },
+    { value: 'shipped',          label: t('shipped') },
+    // out_for_delivery/completed keep their own vendor-facing wording
+    // ("En livraison"/"Livré") rather than the keys' translations ("En
+    // Cours de Livraison"/"Terminé") — different copy, not just missing
+    // i18n wiring, so not swapped (would silently change the French text).
     { value: 'out_for_delivery', label: 'En livraison' },
     { value: 'completed',        label: 'Livré' },
-    { value: 'cancelled',        label: 'Annulé' },
+    { value: 'cancelled',        label: t('cancelled') },
   ];
 
   // ─── Add / Edit product modal ─────────────────────────────────────────────

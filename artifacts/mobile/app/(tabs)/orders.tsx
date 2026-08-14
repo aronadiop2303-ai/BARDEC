@@ -16,14 +16,17 @@ import { Order, MOCK_ORDERS } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { mapDbOrder } from '@/lib/orders';
 import { useNearbyBadge } from '@/hooks/useProximityOrders';
+import type { TranslationKey } from '@/constants/translations';
 
-const STATUS_TABS = [
-  { id: 'all',              label: 'Tout' },
-  { id: 'pending',          label: 'En attente' },
-  { id: 'pending_approval', label: 'Approbation' },
-  { id: 'shipped',          label: 'Expédié' },
-  { id: 'completed',        label: 'Terminé' },
-  { id: 'cancelled',        label: 'Annulé' },
+// labelKey null only for "all" — no generic "all orders" key exists yet
+// (all_categories is specific to product categories, wrong string for this).
+const STATUS_TABS: { id: string; labelKey: TranslationKey | null; fallback: string }[] = [
+  { id: 'all',              labelKey: null,               fallback: 'Tout' },
+  { id: 'pending',          labelKey: 'pending',           fallback: 'En attente' },
+  { id: 'pending_approval', labelKey: 'pending_approval',  fallback: 'Approbation' },
+  { id: 'shipped',          labelKey: 'shipped',           fallback: 'Expédié' },
+  { id: 'completed',        labelKey: 'completed',         fallback: 'Terminé' },
+  { id: 'cancelled',        labelKey: 'cancelled',         fallback: 'Annulé' },
 ];
 
 export default function OrdersScreen() {
@@ -278,7 +281,7 @@ export default function OrdersScreen() {
             onPress={() => setActiveTab(tab.id)}
           >
             <Text style={[styles.tabText, { color: activeTab === tab.id ? 'white' : colors.foreground }]}>
-              {tab.label}
+              {tab.labelKey ? t(tab.labelKey) : tab.fallback}
             </Text>
           </TouchableOpacity>
         ))}

@@ -387,12 +387,12 @@ function AdminScreenInner() {
   const TABS: { id: AdminTab; label: string; icon: string; badge?: number }[] = [
     { id: 'dashboard', label: 'Dashboard',    icon: 'bar-chart-2'   },
     { id: 'users',     label: 'Utilisateurs', icon: 'users'         },
-    { id: 'vendors',   label: 'Vendeurs',      icon: 'briefcase'     },
-    { id: 'orders',    label: 'Commandes',     icon: 'shopping-cart' },
-    { id: 'disputes',  label: 'Litiges',       icon: 'alert-triangle'},
+    { id: 'vendors',   label: t('vendors'),   icon: 'briefcase'     },
+    { id: 'orders',    label: t('orders'),    icon: 'shopping-cart' },
+    { id: 'disputes',  label: t('disputes'),  icon: 'alert-triangle'},
     { id: 'payments',  label: 'Paiements',     icon: 'credit-card',  badge: pendingCount },
     { id: 'apikeys',   label: 'Clés API / MCP', icon: 'key'         },
-    { id: 'settings',  label: 'Paramètres',   icon: 'settings'      },
+    { id: 'settings',  label: t('settings'),  icon: 'settings'      },
   ];
 
   return (
