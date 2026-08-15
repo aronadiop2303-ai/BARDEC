@@ -88,11 +88,13 @@ const PAYMENT_METHODS: {
   { id: 'wave',             label: 'Wave',                   sublabel: 'Mobile Money',                icon: 'zap',              color: '#1A56DB', available: true,  b2c: true,  b2b: false },
   { id: 'orange_money',     label: 'Orange Money',           sublabel: 'Mobile Money',                icon: 'smartphone',       color: '#F97316', available: true,  b2c: true,  b2b: false },
   { id: 'mtn_momo',         label: 'MTN MoMo',               sublabel: 'Mobile Money Afrique',        icon: 'phone',            color: '#EAB308', available: true,  b2c: true,  b2b: false },
-  { id: 'cash_on_delivery', label: 'Paiement à la livraison',sublabel: 'Cash · Aucune vérification',  icon: 'package',          color: '#22C55E', available: true,  b2c: true,  b2b: false },
-  // ─ Available now — B2B
-  { id: 'net30',            label: 'Facture Net30',          sublabel: 'Crédit entreprise',           icon: 'file-text',        color: '#7C3AED', available: true,  b2c: false, b2b: true  },
-  { id: 'bank_transfer',    label: 'Virement bancaire',      sublabel: 'Wire transfer · B2B',         icon: 'arrow-right-circle',color: '#0EA5E9',available: true,  b2c: false, b2b: true  },
-  // ─ Coming soon
+  { id: 'cash_on_delivery', label: 'Paiement à la livraison',sublabel: 'Cash · Aucune vérification',  icon: 'package',          color: '#22C55E', available: true,  b2c: true,  b2b: true  },
+  // ─ Coming soon — pas de vraie intégration de paiement branchée : confirmait
+  // les commandes en payment_status "paid" sans jamais appeler de vrai
+  // fournisseur. Désactivés le temps que Wave/carte/Net30/virement soient
+  // réellement intégrés (voir BUGS.md, section Sécurité avant lancement).
+  { id: 'net30',            label: 'Facture Net30',          sublabel: 'Bientôt disponible',          icon: 'file-text',        color: '#7C3AED', available: false, b2c: false, b2b: true  },
+  { id: 'bank_transfer',    label: 'Virement bancaire',      sublabel: 'Wire transfer · Bientôt',     icon: 'arrow-right-circle',color: '#0EA5E9',available: false, b2c: false, b2b: true  },
   { id: 'paypal',           label: 'PayPal',                 sublabel: 'Bientôt disponible',          icon: 'globe',            color: '#003087', available: false, b2c: true,  b2b: false },
   { id: 'card',             label: 'Carte bancaire',         sublabel: 'Visa · Mastercard · Bientôt', icon: 'credit-card',      color: '#6B7280', available: false, b2c: true,  b2b: true  },
 ];
@@ -158,7 +160,7 @@ export default function CheckoutScreen() {
   });
 
   const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
-  const defaultMethod: PaymentMethod = isB2B ? 'net30' : 'wave';
+  const defaultMethod: PaymentMethod = isB2B ? 'cash_on_delivery' : 'wave';
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(defaultMethod);
   const [proofUri, setProofUri]     = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('pending');
@@ -270,6 +272,14 @@ export default function CheckoutScreen() {
     if (step === 3) {
       if (!agreed) {
         Alert.alert('Conditions', 'Veuillez accepter les conditions générales.'); return;
+      }
+      // Le "lock" visuel (PaymentCard) empêche de TAPER une méthode
+      // indisponible, mais ne protège pas contre une valeur par défaut
+      // devenue invalide (ex. l'ancien défaut B2B "net30" avant ce fix) —
+      // on bloque aussi la soumission elle-même par sécurité.
+      if (!PAYMENT_METHODS.find(p => p.id === paymentMethod)?.available) {
+        Alert.alert('Méthode indisponible', 'Ce moyen de paiement n\'est pas encore disponible. Choisissez-en un autre.');
+        return;
       }
       if (isMobileMoney && !proofUri) {
         Alert.alert(
@@ -1090,7 +1100,11 @@ export default function CheckoutScreen() {
               </View>
             </View>
 
-            {isB2B && paymentStatus === 'paid' && (
+            {/* Toute commande B2B passe par pending_approval côté serveur,
+                indépendamment de la méthode de paiement (voir l'insert plus
+                haut) — la note doit donc s'afficher pour tout B2B, pas
+                seulement quand paymentStatus === 'paid'. */}
+            {isB2B && (
               <View style={[styles.approvalNote, { backgroundColor: '#EDE9FE', borderColor: '#7C3AED' }]}>
                 <Feather name="clock" size={16} color="#7C3AED" />
                 <Text style={[styles.approvalNoteText, { color: '#7C3AED' }]}>
