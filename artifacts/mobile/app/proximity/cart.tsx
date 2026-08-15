@@ -16,6 +16,7 @@ import { useProximityCart } from '@/context/ProximityCartContext';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { notifyVendorNewOrder } from '@/hooks/useProximityOrders';
+import { toUserMessage } from '@/lib/errors';
 
 const GREEN = '#22C55E';
 
@@ -99,7 +100,7 @@ export default function ProximityCartScreen() {
         [{ text: 'OK', onPress: () => router.replace('/(tabs)/nearby' as any) }],
       );
     } catch (err: any) {
-      Alert.alert('Erreur', err.message ?? 'Impossible de passer la commande.');
+      Alert.alert('Erreur', toUserMessage('proximity:cartCheckout', err, 'Impossible de passer la commande. Réessaie dans un instant.'));
     } finally {
       setOrdering(false);
     }

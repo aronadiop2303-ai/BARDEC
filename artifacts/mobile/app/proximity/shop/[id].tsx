@@ -20,6 +20,7 @@ import { useProximityCart } from '@/context/ProximityCartContext';
 import { CATEGORY_COLORS, ProximityProduct, ProximityReview } from '@/constants/proximityData';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { toUserMessage } from '@/lib/errors';
 import {
   useProximityReviews,
   useMyProximityReview,
@@ -172,7 +173,7 @@ export default function ShopProductsScreen() {
           setDraftComment('');
         },
         onError: (err) => {
-          Alert.alert('Erreur', err.message, [{ text: 'OK' }]);
+          Alert.alert('Erreur', toUserMessage('proximity:shopReview', err, 'Impossible d\'envoyer votre avis. Réessaie dans un instant.'), [{ text: 'OK' }]);
         },
       },
     );

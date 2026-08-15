@@ -55,7 +55,7 @@ export interface WebhookConfig {
 
 export async function fireWebhook(event: WebhookEvent, data: Record<string, unknown>, userId?: string): Promise<void> {
   if (!supabase) {
-    console.log('[BARDEC Webhook] Demo mode — would fire:', event, data);
+    if (__DEV__) console.log('[BARDEC Webhook] Demo mode — would fire:', event, data);
     return;
   }
 

@@ -28,6 +28,7 @@ import {
 import ProximityMap from '@/components/proximity/ProximityMap';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { readLocalImageBytes } from '@/lib/imageUpload';
+import { toUserMessage } from '@/lib/errors';
 import { useAuth } from '@/context/AuthContext';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -192,7 +193,7 @@ export default function RegisterShopScreen() {
         [{ text: 'Gérer ma boutique', onPress: () => router.replace('/proximity/my-shop' as any) }],
       );
     } catch (err: any) {
-      Alert.alert('Erreur', err.message ?? 'Impossible de créer la boutique.');
+      Alert.alert('Erreur', toUserMessage('proximity:registerShop', err, 'Impossible de créer la boutique. Réessaie dans un instant.'));
     } finally {
       setSubmitting(false);
     }

@@ -12,6 +12,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useFocusEffect } from 'expo-router';
 import { ADMIN_STATS, DEMO_USERS, MOCK_ORDERS } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { toUserMessage } from '@/lib/errors';
 
 const { width } = Dimensions.get('window');
 type AdminTab = 'dashboard' | 'users' | 'vendors' | 'orders' | 'disputes' | 'payments' | 'settings' | 'apikeys';
@@ -172,7 +173,7 @@ function AdminScreenInner() {
   async function handleApproveVendor(id: string, name: string) {
     if (!supabase) return;
     const { error } = await supabase.from('users').update({ is_approved: true }).eq('id', id);
-    if (error) { Alert.alert('Erreur', error.message); return; }
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:approveVendor', error, 'Impossible d\'approuver ce vendeur. Réessaie dans un instant.')); return; }
     setRealUsers(prev => prev.map(u => u.id === id ? { ...u, is_approved: true } : u));
     Alert.alert('Approuvé', `${name} a été approuvé comme vendeur.`);
   }
@@ -329,7 +330,7 @@ function AdminScreenInner() {
       .select('id, key')
       .single();
     setCreatingKey(false);
-    if (error) { Alert.alert('Erreur', error.message); return; }
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:createApiKey', error, 'Impossible de créer cette clé API. Réessaie dans un instant.')); return; }
     setJustCreatedKey(data.key);
     setShowCreateForm(false);
     setNewKeyName('');
@@ -349,7 +350,7 @@ function AdminScreenInner() {
           onPress: async () => {
             if (!supabase) return;
             const { error } = await supabase.from('api_keys').update({ active: false }).eq('id', id);
-            if (error) { Alert.alert('Erreur', error.message); return; }
+            if (error) { Alert.alert('Erreur', toUserMessage('admin:revokeApiKey', error, 'Impossible de révoquer cette clé. Réessaie dans un instant.')); return; }
             setApiKeys(ks => ks.map(k => k.id === id ? { ...k, active: false } : k));
           },
         },

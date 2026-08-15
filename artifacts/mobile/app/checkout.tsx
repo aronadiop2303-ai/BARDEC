@@ -368,9 +368,10 @@ export default function CheckoutScreen() {
         setSubmitting(false);
 
         if (dbErr) {
+          console.error('[checkout:insertOrder]', dbErr);
           Alert.alert(
             'Erreur commande',
-            `Impossible d'enregistrer votre commande :\n${dbErr.message}\n\nVotre panier a été conservé.`
+            'Impossible d\'enregistrer votre commande. Réessaie dans un instant.\n\nVotre panier a été conservé.'
           );
           return; // ← panier intact, on reste sur l'étape 3
         }

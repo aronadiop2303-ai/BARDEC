@@ -15,6 +15,7 @@ import { Feather } from '@/components/Icon';
 import { useMyProximityShop, useDeleteProximityProduct } from '@/hooks/useMyProximityShop';
 import { ProximityProduct } from '@/constants/proximityData';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { toUserMessage } from '@/lib/errors';
 
 const GREEN = '#22C55E';
 
@@ -43,7 +44,7 @@ export default function MyShopProductsScreen() {
             try {
               await deleteProduct.mutateAsync(product.id);
             } catch (e: any) {
-              Alert.alert('Erreur', e.message);
+              Alert.alert('Erreur', toUserMessage('proximity:deleteProduct', e, 'Impossible de supprimer ce produit. Réessaie dans un instant.'));
             } finally {
               setDeleting(null);
             }

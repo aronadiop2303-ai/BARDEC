@@ -20,6 +20,7 @@ import { useColors } from '@/hooks/useColors';
 import { Feather } from '@/components/Icon';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { readLocalImageBytes } from '@/lib/imageUpload';
+import { toUserMessage } from '@/lib/errors';
 import { useQueryClient } from '@tanstack/react-query';
 
 const GREEN = '#22C55E';
@@ -127,7 +128,7 @@ export default function AddProductScreen() {
       qc.invalidateQueries({ queryKey: ['my_proximity_products'] });
       router.back();
     } catch (e: any) {
-      Alert.alert('Erreur', e.message);
+      Alert.alert('Erreur', toUserMessage('proximity:addProduct', e, 'Impossible d\'enregistrer ce produit. Réessaie dans un instant.'));
     } finally {
       setSaving(false);
     }

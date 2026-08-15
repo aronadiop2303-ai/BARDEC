@@ -16,6 +16,7 @@ import { DEMO_USERS, UserRole } from '@/constants/mockData';
 import RoleBadge from '@/components/RoleBadge';
 import BardecLayout from '@/components/BardecLayout';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { toUserMessage } from '@/lib/errors';
 import { readLocalImageBytes } from '@/lib/imageUpload';
 import { usePendingApprovalsCount } from '@/hooks/usePendingApprovalsCount';
 
@@ -47,7 +48,7 @@ export default function ProfileScreen() {
       await updateUserName(name);
       setEditNameVisible(false);
     } catch (err: any) {
-      Alert.alert('Erreur', err?.message ?? 'Impossible de mettre à jour le nom.');
+      Alert.alert('Erreur', toUserMessage('profile:updateName', err, 'Impossible de mettre à jour le nom. Réessaie dans un instant.'));
     } finally {
       setSavingName(false);
     }
@@ -125,10 +126,10 @@ export default function ProfileScreen() {
         const filename = `${realUserId}/avatar.jpg`;
 
         // Read file as bytes (content:// safe — see lib/imageUpload.ts)
-        console.log('[Avatar] Lecture du fichier local:', uri);
+        if (__DEV__) console.log('[Avatar] Lecture du fichier local:', uri);
         const bytes = await readLocalImageBytes(uri);
 
-        console.log('[Avatar] Upload vers Supabase Storage — bucket: avatars, path:', filename);
+        if (__DEV__) console.log('[Avatar] Upload vers Supabase Storage — bucket: avatars, path:', filename);
         const { data: upData, error: upErr } = await supabase.storage
           .from('avatars')
           .upload(filename, bytes, { contentType: 'image/jpeg', upsert: true });
@@ -140,9 +141,9 @@ export default function ProfileScreen() {
         const { data: { publicUrl } } = supabase.storage
           .from('avatars')
           .getPublicUrl(upData.path);
-        console.log('[Avatar] URL publique récupérée:', publicUrl);
+        if (__DEV__) console.log('[Avatar] URL publique récupérée:', publicUrl);
 
-        console.log('[Avatar] Mise à jour table users — id:', realUserId);
+        if (__DEV__) console.log('[Avatar] Mise à jour table users — id:', realUserId);
         const { error: updateErr } = await supabase
           .from('users')
           .update({ avatar_url: publicUrl })
@@ -153,15 +154,13 @@ export default function ProfileScreen() {
         }
 
         await updateUserAvatar(publicUrl);
-        console.log('[Avatar] Succès — avatar mis à jour.');
+        if (__DEV__) console.log('[Avatar] Succès — avatar mis à jour.');
       } else {
         // Demo mode: use local URI directly
         await updateUserAvatar(uri);
       }
     } catch (err: any) {
-      const msg = err?.message ?? String(err);
-      console.error('[Avatar] Échec handleConfirmAvatar:', msg);
-      Alert.alert('Erreur photo de profil', msg);
+      Alert.alert('Erreur photo de profil', toUserMessage('profile:confirmAvatar', err, 'Impossible de mettre à jour la photo de profil. Réessaie dans un instant.'));
     } finally {
       setIsUploadingAvatar(false);
     }

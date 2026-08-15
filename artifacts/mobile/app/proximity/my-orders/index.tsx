@@ -21,6 +21,7 @@ import {
   ProximityOrderStatus,
 } from '@/hooks/useProximityOrders';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { toUserMessage } from '@/lib/errors';
 import { useProximityCart, ReorderItem } from '@/context/ProximityCartContext';
 
 const GREEN = '#22C55E';
@@ -574,7 +575,7 @@ export default function MyOrdersScreen() {
               onError: (err) => {
                 Alert.alert(
                   'Erreur',
-                  err instanceof Error ? err.message : 'Impossible d\'annuler la commande.',
+                  toUserMessage('proximity:cancelOrder', err, 'Impossible d\'annuler la commande. Réessaie dans un instant.'),
                 );
               },
             });

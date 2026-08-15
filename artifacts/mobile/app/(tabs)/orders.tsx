@@ -15,6 +15,7 @@ import { SkeletonOrderCard } from '@/components/SkeletonCard';
 import { Order, MOCK_ORDERS } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { mapDbOrder } from '@/lib/orders';
+import { toUserMessage } from '@/lib/errors';
 import { useNearbyBadge } from '@/hooks/useProximityOrders';
 import type { TranslationKey } from '@/constants/translations';
 
@@ -96,7 +97,7 @@ export default function OrdersScreen() {
         // like a normal, populated order list of fake data instead of a
         // visible failure. Show an empty list with a real error instead.
         console.warn('Orders fetch error:', error.message);
-        Alert.alert('Erreur', `Impossible de charger les commandes : ${error.message}`);
+        Alert.alert('Erreur', 'Impossible de charger les commandes. Réessaie dans un instant.');
         setOrders([]);
       } else {
         setOrders((data ?? []).map(mapDbOrder));
@@ -148,7 +149,7 @@ export default function OrdersScreen() {
                 .eq('id', order.id)
                 .select('id');
               setApproving(null);
-              if (error) { Alert.alert('Erreur', error.message); return; }
+              if (error) { Alert.alert('Erreur', toUserMessage('orders:approverAction', error, 'Impossible de traiter cette commande. Réessaie dans un instant.')); return; }
               if (!updated || updated.length === 0) {
                 Alert.alert('Permission refusée', "Tu n'as pas les droits pour approuver cette commande.");
                 return;
@@ -178,7 +179,7 @@ export default function OrdersScreen() {
                 .from('orders')
                 .update({ status: 'completed' })
                 .eq('id', order.id);
-              if (error) { Alert.alert('Erreur', error.message); return; }
+              if (error) { Alert.alert('Erreur', toUserMessage('orders:confirmReceipt', error, 'Impossible de confirmer la réception. Réessaie dans un instant.')); return; }
             }
             setOrders(prev =>
               prev.map(o => o.id === order.id ? { ...o, status: 'completed' as const } : o)
@@ -228,7 +229,7 @@ export default function OrdersScreen() {
         verified:   true,
       });
       setSubmittingReview(false);
-      if (error) { Alert.alert('Erreur', error.message); return; }
+      if (error) { Alert.alert('Erreur', toUserMessage('orders:submitReview', error, 'Impossible d\'envoyer votre avis. Réessaie dans un instant.')); return; }
     } else {
       setSubmittingReview(false);
     }

@@ -20,6 +20,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { CATEGORIES, MOCK_ORDERS, MOCK_PRODUCTS, VENDOR_STATS } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { readLocalImageBytes } from '@/lib/imageUpload';
+import { toUserMessage } from '@/lib/errors';
 
 const { width } = Dimensions.get('window');
 
@@ -226,7 +227,7 @@ export default function VendorDashboardScreen() {
           onPress: async () => {
             if (isSupabaseConfigured && supabase && !product._imported) {
               const { error } = await supabase.from('products').delete().eq('id', product.id);
-              if (error) { Alert.alert('Erreur', error.message); return; }
+              if (error) { Alert.alert('Erreur', toUserMessage('vendor:deleteProduct', error, 'Impossible de supprimer ce produit. Réessaie dans un instant.')); return; }
             }
             setSupabaseProducts(prev => prev.filter(p => p.id !== product.id));
             setImportedProducts(prev => prev.filter(p => p.id !== product.id));
@@ -281,7 +282,7 @@ export default function VendorDashboardScreen() {
             const filename = `${realVendorId}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
             const bytes = await readLocalImageBytes(uri);
 
-            console.log(`[ProductImg ${imgIdx + 1}/${pendingImages.length}] Uploading → ${filename}`);
+            if (__DEV__) console.log(`[ProductImg ${imgIdx + 1}/${pendingImages.length}] Uploading → ${filename}`);
             const { data: upData, error: upErr } = await supabase.storage
               .from('products')
               .upload(filename, bytes, { contentType: 'image/jpeg', upsert: true });
@@ -293,7 +294,7 @@ export default function VendorDashboardScreen() {
               const { data: { publicUrl } } = supabase.storage
                 .from('products')
                 .getPublicUrl(upData.path);
-              console.log(`[ProductImg ${imgIdx + 1}] Public URL:`, publicUrl);
+              if (__DEV__) console.log(`[ProductImg ${imgIdx + 1}] Public URL:`, publicUrl);
               imageUrls.push(publicUrl);
             }
           } catch (err: any) {
@@ -329,7 +330,7 @@ export default function VendorDashboardScreen() {
           ...(imageUrls.length > 0 ? { images: updatedImages } : {}),
         }).eq('id', editingProduct.id);
         setIsSavingProduct(false);
-        if (error) { Alert.alert('Erreur Supabase', error.message); return; }
+        if (error) { Alert.alert('Erreur', toUserMessage('vendor:updateProduct', error, 'Impossible d\'enregistrer ce produit. Réessaie dans un instant.')); return; }
         setPendingImages([]);
         // Optimistic update
         setSupabaseProducts(prev => prev.map(p =>
@@ -353,7 +354,7 @@ export default function VendorDashboardScreen() {
           is_active:          true,
         }).select('id').single();
         setIsSavingProduct(false);
-        if (error) { Alert.alert('Erreur Supabase', error.message); return; }
+        if (error) { Alert.alert('Erreur', toUserMessage('vendor:createProduct', error, 'Impossible d\'enregistrer ce produit. Réessaie dans un instant.')); return; }
         setPendingImages([]);
         // Optimistic update — product appears immediately even if SELECT is blocked
         const newLocalProduct: LocalProduct = {
@@ -471,7 +472,7 @@ export default function VendorDashboardScreen() {
         .select('id');
       setIsUpdatingStatus(false);
       if (error) {
-        Alert.alert('Erreur Supabase', error.message);
+        Alert.alert('Erreur', toUserMessage('vendor:updateOrderStatus', error, 'Impossible de mettre à jour cette commande. Réessaie dans un instant.'));
         return;
       }
       if (!updated || updated.length === 0) {
@@ -697,7 +698,8 @@ export default function VendorDashboardScreen() {
             is_active:         true,
           });
           if (error) {
-            errors.push(`Ligne ${line} : ${error.message}`);
+            console.error('[vendor:csvImportRow]', line, error);
+            errors.push(`Ligne ${line} : non importée (vérifie les champs).`);
             continue;
           }
         } else {
@@ -740,7 +742,7 @@ export default function VendorDashboardScreen() {
 
       Alert.alert('Import terminé', summary);
     } catch (e: any) {
-      Alert.alert('Erreur inattendue', e?.message ?? 'Veuillez réessayer.');
+      Alert.alert('Erreur', toUserMessage('vendor:csvImport', e, 'Impossible d\'importer ce fichier. Vérifie son format et réessaie.'));
     } finally {
       setIsImporting(false);
     }
@@ -867,7 +869,7 @@ export default function VendorDashboardScreen() {
         );
       }
     } catch (e: any) {
-      Alert.alert('Erreur', `Impossible d\'exporter : ${e?.message ?? 'Erreur inconnue'}`);
+      Alert.alert('Erreur', toUserMessage('vendor:exportOrders', e, 'Impossible d\'exporter les commandes. Réessaie dans un instant.'));
     } finally {
       setIsExporting(false);
     }

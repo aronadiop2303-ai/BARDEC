@@ -13,6 +13,7 @@ import { useCart } from '@/context/CartContext';
 import { Order, MOCK_ORDERS, STATUS_COLORS } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { mapDbOrder } from '@/lib/orders';
+import { toUserMessage } from '@/lib/errors';
 import type { TranslationKey } from '@/constants/translations';
 
 const TRACKING_STEPS: { status: string; label: string; icon: string }[] = [
@@ -81,7 +82,7 @@ export default function OrderDetailScreen() {
             if (isSupabaseConfigured && supabase) {
               const { error } = await supabase.from('orders').update({ status: 'completed' }).eq('id', order.id);
               setConfirming(false);
-              if (error) { Alert.alert('Erreur', error.message); return; }
+              if (error) { Alert.alert('Erreur', toUserMessage('orderDetail:confirmReceipt', error, 'Impossible de confirmer la réception. Réessaie dans un instant.')); return; }
             } else {
               setConfirming(false);
             }
@@ -123,7 +124,7 @@ export default function OrderDetailScreen() {
         verified:   true,
       });
       setSubmittingReview(false);
-      if (error) { Alert.alert('Erreur', error.message); return; }
+      if (error) { Alert.alert('Erreur', toUserMessage('orderDetail:submitReview', error, 'Impossible d\'envoyer votre avis. Réessaie dans un instant.')); return; }
     } else {
       setSubmittingReview(false);
     }

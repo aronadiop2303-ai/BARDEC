@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DEMO_USERS, User, UserRole } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { toAuthMessage, toUserMessage } from '@/lib/errors';
 
 interface AuthContextType {
   user: User | null;
@@ -148,7 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const { error } = await supabase!.auth.signInWithPassword({ email, password });
-    if (error) return { error: error.message };
+    if (error) return { error: toAuthMessage('auth:login', error) };
     return {};
   }
 
@@ -186,7 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           },
         },
       });
-      if (error) return { error: error.message };
+      if (error) return { error: toAuthMessage('auth:register:signUp', error) };
       if (!data.user) return { error: 'Erreur lors de la création du compte.' };
 
       // ── Step 2 (B2B only): create the company row first ──────────────────
@@ -215,7 +216,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (companyId) userRow.company_id = companyId;
 
       const { error: profileError } = await supabase!.from('users').insert(userRow);
-      if (profileError) return { error: profileError.message };
+      if (profileError) return { error: toUserMessage('auth:register:profileInsert', profileError, 'Impossible de finaliser la création du compte. Réessaie dans un instant.') };
 
       // ── Step 4: set user state immediately — do NOT wait for onAuthStateChange ──
       // This is the key fix: onAuthStateChange fires before the users row exists
