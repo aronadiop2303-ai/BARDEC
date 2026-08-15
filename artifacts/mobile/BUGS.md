@@ -115,3 +115,71 @@ Dernière mise à jour : 15 août 2026
 ## 🔵 FEATURE MAJEURE (hors bug fix, chantier à part)
 
 - [ ] Intégration paiement réelle Wave/Orange Money/MTN MoMo : flow complet (demande de paiement → appel API Wave/agrégateur → URL de paiement renvoyée → redirection utilisateur → validation Wave → notification retour → confirmation commande). **Non commencé volontairement** — le plus gros chantier, touche à de vrais paiements, à faire dans une session dédiée avec attention complète d'Arona.
+
+## 🔒 Sécurité avant lancement
+
+**[nouveau lot, audit pré-APK]** Audit complet demandé avant le premier vrai build APK. Six points traités, résultats ci-dessous.
+
+### 1. Erreurs brutes affichées à l'utilisateur — corrigé partout
+
+Audit complet de l'app (`app/`, `hooks/`, `context/`) pour tout endroit où un `error.message` Supabase/Postgres brut atteignait un `Alert.alert(...)` visible par l'utilisateur — pas seulement OMNI (déjà corrigé une session précédente). **~25 occurrences trouvées et corrigées**, dans :
+`checkout.tsx`, `(tabs)/orders.tsx`, `(tabs)/admin.tsx`, `(tabs)/vendor-dashboard.tsx`, `(tabs)/profile.tsx`, `order/[id].tsx`, `context/AuthContext.tsx`, et tous les écrans `proximity/*` (cart, register-shop, shop/[id], my-orders, my-shop/products, my-shop/add-product).
+
+Nouveau helper partagé `lib/errors.ts` :
+- `toUserMessage(context, error, fallback?)` — logue le détail réel via `console.error` (visible en dev/dev-client, jamais en prod release), retourne un message générique fixe et rassurant à afficher. Utilisé pour toutes les erreurs base de données (insert/update/delete produits, commandes, avis, clés API…).
+- `toAuthMessage(context, error)` — cas particulier login/inscription : les messages GoTrue de Supabase (`Invalid login credentials`, `User already registered`…) sont déjà génériques et utiles à afficher tels quels, contrairement aux erreurs Postgres brutes (qui peuvent révéler des noms de table/colonne/contrainte). Mappe une liste blanche de messages GoTrue connus vers du texte FR ; tout le reste (y compris toute erreur Postgres, ex. l'insert de la ligne `users` à l'inscription) retombe sur le message générique.
+
+Cas à part laissé tel quel : l'erreur par ligne de l'**import CSV vendeur** (`vendor-dashboard.tsx`) affichait `error.message` par ligne échouée — gardait une utilité réelle (savoir quelle ligne corriger) mais restait un vrai leak Postgres. Remplacé par "Ligne X : non importée (vérifie les champs)" + détail complet en `console.error`, cohérent avec le reste.
+
+`components/ErrorFallback.tsx` (error boundary global) était déjà correct : le détail technique (stack trace) n'est affiché que dans une modale elle-même gatée par `__DEV__` ; le texte toujours visible est déjà générique ("Something went wrong / Please reload the app").
+
+### 2. Audit des clés sensibles dans le client mobile — propre
+
+Grep complet de `app/`, `hooks/`, `context/`, `lib/`, `constants/` pour toute clé `service_role`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, ou équivalent : **aucune trouvée**. Seule clé présente côté client : `EXPO_PUBLIC_SUPABASE_ANON_KEY` (clé anon, faite pour être publique, protégée par RLS) + `EXPO_PUBLIC_MAP_TOKEN` (MapTiler) + `EXPO_PUBLIC_SUPABASE_URL`, toutes dans `artifacts/mobile/.env`, gitignoré (vérifié : jamais commité, `git log --all` sur ce fichier est vide). `.github/workflows/build-apk.yml` n'a aucun secret en dur, utilise `${{ secrets.EXPO_TOKEN }}` correctement.
+
+- [ ] **Trouvé en creusant l'audit, distinct mais lié — potentiellement bloquant pour l'APK** : `eas.json`, profil `preview` (celui utilisé par le workflow CI pour builder l'APK), n'a **aucun bloc `env`** définissant `EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_ANON_KEY`/`EXPO_PUBLIC_MAP_TOKEN`. Ces variables `EXPO_PUBLIC_*` sont injectées au moment du build (pas au runtime) — si elles ne sont accessibles nulle part côté build cloud EAS, le premier APK réel risque de démarrer en **mode démo** (comme quand `.env` manquait en local), sans Supabase ni carte fonctionnels, sans qu'aucun message d'erreur ne le signale clairement. Je n'ai pas pu vérifier si des **EAS Secrets** sont déjà configurés côté compte Expo (nécessite `eas whoami`/accès au compte, hors de portée des outils dont je dispose). **Action à prendre avant le build** : vérifier avec `eas secret:list`, et si absent, les créer avec `eas secret:create --scope project --name EXPO_PUBLIC_SUPABASE_URL --value ...` (idem pour les 2 autres variables) — à faire toi-même depuis un terminal authentifié EAS.
+
+### 3. Logs de diagnostic — nettoyés
+
+Aucun log taggé `[handleAddProduct DIAGNOSTIC]` (ou `DIAGNOSTIC` sous quelque forme) trouvé dans le code actuel — déjà absent. Le reste des `console.log` restants (8, tous dans les pipelines d'upload image/avatar — `vendor-dashboard.tsx` x2, `profile.tsx` x5, `lib/webhooks.ts` x1) exposaient des détails internes (chemins de fichiers, noms de bucket, URLs publiques) utiles pour déboguer un futur bug d'upload mais pas destinés à tourner en prod. Gatés derrière `if (__DEV__)` plutôt que supprimés — gardent leur utilité en dev/dev-client, ne tournent jamais en build release.
+
+### 4. ⚠️ RISQUE BUSINESS IMMÉDIAT — commande confirmée sans paiement réel (non corrigé, décision produit)
+
+**Signalé, pas corrigé** (décision produit, comme demandé). `checkout.tsx`, logique de statut de paiement (lignes ~283-285) :
+
+```
+const newPayStatus = isMobileMoney
+  ? 'awaiting_verification'          // Wave/Orange Money/MTN — attend une preuve
+  : paymentMethod === 'cash_on_delivery' ? 'pending' : 'paid';   // tout le reste → 'paid' immédiatement
+```
+
+Concrètement : `card`, `paypal`, `net30`, `bank_transfer` mettent la commande à `payment_status: 'paid'` **et l'insèrent en base immédiatement**, sans qu'aucun appel réseau vers un vrai fournisseur de paiement n'ait lieu nulle part dans le code (confirmé — aucune intégration Wave/carte/PayPal n'existe encore, comme documenté dans 🔵 FEATURE MAJEURE ci-dessus). N'importe qui peut donc aujourd'hui passer une "vraie" commande marquée payée en choisissant carte/PayPal/Net30/virement, sans jamais payer quoi que ce soit. Mobile money (`awaiting_verification`) et paiement à la livraison (`pending`) ne sont pas concernés — eux ne mentent pas sur le statut.
+
+**Recommandation (pas appliquée)** : soit désactiver ces 4 méthodes de paiement dans l'UI de checkout tant que l'intégration réelle n'existe pas (le plus sûr, le plus rapide), soit les forcer sur un statut `pending`/`awaiting_verification` plutôt que `paid` en attendant l'intégration. À toi de trancher.
+
+### 5. Comptes et produits de test créés pendant les sessions précédentes (non supprimés)
+
+Inventaire en base (`users`, `products`, `orders`, `companies`), à trier toi-même :
+
+**Comptes (`users`, 5 au total, aucun n'est un vrai client)** :
+| Email | Rôle | Créé le |
+|---|---|---|
+| aronadiop2303@gmail.com | VENDOR | 15 juil. |
+| aronadiop2302@gmail.com | CUSTOMER | 17 juil. |
+| bardec.test.agent@mailinator.com | CUSTOMER | 6 août |
+| aronadiop2304@gmail.com | VENDOR (non approuvé) | 6 août |
+| coumbazaynab5@gmail.com | CUSTOMER | 8 août |
+
+**Produits (5 au total)** : "Riz parfumé 25 kg" (x2, un par compte vendeur), "Sac a main en crochet" / "Sac a main crochet" (doublon quasi-identique, deux comptes différents), "T-Shert".
+
+**Commandes** : 7 au total, toutes en `cash_on_delivery`, la plus récente du 14 août.
+
+**Table `companies`** : vide (0 ligne) — aucune société B2B réelle ou test n'a été créée.
+
+Précision : **"Vega Electronics Co."** (mentionné dans ta consigne) n'est **pas** en base — c'est une donnée fixture 100% côté client (`constants/mockData.ts`, mode démo uniquement), rien à supprimer.
+
+Rien supprimé, comme demandé — à toi de décider quoi garder pour tes futurs tests.
+
+### 6. Comptes ADMIN — aucun trouvé en base réelle
+
+Requête sur `users where role = 'ADMIN'` : **0 résultat**. Aucun compte avec le rôle ADMIN n'existe dans la vraie base de production — l'accès à l'écran admin en usage réel actuel ne passe donc que par le sélecteur de rôle de démo (`switchDemoRole`, prévisualisation UI uniquement, ne fonctionne pas pour accéder aux vraies données tant qu'aucun compte réel n'a `role='ADMIN'` en base — RLS s'applique au vrai rôle, pas à la prévisualisation). Pas de risque de mot de passe faible aujourd'hui puisqu'aucun compte admin réel n'existe. **À surveiller pour la suite** : le jour où tu crées un vrai compte ADMIN, je n'ai aucun moyen de vérifier la force du mot de passe depuis la base (Supabase Auth le hash, jamais lisible) — seule bonne pratique possible : le créer toi-même avec un mot de passe fort dès le départ.
