@@ -1,6 +1,6 @@
 # BUGS.md — BARDEC
 
-Dernière mise à jour : 14 août 2026
+Dernière mise à jour : 15 août 2026
 
 ## 🔴 BLOQUANT
 
@@ -106,11 +106,11 @@ Dernière mise à jour : 14 août 2026
     4. Vrai onglet admin KYC : lit `vendors` (pas `users`), affiche les documents (URLs signées, bucket privé), approuve (`kyc_status='approved'`, `verified=true`) / rejette (`kyc_status='rejected'` + motif).
     5. Décider et réconcilier `is_approved` vs `kyc_status` — un seul doit faire autorité pour bloquer la vente.
   - Rien codé pour l'instant, comme demandé.
-- [ ] **[nouveau lot]** Cartes — diagnostic confirmé, fournisseur choisi (MapTiler), code prêt, **attend la clé API** :
+- [x] **[nouveau lot]** Cartes — diagnostic confirmé, fournisseur choisi (MapTiler), clé ajoutée et testée :
   - Il n'y a en réalité qu'**une seule implémentation** (`ProximityMap.tsx` en WebView pour natif, `ProximityMap.web.tsx` en iframe pour le web) — les deux utilisent Leaflet, configuré via `lib/mapConfig.ts` pour pointer vers les tuiles brutes `tile.openstreetmap.org`. "Leaflet fonctionne" = le framework JS (zoom, marqueurs, popups) s'affiche bien ; "OpenStreetMap ne fonctionne pas" = les images de tuiles elles-mêmes.
   - **Cause confirmée par test HTTP direct** (pas une supposition) : chaque requête vers `tile.openstreetmap.org` renvoie un statut 200 mais avec l'en-tête `x-blocked: Access denied. See https://operations.osmfoundation.org/policies/tiles/` — une tuile "placeholder" de blocage, identique quelles que soient les coordonnées testées (`Content-Length: 6987` à chaque fois). **`tile.openstreetmap.org` n'est pas destiné à un usage in-app/production** — la politique officielle de l'OSM Foundation l'interdit explicitly (usage réservé à l'évaluation ponctuelle à faible volume), et depuis mars 2026 ils bloquent en plus systématiquement toute requête sans en-tête `Referer` correctement formé — exactement le genre de requête qu'envoie une WebView/iframe. Ce n'est pas une erreur de code, l'app est juste contre les règles d'usage d'un service qui n'a jamais été prévu pour ça.
   - **Pas de correctif possible sans changer de fournisseur de tuiles** — et n'importe quel fournisseur de production (même sans Google Maps) demande une inscription + une clé API, souvent avec palier gratuit généreux mais jamais totalement sans compte : MapTiler, Stadia Maps (essai 14 jours puis palier gratuit pour usage faible volume/non-commercial), Jawg Maps (accès gratuit à des tuiles basées sur OSM).
-  - **[x] Code prêt** : `lib/mapConfig.ts` migré vers MapTiler (`https://api.maptiler.com/maps/streets-v4/{z}/{x}/{y}.png?key=...`, format XYZ vérifié dans la doc officielle — même mécanique `L.tileLayer` que l'ancien OSM, aucun autre fichier à toucher). Lit la clé depuis `EXPO_PUBLIC_MAP_TOKEN`. **Il ne manque que la clé** : une fois générée sur maptiler.com, ajoute-la dans `artifacts/mobile/.env` (`EXPO_PUBLIC_MAP_TOKEN=...`, déjà gitignoré comme les clés Supabase) et redémarre `expo start` — même topo que le fix `.env` Supabase de ce matin.
+  - **[x] Fait** : `lib/mapConfig.ts` migré vers MapTiler (`https://api.maptiler.com/maps/streets-v4/{z}/{x}/{y}.png?key=...`, format XYZ vérifié dans la doc officielle — même mécanique `L.tileLayer` que l'ancien OSM, aucun autre fichier à toucher). Clé ajoutée dans `artifacts/mobile/.env` (`EXPO_PUBLIC_MAP_TOKEN`, gitignoré comme les clés Supabase) et **testée en direct par requête HTTP** : tuile réelle renvoyée (PNG valide, en-tête `X-MAPTILER-FREE: 1`, aucun signe de blocage — contrairement au test OSM qui avait immédiatement montré `x-blocked`). **Nécessite un redémarrage complet de `expo start`** pour charger la nouvelle variable d'env, comme pour le fix Supabase — un simple reload de l'app ne suffit pas.
 
 ## 🔵 FEATURE MAJEURE (hors bug fix, chantier à part)
 
