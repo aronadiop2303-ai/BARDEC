@@ -1,8 +1,12 @@
 # BUGS.md — BARDEC
 
-Dernière mise à jour : 17 août 2026 (session test APK réel)
+Dernière mise à jour : 17 août 2026 (session sélecteur de rôle + formulaire d'inscription)
 
 ## 🔴 BLOQUANT
+
+- [x] **[17 août]** Sélecteur de rôle démo ("Changer de rôle") visible par tout compte réel en production — le bloc dans `profile.tsx` n'était conditionné que par un badge visuel (`!isDemoMode`), jamais masqué. **Corrigé** : gate `canSwitchRole = isDemoMode || TEST_ACCOUNT_EMAILS.includes(user?.email)` — reste visible en mode démo (pas de backend réel), sinon uniquement pour 3 comptes de test (`aronadiop2303@gmail.com`, `aronadiop2302@gmail.com`, `aronadiop2304@gmail.com`). Reste une gate UI/UX, pas une frontière de sécurité — `switchDemoRole` ne modifiait déjà que l'affichage local, la RLS applique toujours le vrai rôle en base (voir commentaire existant dans `AuthContext.tsx`). Pas de variable d'environnement utilisée : un seul profil de build (`preview`) sert actuellement à la fois aux tests et à tout utilisateur réel, donc une gate au build n'aurait pas pu distinguer "moi" d'un vrai utilisateur sur le même APK.
+
+- [x] **[17 août]** Formulaire d'inscription réordonné (Nom → Téléphone → Email → Mot de passe) + 2 nouveaux champs. **Téléphone** : obligatoire, validation basique (≥ 8 chiffres après nettoyage), câblé jusqu'à `users.phone` (colonne déjà existante, jamais renseignée avant) via `AuthContext.register()`. **Code d'invitation** : optionnel, texte libre, nouvelle colonne `users.invite_code TEXT` (migration `add_users_invite_code` appliquée en production, nullable, sans contrainte) — stocké mais aucune logique de récompense pour l'instant, à faire dans une session séparée.
 
 - [x] **[17 août]** Test APK réel — zone de saisie OMNI cachée par la barre de navigation Android — `OmniChatModal.tsx` n'utilisait ni `useSafeAreaInsets` ni de `behavior` Android pour son `KeyboardAvoidingView` (`behavior={undefined}` sur Android). Avec l'edge-to-edge forcé sur Android récent (SDK 54, cible probablement l'API 35), le contenu se dessine sous la barre système. **Corrigé** : `behavior` Android passé à `'height'` (même convention que `register.tsx`), `paddingBottom: Math.max(insets.bottom, 12)` ajouté à la barre d'input pour qu'elle reste toujours au-dessus de la barre système/gestes, peu importe le téléphone.
 

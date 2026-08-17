@@ -20,10 +20,20 @@ import { toUserMessage } from '@/lib/errors';
 import { readLocalImageBytes } from '@/lib/imageUpload';
 import { usePendingApprovalsCount } from '@/hooks/usePendingApprovalsCount';
 
+// Role switcher is a UI-only preview (RLS still enforces the real DB role
+// regardless) but shouldn't be visible to real users in production — only
+// to these test accounts. Always shown in demo mode (no real backend).
+const TEST_ACCOUNT_EMAILS = [
+  'aronadiop2303@gmail.com',
+  'aronadiop2302@gmail.com',
+  'aronadiop2304@gmail.com',
+];
+
 export default function ProfileScreen() {
   const colors = useColors();
   const { t, language } = useLanguage();
   const { user, logout, switchDemoRole, isDemoMode, updateUserAvatar, updateUserName } = useAuth();
+  const canSwitchRole = isDemoMode || TEST_ACCOUNT_EMAILS.includes(user?.email ?? '');
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [biometricEnabled,     setBiometricEnabled]     = useState(false);
   const [isUploadingAvatar,    setIsUploadingAvatar]    = useState(false);
@@ -318,7 +328,8 @@ export default function ProfileScreen() {
         </View>
       )}
 
-      {/* Role switcher — always visible for multi-role testing */}
+      {/* Role switcher — demo mode only, or the test accounts whitelist in real mode */}
+      {canSwitchRole && (
       <View style={[styles.section, { borderColor: colors.border }]}>
         <View style={styles.roleSwitchHeader}>
           <Feather name="refresh-cw" size={13} color={colors.mutedForeground} />
@@ -349,6 +360,7 @@ export default function ProfileScreen() {
           ))}
         </ScrollView>
       </View>
+      )}
 
       {/* Menu */}
       <View style={[styles.menuSection, { backgroundColor: colors.card, borderColor: colors.border }]}>

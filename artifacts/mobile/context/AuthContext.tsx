@@ -14,7 +14,9 @@ interface AuthContextType {
     password: string,
     name: string,
     role: UserRole,
+    phone: string,
     company?: string,
+    inviteCode?: string,
   ) => Promise<{ error?: string }>;
   logout: () => Promise<void>;
   switchDemoRole: (role: UserRole) => void;
@@ -159,7 +161,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     password: string,
     name: string,
     role: UserRole,
+    phone: string,
     company?: string,
+    inviteCode?: string,
   ): Promise<{ error?: string }> {
     const isB2B = role === 'BUYER' || role === 'VENDOR';
 
@@ -183,6 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data: {
             display_name: name,
             role,
+            phone,
             ...(isB2B && company ? { company_name: company } : {}),
           },
         },
@@ -211,9 +216,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email,
         display_name: name,
         role,
+        phone,
         is_approved: role !== 'VENDOR',
       };
       if (companyId) userRow.company_id = companyId;
+      if (inviteCode) userRow.invite_code = inviteCode;
 
       const { error: profileError } = await supabase!.from('users').insert(userRow);
       if (profileError) return { error: toUserMessage('auth:register:profileInsert', profileError, 'Impossible de finaliser la création du compte. Réessaie dans un instant.') };

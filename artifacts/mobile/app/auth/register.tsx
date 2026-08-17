@@ -24,9 +24,11 @@ export default function RegisterScreen() {
   const insets = useSafeAreaInsets();
 
   const [name,         setName]         = useState('');
+  const [phone,        setPhone]        = useState('');
   const [email,        setEmail]        = useState('');
   const [password,     setPassword]     = useState('');
   const [company,      setCompany]      = useState('');
+  const [inviteCode,   setInviteCode]   = useState('');
   const [selectedRole, setSelectedRole] = useState<UserRole>('CUSTOMER');
   const [showPassword, setShowPassword] = useState(false);
   const [loading,      setLoading]      = useState(false);
@@ -42,8 +44,13 @@ export default function RegisterScreen() {
   }, [successName]);
 
   async function handleRegister() {
-    if (!name || !email || !password) {
+    if (!name || !phone || !email || !password) {
       Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires');
+      return;
+    }
+    const phoneDigits = phone.replace(/\D/g, '');
+    if (phoneDigits.length < 8) {
+      Alert.alert('Erreur', 'Numéro de téléphone invalide');
       return;
     }
     if (password.length < 6) {
@@ -57,7 +64,9 @@ export default function RegisterScreen() {
       password,
       name.trim(),
       selectedRole,
+      phone.trim(),
       company.trim() || undefined,
+      inviteCode.trim() || undefined,
     );
     setLoading(false);
 
@@ -205,6 +214,18 @@ export default function RegisterScreen() {
           </View>
 
           <View style={[styles.inputGroup, { borderColor: colors.border, backgroundColor: colors.card }]}>
+            <Feather name="phone" size={18} color={colors.mutedForeground} />
+            <TextInput
+              style={[styles.input, { color: colors.foreground }]}
+              placeholder="Numéro de téléphone *"
+              placeholderTextColor={colors.mutedForeground}
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+            />
+          </View>
+
+          <View style={[styles.inputGroup, { borderColor: colors.border, backgroundColor: colors.card }]}>
             <Feather name="mail" size={18} color={colors.mutedForeground} />
             <TextInput
               style={[styles.input, { color: colors.foreground }]}
@@ -245,6 +266,19 @@ export default function RegisterScreen() {
               />
             </View>
           )}
+
+          <View style={[styles.inputGroup, { borderColor: colors.border, backgroundColor: colors.card }]}>
+            <Feather name="gift" size={18} color={colors.mutedForeground} />
+            <TextInput
+              style={[styles.input, { color: colors.foreground }]}
+              placeholder="Code d'invitation (optionnel)"
+              placeholderTextColor={colors.mutedForeground}
+              value={inviteCode}
+              onChangeText={setInviteCode}
+              autoCapitalize="characters"
+              autoCorrect={false}
+            />
+          </View>
         </View>
 
         {selectedRole === 'VENDOR' && (

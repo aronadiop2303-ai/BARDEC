@@ -57,6 +57,7 @@ CREATE TABLE users (
   phone           TEXT,
   is_approved     BOOLEAN DEFAULT true,
   mfa_enabled     BOOLEAN DEFAULT false,
+  invite_code     TEXT, -- texte libre, aucune logique de récompense pour l'instant
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
