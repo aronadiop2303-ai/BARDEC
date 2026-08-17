@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DEMO_USERS, User, UserRole } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toAuthMessage, toUserMessage } from '@/lib/errors';
+import { registerPushToken } from '@/lib/notifications';
 
 interface AuthContextType {
   user: User | null;
@@ -51,6 +52,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     initAuth();
   }, []);
+
+  // Register (or refresh) this device's push token whenever a real account
+  // becomes authenticated — covers login, register, and session restore in
+  // one place instead of duplicating the call at every call site.
+  useEffect(() => {
+    if (user && !isDemoMode && supabase) {
+      registerPushToken(user.id, supabase).catch(() => { /* ignore */ });
+    }
+  }, [user?.id, isDemoMode]);
 
   async function initAuth() {
     try {

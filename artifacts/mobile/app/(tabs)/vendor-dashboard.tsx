@@ -21,6 +21,7 @@ import { CATEGORIES, MOCK_ORDERS, MOCK_PRODUCTS, VENDOR_STATS } from '@/constant
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { readLocalImageBytes } from '@/lib/imageUpload';
 import { toUserMessage } from '@/lib/errors';
+import { notifyOrderEvent } from '@/lib/notifications';
 
 const { width } = Dimensions.get('window');
 
@@ -474,6 +475,9 @@ export default function VendorDashboardScreen() {
       if (error) {
         Alert.alert('Erreur', toUserMessage('vendor:updateOrderStatus', error, 'Impossible de mettre à jour cette commande. Réessaie dans un instant.'));
         return;
+      }
+      if (updated && updated.length > 0) {
+        notifyOrderEvent(supabase, statusOrder.id, newStatus);
       }
       if (!updated || updated.length === 0) {
         // The UPDATE ran but RLS blocked it — no vendor-update policy yet.

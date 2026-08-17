@@ -16,6 +16,7 @@ import { Order, MOCK_ORDERS } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { mapDbOrder } from '@/lib/orders';
 import { toUserMessage } from '@/lib/errors';
+import { notifyOrderEvent } from '@/lib/notifications';
 import { useNearbyBadge } from '@/hooks/useProximityOrders';
 import type { TranslationKey } from '@/constants/translations';
 
@@ -154,6 +155,7 @@ export default function OrdersScreen() {
                 Alert.alert('Permission refusée', "Tu n'as pas les droits pour approuver cette commande.");
                 return;
               }
+              notifyOrderEvent(supabase, order.id, nextStatus);
             } else {
               setApproving(null);
             }
@@ -180,6 +182,7 @@ export default function OrdersScreen() {
                 .update({ status: 'completed' })
                 .eq('id', order.id);
               if (error) { Alert.alert('Erreur', toUserMessage('orders:confirmReceipt', error, 'Impossible de confirmer la réception. Réessaie dans un instant.')); return; }
+              notifyOrderEvent(supabase, order.id, 'completed');
             }
             setOrders(prev =>
               prev.map(o => o.id === order.id ? { ...o, status: 'completed' as const } : o)

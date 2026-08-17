@@ -266,6 +266,20 @@ CREATE TABLE app_version (
 INSERT INTO app_version (min_version, latest_version) VALUES ('1.0.0', '1.0.0');
 
 -- ─────────────────────────────────────────────
+-- PUSH TOKENS (remote push notifications)
+-- ─────────────────────────────────────────────
+-- Added 2026-08-18 (migration: add_push_tokens). One row per device — a
+-- given Expo push token is UNIQUE across the table so re-registering the
+-- same device under a different account reassigns it instead of duplicating.
+CREATE TABLE push_tokens (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token       TEXT NOT NULL UNIQUE,
+  device_info TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ─────────────────────────────────────────────
 -- INDEXES
 -- ─────────────────────────────────────────────
 CREATE INDEX idx_products_vendor    ON products(vendor_id);
@@ -277,6 +291,7 @@ CREATE INDEX idx_orders_company     ON orders(company_id);
 CREATE INDEX idx_messages_conv      ON messages(conversation_id);
 CREATE INDEX idx_audit_user         ON audit_logs(user_id);
 CREATE INDEX idx_api_keys_key       ON api_keys(key);
+CREATE INDEX idx_push_tokens_user   ON push_tokens(user_id);
 
 -- ─────────────────────────────────────────────
 -- ROW LEVEL SECURITY
@@ -290,6 +305,7 @@ ALTER TABLE messages      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE disputes      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendors       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE push_tokens   ENABLE ROW LEVEL SECURITY;
 
 -- Helper: get current user role.
 -- SECURITY DEFINER + search_path = public is mandatory: the function queries
@@ -383,6 +399,13 @@ CREATE POLICY "audit_logs_admin" ON audit_logs FOR SELECT USING (current_user_ro
 -- api_keys also had RLS enabled with zero policies until 2026-08-14
 -- (migration: fix_orders_vendor_uuid_cast_and_add_api_keys_admin_policy).
 CREATE POLICY "api_keys_admin" ON api_keys FOR ALL USING (current_user_role() = 'ADMIN');
+
+-- PUSH_TOKENS: chacun gère les siens; admin lit tout (migration: add_push_tokens).
+CREATE POLICY "push_tokens_own_select" ON push_tokens FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "push_tokens_own_insert" ON push_tokens FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "push_tokens_own_update" ON push_tokens FOR UPDATE USING (user_id = auth.uid());
+CREATE POLICY "push_tokens_own_delete" ON push_tokens FOR DELETE USING (user_id = auth.uid());
+CREATE POLICY "push_tokens_admin"      ON push_tokens FOR ALL    USING (current_user_role() = 'ADMIN');
 
 -- ─────────────────────────────────────────────
 -- REALTIME (pour chat et mises à jour commandes)

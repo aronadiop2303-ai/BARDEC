@@ -9,6 +9,8 @@
  * Guard: only initialise when the native module is actually available.
  */
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 // Dynamic import so the module-level side-effect never runs on unsupported runtimes.
 let Notifications: typeof import('expo-notifications') | null = null;
@@ -51,6 +53,40 @@ export async function requestNotificationPermission(): Promise<boolean> {
     return status === 'granted';
   } catch {
     return false;
+  }
+}
+
+// Registers this device's Expo push token for `userId` so the send-push
+// Edge Function can reach it later, even when the app is closed/backgrounded.
+// Safe to call on every app start / login — upsert on the token's UNIQUE
+// constraint means re-registering the same device just refreshes device_info.
+export async function registerPushToken(userId: string, supabase: SupabaseClient): Promise<void> {
+  const N = getNotifications();
+  if (!N) return; // Expo Go Android SDK 53+, or web — no remote push here
+  try {
+    const granted = await requestNotificationPermission();
+    if (!granted) return;
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    if (!projectId) return;
+    const { data: token } = await N.getExpoPushTokenAsync({ projectId });
+    if (!token) return;
+    await supabase.from('push_tokens').upsert(
+      { user_id: userId, token, device_info: `${Platform.OS} ${Platform.Version}` },
+      { onConflict: 'token' },
+    );
+  } catch {
+    // Real device required (no remote push in Expo Go on Android) — ignore failures here.
+  }
+}
+
+// Remote push for the main order cycle — notifies the OTHER party (buyer or
+// vendor), unlike scheduleLocalNotification which only fires on this device.
+// Best-effort: never blocks the calling UI flow on a push failure.
+export async function notifyOrderEvent(supabase: SupabaseClient, orderId: string, event: string): Promise<void> {
+  try {
+    await supabase.functions.invoke('send-push', { body: { mode: 'order', order_id: orderId, event } });
+  } catch {
+    // ignore — push is a nice-to-have, not a blocker for the status update itself
   }
 }
 

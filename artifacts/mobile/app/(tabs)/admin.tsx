@@ -10,12 +10,12 @@ import { useLanguage } from '@/context/LanguageContext';
 import BardecLayout from '@/components/BardecLayout';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useFocusEffect } from 'expo-router';
-import { ADMIN_STATS, DEMO_USERS, MOCK_ORDERS } from '@/constants/mockData';
+import { ADMIN_STATS, DEMO_USERS, MOCK_ORDERS, UserRole } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toUserMessage } from '@/lib/errors';
 
 const { width } = Dimensions.get('window');
-type AdminTab = 'dashboard' | 'users' | 'vendors' | 'orders' | 'disputes' | 'payments' | 'settings' | 'apikeys';
+type AdminTab = 'dashboard' | 'users' | 'vendors' | 'orders' | 'disputes' | 'payments' | 'notifications' | 'settings' | 'apikeys';
 
 // ── API keys — matches what mcp-server actually enforces (validateApiKey):
 // hasWrite = perms.includes('write') || perms.includes('*');
@@ -226,6 +226,44 @@ function AdminScreenInner() {
     }).eq('id', id);
     if (error) { Alert.alert('Erreur', toUserMessage('admin:rejectPayment', error, 'Impossible de rejeter ce paiement. Réessaie dans un instant.')); return; }
     setRealPayments(prev => prev.map(p => p.id === id ? { ...p, payment_status: 'failed', payment_notes: note } : p));
+  }
+
+  // ── Admin notification broadcast (send-push Edge Function, mode: admin_broadcast) ──
+  const [notifTitle,      setNotifTitle]      = useState('');
+  const [notifBody,       setNotifBody]       = useState('');
+  const [notifTargetType, setNotifTargetType] = useState<'user' | 'role' | 'all'>('all');
+  const [notifRole,       setNotifRole]       = useState<UserRole>('CUSTOMER');
+  const [notifUserSearch, setNotifUserSearch] = useState('');
+  const [notifUser,       setNotifUser]       = useState<{ id: string; label: string } | null>(null);
+  const [sendingNotif,    setSendingNotif]    = useState(false);
+
+  const notifUserMatches = notifUserSearch.trim().length > 0
+    ? realUsers.filter(u =>
+        u.email.toLowerCase().includes(notifUserSearch.toLowerCase()) ||
+        (u.display_name ?? '').toLowerCase().includes(notifUserSearch.toLowerCase()),
+      ).slice(0, 8)
+    : [];
+
+  async function handleSendBroadcast() {
+    if (!supabase) return;
+    if (!notifTitle.trim() || !notifBody.trim()) {
+      Alert.alert('Champs requis', 'Titre et message sont obligatoires.'); return;
+    }
+    if (notifTargetType === 'user' && !notifUser) {
+      Alert.alert('Destinataire requis', 'Sélectionne un utilisateur.'); return;
+    }
+    const target = notifTargetType === 'user' ? { type: 'user', user_id: notifUser!.id }
+      : notifTargetType === 'role' ? { type: 'role', role: notifRole }
+      : { type: 'all' };
+
+    setSendingNotif(true);
+    const { data, error } = await supabase.functions.invoke('send-push', {
+      body: { mode: 'admin_broadcast', title: notifTitle.trim(), body: notifBody.trim(), target },
+    });
+    setSendingNotif(false);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:sendBroadcast', error, "Impossible d'envoyer cette notification. Réessaie dans un instant.")); return; }
+    Alert.alert('Notification envoyée', `${data?.recipients ?? 0} destinataire(s), ${data?.tokens ?? 0} appareil(s) notifié(s).`);
+    setNotifTitle(''); setNotifBody(''); setNotifUser(null); setNotifUserSearch('');
   }
 
   useEffect(() => { fetchAdminData(); }, [fetchAdminData]);
@@ -495,6 +533,7 @@ function AdminScreenInner() {
     { id: 'orders',    label: t('orders'),    icon: 'shopping-cart' },
     { id: 'disputes',  label: t('disputes'),  icon: 'alert-triangle'},
     { id: 'payments',  label: 'Paiements',     icon: 'credit-card',  badge: pendingCount },
+    { id: 'notifications', label: 'Notifications', icon: 'bell'    },
     { id: 'apikeys',   label: 'Clés API / MCP', icon: 'key'         },
     { id: 'settings',  label: t('settings'),  icon: 'settings'      },
   ];
@@ -887,6 +926,109 @@ function AdminScreenInner() {
               )}
             </View>
           ))}
+        </View>
+      )}
+
+      {/* NOTIFICATIONS (admin broadcast via send-push Edge Function) */}
+      {activeTab === 'notifications' && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Envoyer une notification</Text>
+          <View style={[styles.createKeyForm, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.formLabel, { color: colors.foreground }]}>Titre *</Text>
+            <TextInput
+              style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+              placeholder="Ex: Nouvelle promo BARDEC"
+              placeholderTextColor={colors.mutedForeground}
+              value={notifTitle}
+              onChangeText={setNotifTitle}
+            />
+
+            <Text style={[styles.formLabel, { color: colors.foreground }]}>Message *</Text>
+            <TextInput
+              style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground, height: 80, textAlignVertical: 'top' }]}
+              placeholder="Contenu de la notification…"
+              placeholderTextColor={colors.mutedForeground}
+              value={notifBody}
+              onChangeText={setNotifBody}
+              multiline
+            />
+
+            <Text style={[styles.formLabel, { color: colors.foreground }]}>Cible *</Text>
+            <View style={styles.permsGrid}>
+              {([
+                { id: 'all',  label: 'Tous les utilisateurs' },
+                { id: 'role', label: 'Un rôle' },
+                { id: 'user', label: 'Un utilisateur précis' },
+              ] as const).map(opt => (
+                <TouchableOpacity
+                  key={opt.id}
+                  style={[styles.permChip, {
+                    backgroundColor: notifTargetType === opt.id ? colors.primary + '18' : colors.background,
+                    borderColor:     notifTargetType === opt.id ? colors.primary : colors.border,
+                  }]}
+                  onPress={() => setNotifTargetType(opt.id)}
+                >
+                  <View style={[styles.permCheckbox, {
+                    backgroundColor: notifTargetType === opt.id ? colors.primary : 'transparent',
+                    borderColor:     notifTargetType === opt.id ? colors.primary : colors.mutedForeground,
+                  }]}>
+                    {notifTargetType === opt.id && <Feather name="check" size={10} color="white" />}
+                  </View>
+                  <Text style={[styles.permLabel, { color: colors.foreground }]}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {notifTargetType === 'role' && (
+              <View style={styles.permsGrid}>
+                {(['CUSTOMER', 'BUYER', 'APPROVER', 'VENDOR', 'ADMIN'] as UserRole[]).map(role => (
+                  <TouchableOpacity
+                    key={role}
+                    style={[styles.permChip, {
+                      backgroundColor: notifRole === role ? colors.primary + '18' : colors.background,
+                      borderColor:     notifRole === role ? colors.primary : colors.border,
+                    }]}
+                    onPress={() => setNotifRole(role)}
+                  >
+                    <Text style={[styles.permLabel, { color: colors.foreground }]}>{role}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {notifTargetType === 'user' && (
+              <View>
+                <TextInput
+                  style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                  placeholder="Chercher par nom ou email…"
+                  placeholderTextColor={colors.mutedForeground}
+                  value={notifUser ? notifUser.label : notifUserSearch}
+                  onChangeText={(v) => { setNotifUserSearch(v); setNotifUser(null); }}
+                />
+                {!notifUser && notifUserMatches.map(u => (
+                  <TouchableOpacity
+                    key={u.id}
+                    style={[styles.permChip, { backgroundColor: colors.background, borderColor: colors.border, marginTop: 6 }]}
+                    onPress={() => { setNotifUser({ id: u.id, label: u.display_name ?? u.email }); setNotifUserSearch(''); }}
+                  >
+                    <Text style={[styles.permLabel, { color: colors.foreground }]}>{u.display_name ?? u.email} · {u.email}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            <View style={styles.formActions}>
+              <TouchableOpacity
+                style={[styles.formConfirmBtn, { backgroundColor: colors.primary, opacity: sendingNotif ? 0.7 : 1, flex: 1 }]}
+                onPress={handleSendBroadcast}
+                disabled={sendingNotif}
+              >
+                {sendingNotif
+                  ? <ActivityIndicator size="small" color="white" />
+                  : <><Feather name="send" size={14} color="white" /><Text style={styles.formConfirmText}>Envoyer</Text></>}
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       )}
 
