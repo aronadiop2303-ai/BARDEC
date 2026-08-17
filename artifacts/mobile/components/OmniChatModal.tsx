@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView, Platform, StyleSheet, ActivityIndicator,
   Animated, Image,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOmniChat, OmniChatMessage, OmniContext } from '../hooks/useOmniChat';
 
 // ─── OMNI official logo (globe + infinity emblem, blue/silver) ────────────────
@@ -132,6 +133,7 @@ export function OmniChatModal({ visible, onClose, context }: OmniChatModalProps)
   const { messages, isSending, error, sendMessage, startNewConversation } = useOmniChat(context);
   const [input, setInput] = React.useState('');
   const listRef = useRef<FlatList>(null);
+  const insets = useSafeAreaInsets();
 
   // Auto-scroll when messages update (streaming content causes frequent updates)
   useEffect(() => {
@@ -149,7 +151,7 @@ export function OmniChatModal({ visible, onClose, context }: OmniChatModalProps)
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? insets.bottom : 0}>
         <View style={styles.header}>
           <View style={styles.headerTitleRow}>
             <Image source={OMNI_LOGO} style={styles.avatar} resizeMode="cover" />
@@ -192,7 +194,7 @@ export function OmniChatModal({ visible, onClose, context }: OmniChatModalProps)
 
         {error && <Text style={styles.errorText}>{error}</Text>}
 
-        <View style={styles.inputRow}>
+        <View style={[styles.inputRow, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <TextInput
             style={styles.input}
             placeholder="Écris ton message à OMNI..."

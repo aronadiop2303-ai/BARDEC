@@ -52,6 +52,19 @@ function formatXOF(usd: number): string {
   return Math.round(usd * XOF_RATE).toLocaleString('fr-FR') + ' FCFA';
 }
 
+// Same icon/color mapping as PAYMENT_METHODS in checkout.tsx, keyed by the
+// payment_method enum value stored on orders.
+const PAYMENT_METHOD_LABELS: Record<string, { label: string; icon: string; color: string }> = {
+  wave:             { label: 'Wave',            icon: 'zap',          color: '#1A56DB' },
+  orange_money:     { label: 'Orange Money',    icon: 'smartphone',   color: '#F97316' },
+  mtn_momo:         { label: 'MTN MoMo',        icon: 'phone',        color: '#EAB308' },
+  cash_on_delivery: { label: 'À la livraison',  icon: 'truck',        color: '#22C55E' },
+  net30:            { label: 'Net30',           icon: 'file-text',    color: '#7C3AED' },
+  bank_transfer:    { label: 'Virement bancaire', icon: 'briefcase',  color: '#0EA5E9' },
+  card:             { label: 'Carte bancaire',  icon: 'credit-card', color: '#64748B' },
+  paypal:           { label: 'PayPal',          icon: 'credit-card', color: '#64748B' },
+};
+
 // ── Mock pending payments ─────────────────────────────────────────────────────
 type PmtStatus = 'awaiting_verification' | 'paid' | 'failed';
 interface PendingPayment {
@@ -126,10 +139,12 @@ function AdminScreenInner() {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [refreshing, setRefreshing] = useState(false);
 
-  // ── Real Supabase data — dashboard/users/vendors/orders only.
-  // Payments/disputes/API keys/settings stay mock: disputes has RLS enabled
-  // with zero policies (blocks even ADMIN reads — needs a CREATE POLICY
-  // decision), and payments/API-keys have no real backing feature yet.
+  // ── Real Supabase data — dashboard/users/vendors/orders/disputes/payments.
+  // "Payments" has no dedicated table — it reads orders.payment_* columns
+  // (manual mobile-money verification flow, see AGENTS.md §5). Settings stays
+  // mock: no platform_settings table exists yet (see BUGS.md). Disputes reads
+  // real data but the table itself has no user-facing creation flow anywhere
+  // in the app — see BUGS.md.
   interface RealUser {
     id: string; email: string; display_name: string | null; phone: string | null;
     role: string; is_approved: boolean; created_at: string;
@@ -137,25 +152,81 @@ function AdminScreenInner() {
   interface RealOrder {
     id: string; order_number: string; status: string; total: number; created_at: string;
   }
+  interface RealDispute {
+    id: string; status: string; reason: string; refund_amount: number | null; created_at: string;
+    orders: { order_number: string } | null;
+    opener: { display_name: string | null; email: string } | null;
+  }
+  interface RealPayment {
+    id: string; order_number: string; payment_method: string | null;
+    payment_proof_url: string | null; payment_amount_xof: number | null; total: number;
+    payment_status: string; payment_notes: string | null; created_at: string;
+    customer: { display_name: string | null; email: string } | null;
+  }
   const [realUsers,        setRealUsers]        = useState<RealUser[]>([]);
   const [realOrders,       setRealOrders]        = useState<RealOrder[]>([]);
+  const [realDisputes,     setRealDisputes]      = useState<RealDispute[]>([]);
+  const [realPayments,     setRealPayments]      = useState<RealPayment[]>([]);
   const [loadingAdminData, setLoadingAdminData]  = useState(isSupabaseConfigured);
 
   const fetchAdminData = useCallback(async () => {
     if (!isSupabaseConfigured || !supabase) { setLoadingAdminData(false); return; }
     setLoadingAdminData(true);
-    const [{ data: usersData, error: usersErr }, { data: ordersData, error: ordersErr }] = await Promise.all([
+    const [
+      { data: usersData, error: usersErr },
+      { data: ordersData, error: ordersErr },
+      { data: disputesData, error: disputesErr },
+      { data: paymentsData, error: paymentsErr },
+    ] = await Promise.all([
       supabase.from('users').select('id, email, display_name, phone, role, is_approved, created_at')
         .order('created_at', { ascending: false }),
       supabase.from('orders').select('id, order_number, status, total, created_at')
         .order('created_at', { ascending: false }).limit(200),
+      supabase.from('disputes')
+        .select('id, status, reason, refund_amount, created_at, orders!order_id(order_number), opener:users!opened_by(display_name, email)')
+        .order('created_at', { ascending: false }),
+      supabase.from('orders')
+        .select('id, order_number, payment_method, payment_proof_url, payment_amount_xof, total, payment_status, payment_notes, created_at, customer:users!customer_id(display_name, email)')
+        .in('payment_status', ['awaiting_verification', 'paid', 'failed'])
+        .order('created_at', { ascending: false }).limit(100),
     ]);
     if (usersErr) console.warn('Admin users fetch error:', usersErr.message);
     if (ordersErr) console.warn('Admin orders fetch error:', ordersErr.message);
+    if (disputesErr) console.warn('Admin disputes fetch error:', disputesErr.message);
+    if (paymentsErr) console.warn('Admin payments fetch error:', paymentsErr.message);
     setRealUsers((usersData ?? []) as RealUser[]);
     setRealOrders((ordersData ?? []) as RealOrder[]);
+    setRealDisputes((disputesData ?? []) as unknown as RealDispute[]);
+    setRealPayments((paymentsData ?? []) as unknown as RealPayment[]);
     setLoadingAdminData(false);
   }, []);
+
+  async function handleResolveDispute(id: string) {
+    if (!supabase) return;
+    const { error } = await supabase.from('disputes').update({ status: 'resolved' }).eq('id', id);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:resolveDispute', error, 'Impossible de résoudre ce litige. Réessaie dans un instant.')); return; }
+    setRealDisputes(prev => prev.map(d => d.id === id ? { ...d, status: 'resolved' } : d));
+  }
+
+  async function handleValidateRealPayment(id: string) {
+    if (!supabase) return;
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('orders').update({
+      payment_status: 'paid', verified_by: authUser?.id, verified_at: new Date().toISOString(),
+    }).eq('id', id);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:validatePayment', error, 'Impossible de valider ce paiement. Réessaie dans un instant.')); return; }
+    setRealPayments(prev => prev.map(p => p.id === id ? { ...p, payment_status: 'paid' } : p));
+  }
+
+  async function handleRejectRealPayment(id: string, note: string) {
+    if (!supabase) return;
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('orders').update({
+      payment_status: 'failed', payment_notes: note, verified_by: authUser?.id, verified_at: new Date().toISOString(),
+    }).eq('id', id);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:rejectPayment', error, 'Impossible de rejeter ce paiement. Réessaie dans un instant.')); return; }
+    setRealPayments(prev => prev.map(p => p.id === id ? { ...p, payment_status: 'failed', payment_notes: note } : p));
+  }
 
   useEffect(() => { fetchAdminData(); }, [fetchAdminData]);
   useFocusEffect(useCallback(() => { fetchAdminData(); }, [fetchAdminData]));
@@ -188,7 +259,7 @@ function AdminScreenInner() {
     { icon: 'shopping-cart', label: 'Commandes', value: realOrders.length.toLocaleString(), color: colors.secondary, trend: '' },
     { icon: 'dollar-sign', label: 'Revenus (total commandes)', value: `${realRevenueTotal.toLocaleString('fr-FR')} FCFA`, color: '#22C55E', trend: '' },
     { icon: 'clock', label: 'Vendeurs en attente', value: realPendingVendors.length, color: '#F59E0B', trend: '' },
-    { icon: 'alert-triangle', label: 'Litiges actifs', value: '—', color: '#EF4444', trend: '' },
+    { icon: 'alert-triangle', label: 'Litiges actifs', value: realDisputes.filter(d => d.status !== 'resolved').length, color: '#EF4444', trend: '' },
   ] : [
     { icon: 'users', label: 'Utilisateurs', value: ADMIN_STATS.totalUsers.toLocaleString(), color: colors.primary, trend: '+8.2%' },
     { icon: 'briefcase', label: 'Vendeurs', value: ADMIN_STATS.totalVendors, color: '#7C3AED', trend: '+3.1%' },
@@ -222,11 +293,21 @@ function AdminScreenInner() {
         totalLabel: `$${o.total.toLocaleString()}`, status: o.status,
       }));
 
-  const activeDisputes = [
-    { id: 'd1', order: 'BDC-2024-001100', buyer: 'Ahmed D.', vendor: 'Vega Electronics', amount: 5200, status: 'investigating' },
-    { id: 'd2', order: 'BDC-2024-000876', buyer: 'Marie C.', vendor: 'Sahel Naturals', amount: 1150, status: 'open' },
-    { id: 'd3', order: 'BDC-2024-001088', buyer: 'Liu W.', vendor: 'PackPro', amount: 780, status: 'resolved' },
+  const mockDisputes = [
+    { id: 'd1', order: 'BDC-2024-001100', opener: 'Ahmed D.', reason: 'Produit non conforme', amount: 5200, status: 'investigating' },
+    { id: 'd2', order: 'BDC-2024-000876', opener: 'Marie C.', reason: 'Colis jamais reçu', amount: 1150, status: 'open' },
+    { id: 'd3', order: 'BDC-2024-001088', opener: 'Liu W.', reason: 'Remboursement partiel', amount: 780, status: 'resolved' },
   ];
+  const displayDisputes = isSupabaseConfigured
+    ? realDisputes.map(d => ({
+        id: d.id,
+        order: d.orders?.order_number ?? '—',
+        opener: d.opener?.display_name ?? d.opener?.email ?? '—',
+        reason: d.reason,
+        amount: d.refund_amount ?? 0,
+        status: d.status,
+      }))
+    : mockDisputes;
 
   const platformSettings = [
     { key: 'commission_b2c', label: 'Commission B2C', value: '3.5%' },
@@ -240,7 +321,23 @@ function AdminScreenInner() {
   const [rejectNotes, setRejectNotes] = useState<Record<string, string>>({});
   const [rejectOpen, setRejectOpen] = useState<string | null>(null);
 
-  const pendingCount = payments.filter(p => p.status === 'awaiting_verification').length;
+  const displayPayments: PendingPayment[] = isSupabaseConfigured
+    ? realPayments.map(p => ({
+        id: p.id,
+        orderNumber: p.order_number,
+        customer: p.customer?.display_name ?? p.customer?.email ?? '—',
+        method: PAYMENT_METHOD_LABELS[p.payment_method ?? '']?.label ?? p.payment_method ?? '—',
+        methodIcon: PAYMENT_METHOD_LABELS[p.payment_method ?? '']?.icon ?? 'credit-card',
+        methodColor: PAYMENT_METHOD_LABELS[p.payment_method ?? '']?.color ?? '#64748B',
+        amountUSD: (p.payment_amount_xof ?? p.total) / XOF_RATE, // formatXOF converts back to XOF below
+        proofUrl: p.payment_proof_url,
+        submittedAt: new Date(p.created_at).toLocaleString('fr-FR'),
+        status: p.payment_status as PmtStatus,
+        notes: p.payment_notes ?? '',
+      }))
+    : payments;
+
+  const pendingCount = displayPayments.filter(p => p.status === 'awaiting_verification').length;
 
   // ── API keys state — real Supabase (api_keys / audit_logs tables already
   // exist with real data; RLS is enabled on api_keys with no policy yet, so
@@ -370,7 +467,9 @@ function AdminScreenInner() {
         { text: 'Annuler', style: 'cancel' },
         {
           text: 'Valider', style: 'default',
-          onPress: () => setPayments(ps => ps.map(p => p.id === id ? { ...p, status: 'paid' } : p)),
+          onPress: () => isSupabaseConfigured
+            ? handleValidateRealPayment(id)
+            : setPayments(ps => ps.map(p => p.id === id ? { ...p, status: 'paid' } : p)),
         },
       ]
     );
@@ -381,7 +480,11 @@ function AdminScreenInner() {
     if (!note.trim()) {
       Alert.alert('Motif requis', 'Veuillez indiquer le motif du rejet avant de rejeter.'); return;
     }
-    setPayments(ps => ps.map(p => p.id === id ? { ...p, status: 'failed', notes: note } : p));
+    if (isSupabaseConfigured) {
+      handleRejectRealPayment(id, note);
+    } else {
+      setPayments(ps => ps.map(p => p.id === id ? { ...p, status: 'failed', notes: note } : p));
+    }
     setRejectOpen(null);
   }
 
@@ -415,7 +518,9 @@ function AdminScreenInner() {
         <View style={styles.alertBadge}>
           <Feather name="bell" size={16} color="white" />
           <Text style={styles.alertBadgeText}>
-            {(isSupabaseConfigured ? realPendingVendors.length : ADMIN_STATS.pendingVendors) + ADMIN_STATS.activeDisputes + pendingCount}
+            {(isSupabaseConfigured ? realPendingVendors.length : ADMIN_STATS.pendingVendors)
+              + (isSupabaseConfigured ? realDisputes.filter(d => d.status !== 'resolved').length : ADMIN_STATS.activeDisputes)
+              + pendingCount}
           </Text>
         </View>
       </LinearGradient>
@@ -618,7 +723,7 @@ function AdminScreenInner() {
             </View>
           </View>
 
-          {payments.map(pmt => (
+          {displayPayments.map(pmt => (
             <View key={pmt.id} style={[styles.pmtCard, { backgroundColor: colors.card, borderColor: pmt.status === 'awaiting_verification' ? '#F59E0B' : pmt.status === 'paid' ? '#22C55E' : '#EF4444' }]}>
 
               {/* Card header */}
@@ -741,7 +846,12 @@ function AdminScreenInner() {
       {activeTab === 'disputes' && (
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Trade Assurance — Litiges</Text>
-          {activeDisputes.map(d => (
+          {isSupabaseConfigured && displayDisputes.length === 0 && (
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, paddingVertical: 8 }}>
+              Aucun litige enregistré pour l'instant.
+            </Text>
+          )}
+          {displayDisputes.map(d => (
             <View key={d.id} style={[styles.disputeCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <View style={styles.disputeHeader}>
                 <Text style={[styles.disputeOrder, { color: colors.foreground }]}>{d.order}</Text>
@@ -756,17 +866,20 @@ function AdminScreenInner() {
                 </View>
               </View>
               <View style={styles.disputeParties}>
-                <Text style={[styles.disputeParty, { color: colors.mutedForeground }]}>Acheteur: {d.buyer}</Text>
-                <Text style={[styles.disputeParty, { color: colors.mutedForeground }]}>Vendeur: {d.vendor}</Text>
-                <Text style={[styles.disputeAmount, { color: colors.primary }]}>${d.amount.toLocaleString()}</Text>
+                <Text style={[styles.disputeParty, { color: colors.mutedForeground }]}>Ouvert par: {d.opener}</Text>
+                <Text style={[styles.disputeParty, { color: colors.mutedForeground }]}>{d.reason}</Text>
+                {d.amount > 0 && (
+                  <Text style={[styles.disputeAmount, { color: colors.primary }]}>
+                    {isSupabaseConfigured ? `${d.amount.toLocaleString('fr-FR')} FCFA` : `$${d.amount.toLocaleString()}`}
+                  </Text>
+                )}
               </View>
               {d.status !== 'resolved' && (
                 <View style={styles.disputeActions}>
-                  <TouchableOpacity style={[styles.vendorActionBtn, { backgroundColor: colors.accent, borderColor: colors.border }]}>
-                    <Feather name="eye" size={13} color={colors.primary} />
-                    <Text style={[styles.vendorActionText, { color: colors.primary }]}>Examiner</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.vendorActionBtn, { backgroundColor: '#D1FAE5', borderColor: '#22C55E' }]}>
+                  <TouchableOpacity
+                    style={[styles.vendorActionBtn, { backgroundColor: '#D1FAE5', borderColor: '#22C55E' }]}
+                    onPress={() => isSupabaseConfigured ? handleResolveDispute(d.id) : undefined}
+                  >
                     <Feather name="check-circle" size={13} color="#059669" />
                     <Text style={[styles.vendorActionText, { color: '#059669' }]}>Résoudre</Text>
                   </TouchableOpacity>
