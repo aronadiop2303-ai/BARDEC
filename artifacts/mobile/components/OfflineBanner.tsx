@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Animated, StyleSheet, Text } from 'react-native';
+import { Animated, Platform, StyleSheet, Text } from 'react-native';
 import { useLanguage } from '@/context/LanguageContext';
 
 export default function OfflineBanner() {
@@ -8,12 +8,27 @@ export default function OfflineBanner() {
   const { t } = useLanguage();
 
   useEffect(() => {
-    // Simple connectivity polling via fetch
+    if (Platform.OS === 'web') {
+      // Cross-origin fetch (e.g. to google.com) is blocked by CORS in a
+      // browser and was previously mistaken for "offline" — use the
+      // browser's own connectivity signal instead, no network call needed.
+      setIsOffline(!navigator.onLine);
+      const goOnline  = () => setIsOffline(false);
+      const goOffline = () => setIsOffline(true);
+      window.addEventListener('online', goOnline);
+      window.addEventListener('offline', goOffline);
+      return () => {
+        window.removeEventListener('online', goOnline);
+        window.removeEventListener('offline', goOffline);
+      };
+    }
+
+    // Native: CORS doesn't apply, so polling a real endpoint is fine.
     let interval: ReturnType<typeof setInterval>;
     const check = async () => {
       try {
         await fetch('https://www.google.com/favicon.ico', { method: 'HEAD', cache: 'no-store' });
-        if (isOffline) setIsOffline(false);
+        setIsOffline(false);
       } catch {
         setIsOffline(true);
       }
@@ -21,7 +36,7 @@ export default function OfflineBanner() {
     check();
     interval = setInterval(check, 10000);
     return () => clearInterval(interval);
-  }, [isOffline]);
+  }, []);
 
   useEffect(() => {
     Animated.timing(slideAnim, {
