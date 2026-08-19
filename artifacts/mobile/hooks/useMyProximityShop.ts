@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { ProximityProduct, ProximityShop } from '@/constants/proximityData';
+import { ENUM_TO_CATEGORY, ProximityProduct, ProximityShop } from '@/constants/proximityData';
 import { useAuth } from '@/context/AuthContext';
 
 async function fetchMyShop(userId: string): Promise<ProximityShop | null> {
@@ -15,7 +15,8 @@ async function fetchMyShop(userId: string): Promise<ProximityShop | null> {
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-  return data as ProximityShop | null;
+  if (!data) return null;
+  return { ...data, category: ENUM_TO_CATEGORY[data.category as string] ?? data.category } as ProximityShop;
 }
 
 async function fetchMyProducts(shopId: string): Promise<ProximityProduct[]> {

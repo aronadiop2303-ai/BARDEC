@@ -1,8 +1,11 @@
 # BUGS.md — BARDEC
 
-Dernière mise à jour : 19 août 2026 (session boutique de proximité + chat support)
+Dernière mise à jour : 19 août 2026 (suite — régressions boutique de proximité)
 
 ## 🔴 BLOQUANT
+
+- [x] **[19 août, suite]** "Ouvrir ma boutique" reproductible à nouveau après le fix des colonnes — **cause différente, pas une régression du fix précédent**. `edge_logs`/`postgres_logs` : `22P02 invalid input value for enum shop_category: "Alimentation & Table"`. `proximity_shops.category` est un ENUM Postgres à slugs (`alimentation_table`, `restauration_loisirs`, …) mais `PROXIMITY_CATEGORIES` (utilisé partout côté client comme valeur canonique — chips, couleurs, sous-catégories) contient les libellés français affichés, jamais traduits vers l'enum avant l'insert. Aucune commande photos là-dedans — l'hypothèse d'un lien avec le Bug A était fausse, vérifiée avant de coder. **Corrigé** : mapping `CATEGORY_TO_ENUM`/`ENUM_TO_CATEGORY` ajouté dans `constants/proximityData.ts` (point de conversion unique), appliqué à l'insert (`register-shop.tsx`) et aux 3 points de lecture (`useProximityShops` + filtre RPC `nearby_shops`, `useMyProximityShop`, `useProximityShop`) — le reste de l'app continue de manipuler les libellés français partout, seule la frontière Supabase convertit.
+- [x] **[19 août, suite]** Étape Photos, l'ajout ne fonctionne plus du tout (case vide, aucune miniature). Le fix précédent (badge ✓) est toujours en place et correct dans le JSX — le vrai problème : `pickPhoto()` n'avait **aucune gestion d'erreur ni vérification de permission**. Si `ImagePicker.launchImageLibraryAsync` échoue ou si la permission galerie est refusée, l'échec était totalement silencieux (pas de crash visible, pas d'alerte — juste rien). **Corrigé** : permission vérifiée explicitement avant l'ouverture du sélecteur, `try/catch` autour de l'appel, message clair si le résultat ne contient pas d'URI exploitable. Si le problème persiste après ce correctif, l'alerte affichée donnera enfin la vraie cause au lieu du silence.
 
 - [x] **[19 août]** "Ouvrir ma boutique" — étape Photos, pas de retour visuel après sélection. Le code confirmait déjà la photo dans l'état du formulaire immédiatement (pas de bug fonctionnel), mais la seule preuve visuelle était la miniature dans la grille — facile à manquer. **Corrigé** : badge ✓ vert permanent sur chaque miniature + bandeau "N photo(s) enregistrée(s)" au-dessus de la grille.
 

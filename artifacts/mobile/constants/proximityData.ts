@@ -70,6 +70,28 @@ export const CATEGORY_COLORS: Record<ProximityCategory, string> = {
   'Services & Entretien': '#8B5CF6',
 };
 
+// The DB column proximity_shops.category is a Postgres ENUM (shop_category)
+// using short slugs — it does NOT accept the French display labels above
+// (confirmed via postgres_logs: "invalid input value for enum shop_category:
+// \"Alimentation & Table\"", error 22P02). Every write to that column must
+// go through CATEGORY_TO_ENUM; every read must go through ENUM_TO_CATEGORY
+// so the rest of the app keeps working with the pretty labels it already
+// uses everywhere (PROXIMITY_SUBCATEGORIES/CATEGORY_ICONS/CATEGORY_COLORS
+// are all keyed by label, not slug).
+export const CATEGORY_TO_ENUM: Record<ProximityCategory, string> = {
+  'Alimentation & Table':   'alimentation_table',
+  'Restauration & Loisirs': 'restauration_loisirs',
+  'Bricolage & Maison':     'bricolage_maison',
+  'Beauté & Mode':          'beaute_mode',
+  'Santé & Hygiène':        'sante_hygiene',
+  'Culture & Tech':         'culture_tech',
+  'Services & Entretien':   'services_entretien',
+};
+
+export const ENUM_TO_CATEGORY: Record<string, ProximityCategory> = Object.fromEntries(
+  Object.entries(CATEGORY_TO_ENUM).map(([label, slug]) => [slug, label]),
+) as Record<string, ProximityCategory>;
+
 export const DAY_LABELS: Record<string, string> = {
   lun: 'Lundi',
   mar: 'Mardi',

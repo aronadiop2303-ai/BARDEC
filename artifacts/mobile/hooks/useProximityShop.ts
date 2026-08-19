@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { DEMO_PRODUCTS, DEMO_SHOPS, ProximityProduct, ProximityShop } from '@/constants/proximityData';
+import { DEMO_PRODUCTS, DEMO_SHOPS, ENUM_TO_CATEGORY, ProximityProduct, ProximityShop } from '@/constants/proximityData';
 
 interface ShopWithProducts {
   shop: ProximityShop | null;
@@ -21,8 +21,9 @@ async function fetchShopWithProducts(shopId: string): Promise<ShopWithProducts> 
 
   if (shopRes.error) throw new Error(shopRes.error.message);
 
+  const rawShop = shopRes.data as (ProximityShop & { category: string }) | null;
   return {
-    shop: shopRes.data as ProximityShop | null,
+    shop: rawShop ? { ...rawShop, category: ENUM_TO_CATEGORY[rawShop.category] ?? rawShop.category } : null,
     products: (productsRes.data ?? []) as ProximityProduct[],
   };
 }

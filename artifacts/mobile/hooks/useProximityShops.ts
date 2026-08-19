@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { DEMO_SHOPS, ProximityCategory, ProximityShop } from '@/constants/proximityData';
+import { CATEGORY_TO_ENUM, DEMO_SHOPS, ENUM_TO_CATEGORY, ProximityCategory, ProximityShop } from '@/constants/proximityData';
 
 interface UseProximityShopsParams {
   lat: number | null;
@@ -27,11 +27,14 @@ async function fetchNearbyShops(
     user_lat: lat,
     user_lng: lng,
     radius_km: radiusKm,
-    filter_category: category ?? null,
+    filter_category: category ? CATEGORY_TO_ENUM[category] : null,
   });
 
   if (error) throw new Error(error.message);
-  return (data ?? []) as ProximityShop[];
+  return ((data ?? []) as ProximityShop[]).map(s => ({
+    ...s,
+    category: ENUM_TO_CATEGORY[s.category as unknown as string] ?? s.category,
+  }));
 }
 
 export function useProximityShops({ lat, lng, radiusKm = 5, category }: UseProximityShopsParams) {

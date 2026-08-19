@@ -19,6 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@/components/Icon';
 import {
+  CATEGORY_TO_ENUM,
   DAY_KEYS,
   DAY_LABELS,
   PROXIMITY_CATEGORIES,
@@ -109,14 +110,26 @@ export default function RegisterShopScreen() {
 
   async function pickPhoto() {
     if (form.photos.length >= 4) { Alert.alert('Maximum 4 photos atteint'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
-      allowsEditing: true,
-      aspect: [4, 3],
-    });
-    if (!result.canceled && result.assets[0]) {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission refusée', 'Autorise l\'accès à tes photos pour en ajouter une.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.7,
+        allowsEditing: true,
+        aspect: [4, 3],
+      });
+      if (result.canceled) return;
+      if (!result.assets?.[0]?.uri) {
+        Alert.alert('Erreur', 'Aucune photo reçue du sélecteur. Réessaie.');
+        return;
+      }
       update('photos', [...form.photos, result.assets[0].uri]);
+    } catch (err) {
+      Alert.alert('Erreur', toUserMessage('proximity:pickPhoto', err, 'Impossible d\'ouvrir la galerie photo. Réessaie dans un instant.'));
     }
   }
 
@@ -171,7 +184,7 @@ export default function RegisterShopScreen() {
       const { error } = await supabase.from('proximity_shops').insert({
         owner_id: realOwnerId,
         name: form.name.trim(),
-        category: form.category,
+        category: CATEGORY_TO_ENUM[form.category as ProximityCategory],
         subcategory: form.subcategory.trim(),
         description: form.description.trim() || null,
         phone: form.phone.trim() || null,
