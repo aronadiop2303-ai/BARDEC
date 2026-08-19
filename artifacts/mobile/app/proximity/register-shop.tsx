@@ -62,6 +62,7 @@ export default function RegisterShopScreen() {
 
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [debugLog, setDebugLog] = useState<string[]>([]); // TEMPORARY — see pickPhoto()
   const [form, setForm] = useState<ShopForm>({
     name: '', category: '', subcategory: '', description: '',
     phone: '', address: '', lat: 14.6937, lng: -17.4441,
@@ -108,27 +109,45 @@ export default function RegisterShopScreen() {
     }
   }
 
+  // ── TEMPORARY diagnostic instrumentation for the "photo doesn't confirm"
+  // bug report — remove once the exact failing step is identified. Logs to
+  // console AND to on-screen state, since console isn't visible when testing
+  // via Expo Go on a phone without the Metro terminal in view.
+  function dbg(msg: string) {
+    console.log('[pickPhoto]', msg);
+    setDebugLog(l => [...l, `${new Date().toLocaleTimeString()} — ${msg}`]);
+  }
+
   async function pickPhoto() {
+    dbg('pickPhoto() appelée');
     if (form.photos.length >= 4) { Alert.alert('Maximum 4 photos atteint'); return; }
     try {
+      dbg('Demande de permission galerie…');
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      dbg(`Permission: ${status}`);
       if (status !== 'granted') {
         Alert.alert('Permission refusée', 'Autorise l\'accès à tes photos pour en ajouter une.');
         return;
       }
+      dbg('Ouverture du sélecteur (launchImageLibraryAsync)…');
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 0.7,
         allowsEditing: true,
         aspect: [4, 3],
       });
-      if (result.canceled) return;
+      dbg(`Résultat reçu: canceled=${result.canceled}, assets=${result.assets?.length ?? 0}`);
+      if (result.canceled) { dbg('→ Annulé par l\'utilisateur, arrêt.'); return; }
       if (!result.assets?.[0]?.uri) {
+        dbg('→ Pas d\'URI exploitable dans le résultat.');
         Alert.alert('Erreur', 'Aucune photo reçue du sélecteur. Réessaie.');
         return;
       }
+      dbg(`URI reçue: ${result.assets[0].uri.slice(0, 60)}…`);
       update('photos', [...form.photos, result.assets[0].uri]);
+      dbg(`form.photos mis à jour, nouvelle longueur attendue: ${form.photos.length + 1}`);
     } catch (err) {
+      dbg(`→ Exception attrapée: ${String(err)}`);
       Alert.alert('Erreur', toUserMessage('proximity:pickPhoto', err, 'Impossible d\'ouvrir la galerie photo. Réessaie dans un instant.'));
     }
   }
@@ -403,6 +422,18 @@ export default function RegisterShopScreen() {
               <Text style={[styles.stepDesc, { color: colors.mutedForeground }]}>
                 Ajoute jusqu'à 4 photos de ta boutique. Elles aideront les clients à te reconnaître.
               </Text>
+
+              {/* TEMPORARY debug trail — remove once the silent-failure cause is found */}
+              {debugLog.length > 0 && (
+                <View style={{ backgroundColor: '#111827', borderRadius: 10, padding: 10, gap: 3 }}>
+                  {debugLog.map((line, i) => (
+                    <Text key={i} style={{ color: '#4ADE80', fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>
+                      {line}
+                    </Text>
+                  ))}
+                </View>
+              )}
+
               {form.photos.length > 0 && (
                 <View style={[styles.photoConfirmBanner, { backgroundColor: GREEN + '18', borderColor: GREEN }]}>
                   <Feather name="check-circle" size={14} color={GREEN} />

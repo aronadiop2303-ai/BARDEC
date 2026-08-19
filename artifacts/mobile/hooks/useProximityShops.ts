@@ -37,7 +37,7 @@ async function fetchNearbyShops(
   }));
 }
 
-export function useProximityShops({ lat, lng, radiusKm = 5, category }: UseProximityShopsParams) {
+export function useProximityShops({ lat, lng, radiusKm = 10, category }: UseProximityShopsParams) {
   return useQuery({
     queryKey: ['proximity_shops', lat, lng, radiusKm, category],
     queryFn: () => fetchNearbyShops(lat!, lng!, radiusKm, category),

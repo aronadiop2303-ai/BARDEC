@@ -316,13 +316,36 @@ function NearbyScreenInner() {
               <ActivityIndicator color={GREEN} />
             </View>
           ) : (
-            <ProximityMap
-              center={mapCenter}
-              markers={filteredShops}
-              userLocation={userLoc ?? undefined}
-              onMarkerPress={handleMarkerPress}
-              height={mapHeight}
-            />
+            <>
+              <ProximityMap
+                center={mapCenter}
+                markers={filteredShops}
+                userLocation={userLoc ?? undefined}
+                onMarkerPress={handleMarkerPress}
+                height={mapHeight}
+              />
+              {!isLoading && filteredShops.length === 0 && (
+                <View
+                  style={[styles.emptyState, {
+                    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                    justifyContent: 'center', paddingTop: 0, paddingHorizontal: 32,
+                  }]}
+                  pointerEvents="none"
+                >
+                  <Feather name={q ? 'search' : 'map-pin'} size={40} color={colors.mutedForeground} />
+                  <Text style={[styles.emptyTxt, { color: colors.mutedForeground }]}>
+                    {q
+                      ? `Aucun résultat pour « ${searchQuery.trim()} »`
+                      : 'Aucun commerce trouvé dans un rayon de 10 km autour de toi.'}
+                  </Text>
+                  {!q && (
+                    <Text style={[styles.emptyTxt, { color: colors.mutedForeground, fontSize: 12, marginTop: 4 }]}>
+                      Essaie de changer de zone, ou reviens plus tard — de nouveaux commerces s'ajoutent régulièrement.
+                    </Text>
+                  )}
+                </View>
+              )}
+            </>
           )}
         </View>
       )}
@@ -343,8 +366,13 @@ function NearbyScreenInner() {
                     <Text style={[styles.emptyTxt, { color: colors.mutedForeground }]}>
                       {q
                         ? `Aucun résultat pour « ${searchQuery.trim()} »`
-                        : 'Aucun commerce trouvé dans ce rayon.'}
+                        : 'Aucun commerce trouvé dans un rayon de 10 km autour de toi.'}
                     </Text>
+                    {!q && (
+                      <Text style={[styles.emptyTxt, { color: colors.mutedForeground, fontSize: 12, marginTop: 4 }]}>
+                        Essaie de changer de zone, ou reviens plus tard — de nouveaux commerces s'ajoutent régulièrement.
+                      </Text>
+                    )}
                   </>
               }
             </View>
