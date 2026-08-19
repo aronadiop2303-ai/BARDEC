@@ -160,6 +160,7 @@ CREATE TABLE conversations (
   participants UUID[] NOT NULL,
   last_message TEXT,
   last_msg_at  TIMESTAMPTZ,
+  type         TEXT NOT NULL DEFAULT 'p2p', -- 'p2p' | 'support' (added 18 août, migration: add_conversations_type_and_support_admin_policies)
   created_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -302,6 +303,7 @@ ALTER TABLE orders        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reviews       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE carts         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE disputes      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendors       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs    ENABLE ROW LEVEL SECURITY;
@@ -371,10 +373,23 @@ CREATE POLICY "orders_admin"     ON orders FOR ALL USING (current_user_role() = 
 -- CARTS: privé par utilisateur
 CREATE POLICY "carts_own" ON carts FOR ALL USING (user_id = auth.uid());
 
--- MESSAGES: participants seulement
+-- CONVERSATIONS / MESSAGES: participants seulement
+CREATE POLICY "conversations_participants" ON conversations FOR ALL USING (auth.uid() = ANY(participants));
 CREATE POLICY "messages_participants" ON messages FOR ALL USING (
   EXISTS (SELECT 1 FROM conversations c WHERE c.id = conversation_id AND auth.uid() = ANY(c.participants))
 );
+
+-- Support chat (type='support'): n'importe quel admin peut voir/répondre,
+-- sans avoir besoin d'être dans participants — scope précis à 'support'
+-- uniquement, les conversations P2P normales restent hors d'atteinte des
+-- admins (migration: add_conversations_type_and_support_admin_policies).
+CREATE POLICY "conversations_admin_support" ON conversations FOR ALL
+  USING (type = 'support' AND current_user_role() = 'ADMIN');
+CREATE POLICY "messages_admin_support" ON messages FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM conversations c WHERE c.id = conversation_id AND c.type = 'support')
+    AND current_user_role() = 'ADMIN'
+  );
 
 -- vendors/disputes/reviews/audit_logs had RLS enabled with zero policies
 -- (blocked everyone, even ADMIN) until 2026-08-14

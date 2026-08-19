@@ -15,7 +15,7 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toUserMessage } from '@/lib/errors';
 
 const { width } = Dimensions.get('window');
-type AdminTab = 'dashboard' | 'users' | 'vendors' | 'orders' | 'disputes' | 'payments' | 'notifications' | 'settings' | 'apikeys';
+type AdminTab = 'dashboard' | 'users' | 'vendors' | 'orders' | 'disputes' | 'payments' | 'notifications' | 'support' | 'settings' | 'apikeys';
 
 // ── API keys — matches what mcp-server actually enforces (validateApiKey):
 // hasWrite = perms.includes('write') || perms.includes('*');
@@ -265,6 +265,81 @@ function AdminScreenInner() {
     Alert.alert('Notification envoyée', `${data?.recipients ?? 0} destinataire(s), ${data?.tokens ?? 0} appareil(s) notifié(s).`);
     setNotifTitle(''); setNotifBody(''); setNotifUser(null); setNotifUserSearch('');
   }
+
+  // ── Support chat (conversations/messages, type='support') ────────────────
+  interface SupportConv {
+    id: string; last_message: string | null; last_msg_at: string | null;
+    requesterId: string; requesterLabel: string;
+  }
+  interface SupportMsg { id: string; content: string; sender_id: string; created_at: string }
+  const [supportConvs,     setSupportConvs]     = useState<SupportConv[]>([]);
+  const [loadingSupport,   setLoadingSupport]   = useState(false);
+  const [activeSupportId,  setActiveSupportId]  = useState<string | null>(null);
+  const [supportMsgs,      setSupportMsgs]      = useState<SupportMsg[]>([]);
+  const [supportReply,     setSupportReply]     = useState('');
+  const [sendingReply,     setSendingReply]     = useState(false);
+
+  const openSupportCount = supportConvs.length;
+
+  const fetchSupportConvs = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) return;
+    setLoadingSupport(true);
+    const { data: convs, error } = await supabase
+      .from('conversations')
+      .select('id, participants, last_message, last_msg_at')
+      .eq('type', 'support')
+      .order('last_msg_at', { ascending: false, nullsFirst: false });
+    if (error) { console.warn('Admin support fetch error:', error.message); setLoadingSupport(false); return; }
+
+    const requesterIds = [...new Set((convs ?? []).map(c => c.participants?.[0]).filter(Boolean))];
+    const { data: reqUsers } = requesterIds.length
+      ? await supabase.from('users').select('id, display_name, email').in('id', requesterIds)
+      : { data: [] as { id: string; display_name: string | null; email: string }[] };
+    const byId = new Map((reqUsers ?? []).map(u => [u.id, u]));
+
+    setSupportConvs((convs ?? []).map(c => {
+      const req = byId.get(c.participants?.[0]);
+      return {
+        id: c.id, last_message: c.last_message, last_msg_at: c.last_msg_at,
+        requesterId: c.participants?.[0], requesterLabel: req?.display_name ?? req?.email ?? '—',
+      };
+    }));
+    setLoadingSupport(false);
+  }, []);
+
+  async function openSupportConv(id: string) {
+    if (!supabase) return;
+    setActiveSupportId(id);
+    const { data } = await supabase.from('messages')
+      .select('id, content, sender_id, created_at')
+      .eq('conversation_id', id)
+      .order('created_at', { ascending: true });
+    setSupportMsgs((data ?? []) as SupportMsg[]);
+  }
+
+  async function handleSendReply() {
+    if (!supabase || !activeSupportId || !supportReply.trim()) return;
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) return;
+    setSendingReply(true);
+    const content = supportReply.trim();
+    const { data: sent, error } = await supabase.from('messages')
+      .insert({ conversation_id: activeSupportId, sender_id: authUser.id, content })
+      .select('id, content, sender_id, created_at')
+      .single();
+    if (!error) {
+      await supabase.from('conversations')
+        .update({ last_message: content, last_msg_at: new Date().toISOString() })
+        .eq('id', activeSupportId);
+    }
+    setSendingReply(false);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:sendSupportReply', error, 'Impossible d\'envoyer la réponse. Réessaie dans un instant.')); return; }
+    setSupportMsgs(prev => [...prev, sent as SupportMsg]);
+    setSupportReply('');
+    fetchSupportConvs();
+  }
+
+  useEffect(() => { if (activeTab === 'support') fetchSupportConvs(); }, [activeTab, fetchSupportConvs]);
 
   useEffect(() => { fetchAdminData(); }, [fetchAdminData]);
   useFocusEffect(useCallback(() => { fetchAdminData(); }, [fetchAdminData]));
@@ -534,6 +609,7 @@ function AdminScreenInner() {
     { id: 'disputes',  label: t('disputes'),  icon: 'alert-triangle'},
     { id: 'payments',  label: 'Paiements',     icon: 'credit-card',  badge: pendingCount },
     { id: 'notifications', label: 'Notifications', icon: 'bell'    },
+    { id: 'support',   label: 'Chat support',  icon: 'headphones',   badge: openSupportCount },
     { id: 'apikeys',   label: 'Clés API / MCP', icon: 'key'         },
     { id: 'settings',  label: t('settings'),  icon: 'settings'      },
   ];
@@ -1029,6 +1105,69 @@ function AdminScreenInner() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      )}
+
+      {/* SUPPORT CHAT (conversations/messages, type='support') */}
+      {activeTab === 'support' && (
+        <View style={styles.section}>
+          {activeSupportId ? (
+            <>
+              <TouchableOpacity onPress={() => { setActiveSupportId(null); setSupportMsgs([]); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                <Feather name="arrow-left" size={16} color={colors.primary} />
+                <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 13 }}>Retour aux conversations</Text>
+              </TouchableOpacity>
+              <View style={{ gap: 10, marginBottom: 16 }}>
+                {supportMsgs.map(m => (
+                  <View key={m.id} style={[styles.createKeyForm, { backgroundColor: colors.card, borderColor: colors.border, padding: 12 }]}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.mutedForeground, marginBottom: 4 }}>
+                      {m.sender_id === supportConvs.find(c => c.id === activeSupportId)?.requesterId ? 'Client' : 'Admin (toi ou un collègue)'}
+                    </Text>
+                    <Text style={{ fontSize: 14, color: colors.foreground }}>{m.content}</Text>
+                  </View>
+                ))}
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TextInput
+                  style={[styles.formInput, { flex: 1, backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground, marginBottom: 0 }]}
+                  placeholder="Répondre au client…"
+                  placeholderTextColor={colors.mutedForeground}
+                  value={supportReply}
+                  onChangeText={setSupportReply}
+                  multiline
+                />
+                <TouchableOpacity
+                  style={[styles.formConfirmBtn, { backgroundColor: colors.primary, opacity: sendingReply || !supportReply.trim() ? 0.6 : 1 }]}
+                  onPress={handleSendReply}
+                  disabled={sendingReply || !supportReply.trim()}
+                >
+                  {sendingReply ? <ActivityIndicator size="small" color="white" /> : <Feather name="send" size={16} color="white" />}
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Chat support</Text>
+              {loadingSupport ? (
+                <ActivityIndicator color={colors.primary} style={{ marginTop: 20 }} />
+              ) : supportConvs.length === 0 ? (
+                <Text style={{ color: colors.mutedForeground, fontSize: 13, paddingVertical: 8 }}>Aucune conversation support pour l'instant.</Text>
+              ) : (
+                supportConvs.map(c => (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={[styles.createKeyForm, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 10 }]}
+                    onPress={() => openSupportConv(c.id)}
+                  >
+                    <Text style={{ fontWeight: '700', fontSize: 14, color: colors.foreground }}>{c.requesterLabel}</Text>
+                    <Text style={{ fontSize: 13, color: colors.mutedForeground, marginTop: 4 }} numberOfLines={2}>
+                      {c.last_message ?? '—'}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </>
+          )}
         </View>
       )}
 

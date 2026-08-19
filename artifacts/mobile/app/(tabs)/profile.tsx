@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, Linking, Modal, ScrollView,
+  ActivityIndicator, Alert, Image, Modal, ScrollView,
   StyleSheet, Switch, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -85,14 +85,7 @@ export default function ProfileScreen() {
   }
 
   function handleSupport() {
-    Alert.alert(
-      'Support',
-      'Une question, un problème ? Écris-nous à support@bardec.com.',
-      [
-        { text: 'Fermer', style: 'cancel' },
-        { text: 'Envoyer un email', onPress: () => Linking.openURL('mailto:support@bardec.com') },
-      ],
-    );
+    router.push('/support');
   }
 
   function handleAppInfo() {

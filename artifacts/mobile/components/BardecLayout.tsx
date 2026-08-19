@@ -117,14 +117,6 @@ export default function BardecLayout({
       style={[styles.footer, { paddingBottom: fabOffset }]}
       pointerEvents="box-none"
     >
-      <TouchableOpacity
-        onPress={() => router.push('/chat-ai')}
-        style={[styles.aiButton, { backgroundColor: colors.secondary }]}
-        activeOpacity={0.85}
-      >
-        <Feather name="message-circle" size={22} color="white" />
-      </TouchableOpacity>
-
       <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
         <TouchableOpacity
           onPress={() => router.push('/unlimited-benefits')}
@@ -237,22 +229,10 @@ const styles = StyleSheet.create({
     left:            0,
     right:           0,
     flexDirection:   'row',
-    justifyContent:  'space-between',
+    justifyContent:  'flex-end',
     alignItems:      'flex-end',
     paddingHorizontal: 20,
     gap:             12,
-  },
-  aiButton: {
-    width:         48,
-    height:        48,
-    borderRadius:  24,
-    justifyContent: 'center',
-    alignItems:    'center',
-    shadowColor:   '#000',
-    shadowOffset:  { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius:  8,
-    elevation:     6,
   },
   infinityButton: {
     width:         56,

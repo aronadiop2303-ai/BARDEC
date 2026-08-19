@@ -1,8 +1,22 @@
 # BUGS.md — BARDEC
 
-Dernière mise à jour : 18 août 2026 (session notifications push)
+Dernière mise à jour : 19 août 2026 (session boutique de proximité + chat support)
 
 ## 🔴 BLOQUANT
+
+- [x] **[19 août]** "Ouvrir ma boutique" — étape Photos, pas de retour visuel après sélection. Le code confirmait déjà la photo dans l'état du formulaire immédiatement (pas de bug fonctionnel), mais la seule preuve visuelle était la miniature dans la grille — facile à manquer. **Corrigé** : badge ✓ vert permanent sur chaque miniature + bandeau "N photo(s) enregistrée(s)" au-dessus de la grille.
+
+- [x] **[19 août]** "Ouvrir ma boutique" — "Impossible de créer la boutique" à chaque tentative. **Pas un problème RLS** (la policy `shops_owner_manage` couvre bien l'INSERT via `owner_id = auth.uid()`, vérifié). Cause réelle trouvée dans `edge_logs` : `PGRST204` ("colonne introuvable"). 4 colonnes envoyées par `register-shop.tsx` ne correspondaient pas aux vrais noms de la table : `address`→`address_text`, `lat`→`latitude`, `lng`→`longitude`, `photos`→`images`. **Corrigé**, plus un bug latent trouvé au passage : `subcategory`/`address_text` sont `NOT NULL` en base mais le formulaire n'exige que `name`/`category` — envoyer `null` (comme le faisait le code) aurait fait échouer l'insert dès qu'un utilisateur ne choisit pas de sous-catégorie. Corrigé en envoyant une chaîne vide plutôt que `null` (satisfait la contrainte sans changer la validation du formulaire).
+
+- [x] **[19 août]** Admin → Notifications → "Tous les utilisateurs" échoue avec un message générique. **Pas un bug de la fonction `send-push`** — logs (`function_edge_logs`) montrent un `403 "Réservé aux administrateurs"`, volontaire. Le compte de test utilisé (whitelisté pour l'aperçu du sélecteur de rôle) a le vrai rôle `CUSTOMER` en base ; `send-push` vérifie correctement le vrai rôle côté serveur. Même piège aperçu-de-rôle-vs-vrai-rôle que documenté plusieurs fois cette semaine. Rien à corriger — nécessite un vrai compte `ADMIN` pour tester.
+
+- [x] **[19 août]** Retrait de "BARDEC AI" — écran modal séparé (`app/chat-ai.tsx`), entièrement scripté/mocké, remplacé par OMNI. Supprimé : le fichier, son entrée dans `_layout.tsx`, son bouton d'entrée dans le footer (`BardecLayout.tsx` — le bouton "∞ BARDEC UNLIMITED" restant est repositionné en bas-droite), et la clé de traduction `ai_assistant` (20 langues). Le "Assistant IA de BARDEC" dans `OmniChatModal.tsx` désigne OMNI lui-même, conservé.
+
+- [x] **[19 août]** Nouveau chat support (utilisateur → admin). **Réutilise `conversations`/`messages` existants** (règle anti-duplication respectée) plutôt qu'un nouveau système — une seule colonne ajoutée (`conversations.type`, `'p2p' | 'support'`, migration `add_conversations_type_and_support_admin_policies`), catégorie (bug/idée/avis) stockée par message dans `messages.metadata` (déjà JSONB, pas de colonne dédiée). Policies admin scopées précisément à `type = 'support'` — un admin ne peut pas lire les conversations P2P normales via ce chemin.
+  - Écran utilisateur : `app/support.tsx` (remplace l'ancienne alerte mailto dans `profile.tsx` → `handleSupport()`). Un seul thread continu par utilisateur (find-or-create). **Anonymat admin garanti côté client** : le nom du vrai admin n'est jamais récupéré ni affiché pour ce fil — l'UI affiche toujours "Support BARDEC" en dur pour tout message dont `sender_id !== moi`, peu importe lequel des admins a répondu.
+  - Bouton WhatsApp sur cet écran (`https://wa.me/221771389885`, `Linking.openURL`).
+  - Écran admin : nouvel onglet "Chat support" dans `admin.tsx` (liste des conversations avec nom/email du demandeur, réponse inline). Badge sur l'onglet = nombre de conversations support ouvertes.
+  - **Pas encore fait** (dépend d'un fichier image pas encore fourni) : l'icône "CF" sur les cartes produit de l'accueil avec son ActionSheet (WhatsApp / Chat Fini "Bientôt disponible" / ce chat support) — chantier séparé, à reprendre une fois l'image reçue.
 
 - [x] **[18 août]** Notifications push distantes — construites de zéro (état des lieux du 15 août : infra locale seulement, rien côté serveur, voir plus bas dans ce fichier).
   - **Migration `add_push_tokens`** appliquée : table `push_tokens` (user_id, token UNIQUE, device_info), RLS self-scope + admin.

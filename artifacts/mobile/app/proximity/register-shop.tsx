@@ -172,14 +172,14 @@ export default function RegisterShopScreen() {
         owner_id: realOwnerId,
         name: form.name.trim(),
         category: form.category,
-        subcategory: form.subcategory.trim() || null,
+        subcategory: form.subcategory.trim(),
         description: form.description.trim() || null,
         phone: form.phone.trim() || null,
-        address: form.address.trim() || null,
-        lat: form.lat,
-        lng: form.lng,
+        address_text: form.address.trim(),
+        latitude: form.lat,
+        longitude: form.lng,
         opening_hours: form.opening_hours,
-        photos: photoUrls,
+        images: photoUrls,
         is_active: true,
         verified: false,
       });
@@ -390,10 +390,21 @@ export default function RegisterShopScreen() {
               <Text style={[styles.stepDesc, { color: colors.mutedForeground }]}>
                 Ajoute jusqu'à 4 photos de ta boutique. Elles aideront les clients à te reconnaître.
               </Text>
+              {form.photos.length > 0 && (
+                <View style={[styles.photoConfirmBanner, { backgroundColor: GREEN + '18', borderColor: GREEN }]}>
+                  <Feather name="check-circle" size={14} color={GREEN} />
+                  <Text style={[styles.photoConfirmTxt, { color: GREEN }]}>
+                    {form.photos.length} photo{form.photos.length > 1 ? 's' : ''} enregistrée{form.photos.length > 1 ? 's' : ''}
+                  </Text>
+                </View>
+              )}
               <View style={styles.photosGrid}>
                 {form.photos.map((uri, idx) => (
                   <View key={idx} style={styles.photoWrapper}>
                     <Image source={{ uri }} style={styles.photoThumb} />
+                    <View style={[styles.photoConfirmBadge, { backgroundColor: GREEN }]}>
+                      <Feather name="check" size={10} color="white" />
+                    </View>
                     <TouchableOpacity
                       style={styles.photoDelete}
                       onPress={() => update('photos', form.photos.filter((_, i) => i !== idx))}
@@ -485,9 +496,12 @@ const styles = StyleSheet.create({
   hoursRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   dayLabel: { width: 80, fontSize: 14, fontWeight: '600' },
   hoursInput: { flex: 1, borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14 },
+  photoConfirmBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 },
+  photoConfirmTxt: { fontSize: 13, fontWeight: '600' },
   photosGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   photoWrapper: { width: 100, height: 100, borderRadius: 12, overflow: 'hidden', position: 'relative' },
   photoThumb: { width: '100%', height: '100%' },
+  photoConfirmBadge: { position: 'absolute', bottom: 4, left: 4, width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
   photoDelete: { position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
   photoAdd: { width: 100, height: 100, borderRadius: 12, borderWidth: 2, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', gap: 6 },
   photoAddTxt: { fontSize: 12, fontWeight: '600' },

@@ -41,7 +41,7 @@ function RootLayoutNav() {
       <Stack.Screen name="product/[id]" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="checkout" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="chat" options={{ headerShown: false, presentation: 'card' }} />
-      <Stack.Screen name="chat-ai" options={{ headerShown: false, presentation: 'modal' }} />
+      <Stack.Screen name="support" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="language" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="unlimited-benefits" options={{ headerShown: false, presentation: 'modal' }} />
     </Stack>
