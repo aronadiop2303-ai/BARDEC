@@ -19,6 +19,7 @@ import OfflineBanner from './OfflineBanner';
 import { OmniButton } from './OmniButton';
 import { OmniChatModal } from './OmniChatModal';
 import { OmniContext } from '../hooks/useOmniChat';
+import { ChatFiniButton } from './ChatFiniButton';
 
 interface BardecLayoutProps {
   children: React.ReactNode;
@@ -117,6 +118,8 @@ export default function BardecLayout({
       style={[styles.footer, { paddingBottom: fabOffset }]}
       pointerEvents="box-none"
     >
+      <ChatFiniButton />
+
       <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
         <TouchableOpacity
           onPress={() => router.push('/unlimited-benefits')}
@@ -229,7 +232,7 @@ const styles = StyleSheet.create({
     left:            0,
     right:           0,
     flexDirection:   'row',
-    justifyContent:  'flex-end',
+    justifyContent:  'space-between',
     alignItems:      'flex-end',
     paddingHorizontal: 20,
     gap:             12,
