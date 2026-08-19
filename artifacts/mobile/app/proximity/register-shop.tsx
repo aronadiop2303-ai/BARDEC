@@ -4,6 +4,7 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -62,7 +63,7 @@ export default function RegisterShopScreen() {
 
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  const [debugLog, setDebugLog] = useState<string[]>([]); // TEMPORARY — see pickPhoto()
+  const [pendingPhotoUri, setPendingPhotoUri] = useState<string | null>(null);
   const [form, setForm] = useState<ShopForm>({
     name: '', category: '', subcategory: '', description: '',
     phone: '', address: '', lat: 14.6937, lng: -17.4441,
@@ -109,47 +110,34 @@ export default function RegisterShopScreen() {
     }
   }
 
-  // ── TEMPORARY diagnostic instrumentation for the "photo doesn't confirm"
-  // bug report — remove once the exact failing step is identified. Logs to
-  // console AND to on-screen state, since console isn't visible when testing
-  // via Expo Go on a phone without the Metro terminal in view.
-  function dbg(msg: string) {
-    console.log('[pickPhoto]', msg);
-    setDebugLog(l => [...l, `${new Date().toLocaleTimeString()} — ${msg}`]);
-  }
-
   async function pickPhoto() {
-    dbg('pickPhoto() appelée');
     if (form.photos.length >= 4) { Alert.alert('Maximum 4 photos atteint'); return; }
     try {
-      dbg('Demande de permission galerie…');
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      dbg(`Permission: ${status}`);
       if (status !== 'granted') {
         Alert.alert('Permission refusée', 'Autorise l\'accès à tes photos pour en ajouter une.');
         return;
       }
-      dbg('Ouverture du sélecteur (launchImageLibraryAsync)…');
+      // No allowsEditing — the OS crop screen has no reliable confirm path on
+      // this device/Android version (debug trail showed canceled=true on
+      // every attempt, even after going through the crop screen). Same
+      // workaround already used for the avatar picker in profile.tsx:
+      // confirm explicitly in-app instead.
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 0.7,
-        allowsEditing: true,
-        aspect: [4, 3],
       });
-      dbg(`Résultat reçu: canceled=${result.canceled}, assets=${result.assets?.length ?? 0}`);
-      if (result.canceled) { dbg('→ Annulé par l\'utilisateur, arrêt.'); return; }
-      if (!result.assets?.[0]?.uri) {
-        dbg('→ Pas d\'URI exploitable dans le résultat.');
-        Alert.alert('Erreur', 'Aucune photo reçue du sélecteur. Réessaie.');
-        return;
-      }
-      dbg(`URI reçue: ${result.assets[0].uri.slice(0, 60)}…`);
-      update('photos', [...form.photos, result.assets[0].uri]);
-      dbg(`form.photos mis à jour, nouvelle longueur attendue: ${form.photos.length + 1}`);
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      setPendingPhotoUri(result.assets[0].uri);
     } catch (err) {
-      dbg(`→ Exception attrapée: ${String(err)}`);
       Alert.alert('Erreur', toUserMessage('proximity:pickPhoto', err, 'Impossible d\'ouvrir la galerie photo. Réessaie dans un instant.'));
     }
+  }
+
+  function handleConfirmPhoto() {
+    if (!pendingPhotoUri) return;
+    update('photos', [...form.photos, pendingPhotoUri]);
+    setPendingPhotoUri(null);
   }
 
   async function uploadPhoto(uri: string, userId: string): Promise<string> {
@@ -235,6 +223,37 @@ export default function RegisterShopScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* ── Photo confirmation modal — no native OS crop screen, confirm in-app instead ── */}
+      <Modal
+        visible={!!pendingPhotoUri}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPendingPhotoUri(null)}
+      >
+        <View style={styles.photoModalOverlay}>
+          <View style={[styles.photoModalCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.photoModalTitle, { color: colors.foreground }]}>Ajouter cette photo ?</Text>
+            {pendingPhotoUri && (
+              <Image source={{ uri: pendingPhotoUri }} style={styles.photoModalPreview} resizeMode="cover" />
+            )}
+            <View style={styles.photoModalActions}>
+              <TouchableOpacity
+                style={[styles.photoModalBtn, { borderWidth: 1, borderColor: colors.border }]}
+                onPress={() => setPendingPhotoUri(null)}
+              >
+                <Text style={{ color: colors.mutedForeground, fontWeight: '700' }}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.photoModalBtn, { backgroundColor: GREEN }]}
+                onPress={handleConfirmPhoto}
+              >
+                <Text style={{ color: 'white', fontWeight: '700' }}>Valider</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => step > 1 ? setStep(s => s - 1) : router.back()}>
@@ -423,17 +442,6 @@ export default function RegisterShopScreen() {
                 Ajoute jusqu'à 4 photos de ta boutique. Elles aideront les clients à te reconnaître.
               </Text>
 
-              {/* TEMPORARY debug trail — remove once the silent-failure cause is found */}
-              {debugLog.length > 0 && (
-                <View style={{ backgroundColor: '#111827', borderRadius: 10, padding: 10, gap: 3 }}>
-                  {debugLog.map((line, i) => (
-                    <Text key={i} style={{ color: '#4ADE80', fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>
-                      {line}
-                    </Text>
-                  ))}
-                </View>
-              )}
-
               {form.photos.length > 0 && (
                 <View style={[styles.photoConfirmBanner, { backgroundColor: GREEN + '18', borderColor: GREEN }]}>
                   <Feather name="check-circle" size={14} color={GREEN} />
@@ -516,6 +524,12 @@ function Field({ label, children, colors }: { label: string; children: React.Rea
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  photoModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  photoModalCard: { width: '100%', borderRadius: 20, padding: 24, alignItems: 'center', gap: 16 },
+  photoModalTitle: { fontSize: 16, fontWeight: '700', textAlign: 'center' },
+  photoModalPreview: { width: 220, height: 165, borderRadius: 12 },
+  photoModalActions: { flexDirection: 'row', gap: 12, width: '100%' },
+  photoModalBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1 },
   title: { fontSize: 17, fontWeight: '800' },
   stepBar: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 14, borderBottomWidth: 1 },

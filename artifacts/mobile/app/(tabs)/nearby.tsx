@@ -434,7 +434,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 17, fontWeight: '800' },
   countBadge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, justifyContent: 'center', alignItems: 'center' },
   countText: { color: 'white', fontSize: 10, fontWeight: '700' },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' },
   myShopBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
   myShopBtnText: { fontSize: 12, fontWeight: '700' },
   toggleBtn: { width: 34, height: 34, borderRadius: 17, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
