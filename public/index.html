@@ -100,6 +100,14 @@
   footer .foot-links{display:flex;gap:26px;list-style:none;flex-wrap:wrap;}
   footer .foot-links a{font-size:13.5px;color:var(--ink-soft);}
   footer .copy{font-size:12.5px;color:#9AA6C2;}
+  .cf-teaser{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;background:white;border:1px solid var(--line);border-radius:var(--radius);padding:22px 28px;margin-top:8px;}
+  .cf-teaser img{width:44px;height:44px;border-radius:12px;flex-shrink:0;}
+  .cf-teaser .cf-text b{display:block;font-size:15px;}
+  .cf-teaser .cf-text p{font-size:13px;color:var(--ink-soft);margin-top:2px;}
+  .community{background:white;border-top:1px solid var(--line);padding:56px 0 0;}
+  .community-links{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;}
+  .community-links a{display:inline-flex;align-items:center;gap:8px;background:#EAF1FF;color:var(--primary);border:1px solid #D3E1FC;border-radius:100px;padding:10px 20px;font-size:13.5px;font-weight:600;}
+  .community-links a:hover{background:#D3E1FC;}
 </style>
 </head>
 <body>
@@ -184,12 +192,12 @@
 <section class="section" id="telecharger"><div class="wrap"><div class="download">
   <h2>Prêt à rejoindre BARDEC ?</h2>
   <p>Téléchargez la version 1 de l'application Android, ou essayez-la directement dans votre navigateur.</p>
-  <a class="btn btn-primary" href="https://expo.dev/artifacts/eas/OeNvOE3C9savUlNG2cspB2fl1GBWKlPwACdU6rC0-lU.apk">⬇ Télécharger l'APK v1 (Android)</a>
+  <a class="btn btn-primary" href="/api/download">⬇ Télécharger l'APK v1 (Android)</a>
   <a class="btn btn-ghost" href="/app" style="margin-left:12px;background:rgba(255,255,255,0.15);color:white;border-color:rgba(255,255,255,0.3);">🌐 Ou essayer sur le web</a>
   <button type="button" class="btn btn-soon" style="margin-left:12px;margin-top:12px" onclick="alert('Bientôt disponible')">🍎 Télécharger pour Apple (iOS) <span class="soon-badge">Bientôt</span></button>
   <button type="button" class="btn btn-soon" style="margin-left:12px;margin-top:12px" onclick="alert('Bientôt disponible')">▶ Télécharger sur Google Play <span class="soon-badge">Bientôt</span></button>
   <button type="button" class="btn btn-soon" style="margin-left:12px;margin-top:12px" onclick="alert('Bientôt disponible')">🖥 Télécharger pour Ordinateur (Windows/Mac) <span class="soon-badge">Bientôt</span></button>
-  <span class="version-tag">v1.0.0 · Android · build du 18/08/2026</span>
+  <span class="version-tag">v1.0.0 · Android · dernier build disponible</span>
   <div class="changelog"><b>Nouveautés de la v1 :</b><ul>
     <li>Commerces de proximité avec carte et géolocalisation</li>
     <li>Paiement Wave, Orange Money, MTN MoMo</li>
@@ -197,21 +205,25 @@
     <li>Correction du crash au changement de rôle</li>
     <li>Icônes, session et navigation stabilisées</li>
   </ul></div>
+  <div class="cf-teaser">
+    <img src="/images/cf-icon.png" alt="Chat Fini">
+    <div class="cf-text"><b>Chat Fini <span class="soon-badge">Bientôt disponible</span></b><p>Discussion instantanée avec les commerçants, directement dans l'app.</p></div>
+  </div>
 </div></div></section>
+<section class="community"><div class="wrap">
+  <div class="section-head" style="margin:0 auto 28px;text-align:center;"><h2>Rejoindre la communauté BARDEC</h2><p>Actus, nouveautés et coulisses, sur vos réseaux préférés.</p></div>
+  <div class="community-links">
+    <a href="https://www.instagram.com/bar_dec_" target="_blank" rel="noopener">Instagram</a>
+    <a href="https://www.facebook.com/share/1QC4hNJgz1/" target="_blank" rel="noopener">Facebook</a>
+    <a href="https://x.com/bardec_cofficie" target="_blank" rel="noopener">X</a>
+    <a href="https://youtube.com/@bardec-officiel" target="_blank" rel="noopener">YouTube</a>
+    <a href="https://t.me/B_ARDEC" target="_blank" rel="noopener">Telegram</a>
+  </div>
+</div></section>
 <footer><div class="wrap footer-grid">
   <div class="brand"><span class="badge">∞</span> BARDEC</div>
   <ul class="foot-links"><li><a href="#roles">Rôles</a></li><li><a href="#paiements">Paiements</a></li><li><a href="#livraison">Livraison</a></li><li><a href="#confiance">Confiance</a></li></ul>
   <span class="copy">© 2026 BARDEC — Marketplace B2B/B2C, Afrique de l'Ouest.</span>
 </div></footer>
-<section style="text-align:center;padding:24px 16px;margin-top:32px;border-top:1px solid #e5e7eb;">
-  <p style="margin:0 0 12px;font-weight:600;color:#111;">Suivez BARDEC</p>
-  <div style="display:flex;flex-wrap:wrap;gap:14px;justify-content:center;font-size:14px;">
-    <a href="https://www.instagram.com/bar_dec_" target="_blank" rel="noopener" style="color:#1A56DB;">Instagram</a>
-    <a href="https://www.facebook.com/share/1QC4hNJgz1/" target="_blank" rel="noopener" style="color:#1A56DB;">Facebook</a>
-    <a href="https://x.com/bardec_cofficie" target="_blank" rel="noopener" style="color:#1A56DB;">X</a>
-    <a href="https://youtube.com/@bardec-officiel" target="_blank" rel="noopener" style="color:#1A56DB;">YouTube</a>
-    <a href="https://t.me/B_ARDEC" target="_blank" rel="noopener" style="color:#1A56DB;">Telegram</a>
-  </div>
-</section>
 </body>
 </html>
