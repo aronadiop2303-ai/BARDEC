@@ -67,6 +67,12 @@ catalogs:
       specifier: ^3.25.76
       version: 3.25.76
 
+onlyBuiltDependencies:
+  - '@swc/core'
+  - esbuild
+  - msw
+  - unrs-resolver
+
 overrides:
   esbuild>@esbuild/darwin-arm64: '-'
   esbuild>@esbuild/darwin-x64: '-'
@@ -149,6 +155,9 @@ overrides:
   '@expo/ngrok-bin>@expo/ngrok-bin-win32-x64': '-'
   '@esbuild-kit/esm-loader': npm:tsx@^4.21.0
   esbuild: 0.27.3
+
+allowBuilds:
+  esbuild: true
 
 importers:
 
