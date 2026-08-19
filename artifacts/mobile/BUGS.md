@@ -1,8 +1,13 @@
 # BUGS.md — BARDEC
 
-Dernière mise à jour : 19 août 2026 (suite — cause du Bug A trouvée, Bug D, Bug C toujours ouvert)
+Dernière mise à jour : 19 août 2026 (suite — Bug D et Bug C résolus)
 
 ## 🔴 BLOQUANT
+
+- [x] **[19 août, suite]** Bug D — confirmé par vidéo qu'un simple `flexWrap` sur `headerRight` ne suffisait pas ("Ma boutique" tronqué au bord d'écran, recherche et bascule carte/liste jamais visibles). Cause : `headerRight` n'a pas de largeur bornée, donc rien ne force un retour à la ligne dans sa propre boîte — le flexWrap n'a d'effet que si le conteneur qui l'utilise est lui-même contraint. **Corrigé structurellement** plutôt que de retenter un pari flexbox : recherche + bascule carte/liste déplacées sur une deuxième rangée dédiée (`toolRow`) sous le header principal, qui ne garde plus que "Commandes"/"Ma boutique".
+- [x] **[19 août, suite]** Bug C — cause confirmée par Arona (testait bien à Yeumbeul, donc GPS a échoué silencieusement → repli Dakar à 11,73 km, hors rayon même à 10 km). **Corrigé** (option retenue : retry + indication honnête, jamais de rayon élargi en douce) :
+  - `fetchLoc()` retente une fois avec `Location.Accuracy.Low` (plus rapide, moins précis) si `Balanced` échoue, avant de tomber sur le point fixe Dakar.
+  - Si le repli est quand même utilisé : bannière persistante "Position approximative (Dakar)…" + bouton "Réessayer ma position", au lieu d'une carte silencieusement vide sans explication.
 
 - [x] **[19 août, suite]** Bug A — cause trouvée grâce au journal temporaire : `canceled=true, assets=0` à chaque tentative malgré une vraie sélection + passage par l'écran de recadrage natif. Précédent exact déjà dans le code (`profile.tsx`, upload avatar) : l'écran de crop natif (`allowsEditing: true`) n'a pas de chemin de confirmation fiable sur cet appareil/version Android, et `launchImageLibraryAsync` l'interprète comme une annulation. **Corrigé en reprenant le même contournement déjà utilisé pour l'avatar** : `allowsEditing` retiré, confirmation explicite en interne via une modal (aperçu + boutons Annuler/Valider), au lieu de compter sur l'écran système. Instrumentation temporaire retirée.
 - [x] **[19 août, suite]** Bug D — pas de recherche sur "Près de moi". **La recherche existait déjà dans le code** (icône + barre dépliante, état déjà câblé) — pas de nouvelle fonctionnalité ajoutée (règle anti-duplication). Cause réelle probable : `headerRight` entasse 4 éléments (2 boutons avec texte + 2 icônes) dans une seule ligne flex sans `flexWrap`, sur un écran qui a aussi un titre + badge à gauche — déborde probablement hors écran sur les largeurs de téléphone courantes, rendant l'icône recherche invisible/inatteignable en pratique. `flexWrap: 'wrap'` ajouté sur `headerRight`.

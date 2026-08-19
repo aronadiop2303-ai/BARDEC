@@ -54,6 +54,8 @@ function NearbyScreenInner() {
 
   const [permStatus, setPermStatus] = useState<'loading' | 'granted' | 'denied'>('loading');
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
+  const [positionApproximate, setPositionApproximate] = useState(false);
+  const [retryingLoc, setRetryingLoc] = useState(false);
   const [selectedCat, setSelectedCat] = useState<ProximityCategory | null>(null);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [selectedShop, setSelectedShop] = useState<ProximityShop | null>(null);
@@ -130,11 +132,29 @@ function NearbyScreenInner() {
   }
 
   async function fetchLoc() {
+    setRetryingLoc(true);
     try {
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       setUserLoc({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      setPositionApproximate(false);
+      return;
     } catch {
-      setUserLoc({ lat: 14.6937, lng: -17.4441 }); // Dakar fallback
+      // Balanced can fail/time out indoors — retry once with a faster,
+      // lower-precision fix rather than just giving up immediately.
+      try {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
+        setUserLoc({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+        setPositionApproximate(false);
+        return;
+      } catch {
+        // Both attempts failed — fall back to a fixed Dakar point, but never
+        // silently: the banner + retry button make this visible instead of
+        // just showing an empty map with no explanation.
+        setUserLoc({ lat: 14.6937, lng: -17.4441 });
+        setPositionApproximate(true);
+      }
+    } finally {
+      setRetryingLoc(false);
     }
   }
 
@@ -219,27 +239,32 @@ function NearbyScreenInner() {
               {myShop ? 'Ma boutique' : 'Ouvrir'}
             </Text>
           </TouchableOpacity>
-          {/* Search toggle */}
-          <TouchableOpacity
-            style={[
-              styles.toggleBtn,
-              {
-                backgroundColor: searchOpen ? GREEN + '18' : colors.muted,
-                borderColor: searchOpen ? GREEN : colors.border,
-              },
-            ]}
-            onPress={toggleSearch}
-          >
-            <Feather name="search" size={16} color={searchOpen ? GREEN : colors.foreground} />
-          </TouchableOpacity>
-          {/* Map/List toggle */}
-          <TouchableOpacity
-            style={[styles.toggleBtn, { backgroundColor: colors.muted, borderColor: colors.border }]}
-            onPress={() => setViewMode(v => v === 'map' ? 'list' : 'map')}
-          >
-            <Feather name={viewMode === 'map' ? 'list' : 'map-pin'} size={16} color={colors.foreground} />
-          </TouchableOpacity>
         </View>
+      </View>
+
+      {/* Tool row — search + map/list toggle on their own line, so they can
+          never get pushed off-screen by the "Commandes"/"Ma boutique"
+          buttons above (confirmed via video: flexWrap alone didn't fix it —
+          headerRight has no bounded width for wrapping to kick in against). */}
+      <View style={[styles.toolRow, { borderBottomColor: colors.border }]}>
+        <TouchableOpacity
+          style={[
+            styles.toggleBtn,
+            {
+              backgroundColor: searchOpen ? GREEN + '18' : colors.muted,
+              borderColor: searchOpen ? GREEN : colors.border,
+            },
+          ]}
+          onPress={toggleSearch}
+        >
+          <Feather name="search" size={16} color={searchOpen ? GREEN : colors.foreground} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toggleBtn, { backgroundColor: colors.muted, borderColor: colors.border }]}
+          onPress={() => setViewMode(v => v === 'map' ? 'list' : 'map')}
+        >
+          <Feather name={viewMode === 'map' ? 'list' : 'map-pin'} size={16} color={colors.foreground} />
+        </TouchableOpacity>
       </View>
 
       {/* Collapsible search bar */}
@@ -276,6 +301,21 @@ function NearbyScreenInner() {
           )}
         </View>
       </Animated.View>
+
+      {/* Approximate-position banner — shown whenever the real GPS fix
+          failed and we fell back to a fixed Dakar point, instead of
+          silently showing an empty/wrong-radius map with no explanation. */}
+      {positionApproximate && (
+        <View style={[styles.approxBanner, { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' }]}>
+          <Feather name="alert-circle" size={14} color="#D97706" />
+          <Text style={styles.approxBannerText}>Position approximative (Dakar) — active ta localisation pour de meilleurs résultats.</Text>
+          <TouchableOpacity onPress={fetchLoc} disabled={retryingLoc} style={styles.approxRetryBtn}>
+            {retryingLoc
+              ? <ActivityIndicator size="small" color="#D97706" />
+              : <Text style={styles.approxRetryText}>Réessayer</Text>}
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Category chips */}
       <ScrollView
@@ -434,10 +474,15 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 17, fontWeight: '800' },
   countBadge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, justifyContent: 'center', alignItems: 'center' },
   countText: { color: 'white', fontSize: 10, fontWeight: '700' },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  toolRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1 },
   myShopBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
   myShopBtnText: { fontSize: 12, fontWeight: '700' },
   toggleBtn: { width: 34, height: 34, borderRadius: 17, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
+  approxBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1 },
+  approxBannerText: { flex: 1, fontSize: 11, color: '#92400E', lineHeight: 15 },
+  approxRetryBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, backgroundColor: 'rgba(217,119,6,0.15)' },
+  approxRetryText: { fontSize: 11, fontWeight: '700', color: '#D97706' },
   chipsBar: { maxHeight: 52, borderBottomWidth: 1 },
   chipsContent: { paddingHorizontal: 14, paddingVertical: 9, gap: 8, flexDirection: 'row', alignItems: 'center' },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
