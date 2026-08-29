@@ -4,6 +4,7 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -48,6 +49,7 @@ export default function AddProductScreen() {
     name: '', price: '', unit: 'unité', imageUri: '', in_stock: true,
   });
   const [saving, setSaving] = useState(false);
+  const [pendingImageUri, setPendingImageUri] = useState<string | null>(null);
 
   useEffect(() => {
     if (productJson) {
@@ -63,15 +65,23 @@ export default function AddProductScreen() {
   }
 
   async function pickImage() {
+    // No allowsEditing — same fix as profile.tsx (avatar) and register-shop.tsx
+    // (shop photos): the OS crop screen has no reliable confirm path on some
+    // Android devices, so launchImageLibraryAsync reports the pick as
+    // canceled even after a real selection. Confirm explicitly in-app instead.
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.7,
-      allowsEditing: true,
-      aspect: [1, 1],
     });
     if (!result.canceled && result.assets[0]) {
-      update('imageUri', result.assets[0].uri);
+      setPendingImageUri(result.assets[0].uri);
     }
+  }
+
+  function handleConfirmImage() {
+    if (!pendingImageUri) return;
+    update('imageUri', pendingImageUri);
+    setPendingImageUri(null);
   }
 
   async function uploadImage(uri: string): Promise<string> {
@@ -138,6 +148,37 @@ export default function AddProductScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* Photo confirmation modal — no native OS crop screen, confirm in-app instead */}
+      <Modal
+        visible={!!pendingImageUri}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPendingImageUri(null)}
+      >
+        <View style={styles.photoModalOverlay}>
+          <View style={[styles.photoModalCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.photoModalTitle, { color: colors.foreground }]}>Ajouter cette photo ?</Text>
+            {pendingImageUri && (
+              <Image source={{ uri: pendingImageUri }} style={styles.photoModalPreview} resizeMode="cover" />
+            )}
+            <View style={styles.photoModalActions}>
+              <TouchableOpacity
+                style={[styles.photoModalBtn, { borderWidth: 1, borderColor: colors.border }]}
+                onPress={() => setPendingImageUri(null)}
+              >
+                <Text style={{ color: colors.mutedForeground, fontWeight: '700' }}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.photoModalBtn, { backgroundColor: GREEN }]}
+                onPress={handleConfirmImage}
+              >
+                <Text style={{ color: 'white', fontWeight: '700' }}>Valider</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => router.back()}>
@@ -256,4 +297,10 @@ const styles = StyleSheet.create({
   stockRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 14, borderWidth: 1, padding: 16 },
   stockLabel: { fontSize: 15, fontWeight: '700', marginBottom: 2 },
   stockDesc: { fontSize: 12 },
+  photoModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  photoModalCard: { width: '100%', borderRadius: 20, padding: 24, alignItems: 'center', gap: 16 },
+  photoModalTitle: { fontSize: 16, fontWeight: '700', textAlign: 'center' },
+  photoModalPreview: { width: 220, height: 165, borderRadius: 12 },
+  photoModalActions: { flexDirection: 'row', gap: 12, width: '100%' },
+  photoModalBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
 });

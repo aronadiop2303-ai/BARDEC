@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView,
+  ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
@@ -163,6 +163,7 @@ export default function CheckoutScreen() {
   const defaultMethod: PaymentMethod = isB2B ? 'cash_on_delivery' : 'wave';
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(defaultMethod);
   const [proofUri, setProofUri]     = useState<string | null>(null);
+  const [pendingProofUri, setPendingProofUri] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('pending');
   const [purchaseOrder, setPurchaseOrder] = useState('');
   const [agreed, setAgreed] = useState(false);
@@ -208,6 +209,11 @@ export default function CheckoutScreen() {
 
   const isMobileMoney = ['wave', 'orange_money', 'mtn_momo'].includes(paymentMethod);
 
+  // No allowsEditing on either picker below — same fix as profile.tsx (avatar),
+  // register-shop.tsx and my-shop/add-product.tsx (shop/product photos): the
+  // OS crop screen has no reliable confirm path on some Android devices, so
+  // the pick gets reported as canceled even after a real selection. Confirm
+  // explicitly in-app instead (see the modal near the bottom of this file).
   async function pickProof() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -217,11 +223,9 @@ export default function CheckoutScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.7,
-      allowsEditing: true,
-      aspect: [4, 3],
     });
     if (!result.canceled && result.assets[0]) {
-      setProofUri(result.assets[0].uri);
+      setPendingProofUri(result.assets[0].uri);
     }
   }
 
@@ -233,12 +237,16 @@ export default function CheckoutScreen() {
     }
     const result = await ImagePicker.launchCameraAsync({
       quality: 0.7,
-      allowsEditing: true,
-      aspect: [4, 3],
     });
     if (!result.canceled && result.assets[0]) {
-      setProofUri(result.assets[0].uri);
+      setPendingProofUri(result.assets[0].uri);
     }
+  }
+
+  function handleConfirmProof() {
+    if (!pendingProofUri) return;
+    setProofUri(pendingProofUri);
+    setPendingProofUri(null);
   }
 
   async function handleNext() {
@@ -658,6 +666,37 @@ export default function CheckoutScreen() {
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      {/* Payment-proof confirmation modal — no native OS crop screen, confirm in-app instead */}
+      <Modal
+        visible={!!pendingProofUri}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPendingProofUri(null)}
+      >
+        <View style={styles.photoModalOverlay}>
+          <View style={[styles.photoModalCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.photoModalTitle, { color: colors.foreground }]}>Utiliser cette photo ?</Text>
+            {pendingProofUri && (
+              <Image source={{ uri: pendingProofUri }} style={styles.photoModalPreview} resizeMode="cover" />
+            )}
+            <View style={styles.photoModalActions}>
+              <TouchableOpacity
+                style={[styles.photoModalBtn, { borderWidth: 1, borderColor: colors.border }]}
+                onPress={() => setPendingProofUri(null)}
+              >
+                <Text style={{ color: colors.mutedForeground, fontWeight: '700' }}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.photoModalBtn, { backgroundColor: colors.primary }]}
+                onPress={handleConfirmProof}
+              >
+                <Text style={{ color: 'white', fontWeight: '700' }}>Valider</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: colors.card, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => step > 1 ? setStep((step - 1) as Step) : router.back()}>
@@ -1300,4 +1339,12 @@ const styles = StyleSheet.create({
   actionBar:         { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingTop: 14, borderTopWidth: 1, shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 5 },
   nextBtn:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 15, borderRadius: 14, shadowColor: '#1A56DB', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
   nextBtnText:       { color: 'white', fontSize: 16, fontWeight: '700' },
+
+  // Payment-proof confirmation modal
+  photoModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  photoModalCard:    { width: '100%', borderRadius: 20, padding: 24, alignItems: 'center', gap: 16 },
+  photoModalTitle:   { fontSize: 16, fontWeight: '700', textAlign: 'center' },
+  photoModalPreview: { width: 220, height: 165, borderRadius: 12 },
+  photoModalActions: { flexDirection: 'row', gap: 12, width: '100%' },
+  photoModalBtn:     { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
 });
