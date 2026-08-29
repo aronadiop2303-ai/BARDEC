@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 
@@ -12,7 +13,10 @@ export const supabase = isSupabaseConfigured
         storage: AsyncStorage,
         autoRefreshToken: true,
         persistSession: true,
-        detectSessionInUrl: false,
+        // Only meaningful on web (parses the recovery token out of the URL
+        // fragment after the password-reset email link lands on
+        // bardec.vercel.app) — native has no URL bar, so this is a no-op there.
+        detectSessionInUrl: Platform.OS === 'web',
       },
     })
   : null;

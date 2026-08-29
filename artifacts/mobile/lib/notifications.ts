@@ -90,6 +90,35 @@ export async function notifyOrderEvent(supabase: SupabaseClient, orderId: string
   }
 }
 
+// Remote push for KYC status changes — always admin-triggered (approve/reject
+// buttons in the admin panel), so this reuses send-push's existing
+// admin_broadcast mode with a single-user target instead of adding a new mode.
+export async function notifyVendorKycEvent(
+  supabase: SupabaseClient,
+  vendorId: string,
+  status: 'approved' | 'rejected',
+  reason?: string,
+): Promise<void> {
+  const messages: Record<'approved' | 'rejected', { title: string; body: string }> = {
+    approved: {
+      title: '✅ Compte vendeur vérifié',
+      body: 'Vos documents KYC ont été approuvés. Votre boutique est maintenant vérifiée sur BARDEC.',
+    },
+    rejected: {
+      title: '❌ Documents KYC rejetés',
+      body: reason ? `Motif : ${reason}` : 'Vos documents KYC ont été rejetés. Consultez votre espace vendeur pour les renvoyer.',
+    },
+  };
+  const msg = messages[status];
+  try {
+    await supabase.functions.invoke('send-push', {
+      body: { mode: 'admin_broadcast', title: msg.title, body: msg.body, target: { type: 'user', user_id: vendorId } },
+    });
+  } catch {
+    // best-effort — push failure should never block the KYC status update itself
+  }
+}
+
 export async function scheduleLocalNotification(
   title: string,
   body: string,

@@ -17,6 +17,8 @@ import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
 import { DEMO_USERS } from '@/constants/mockData';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { toUserMessage } from '@/lib/errors';
 
 export default function LoginScreen() {
   const colors = useColors();
@@ -28,6 +30,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showDemoPanel, setShowDemoPanel] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
 
   async function handleLogin() {
     if (!email || !password) {
@@ -42,6 +45,27 @@ export default function LoginScreen() {
     } else {
       router.replace('/');
     }
+  }
+
+  async function handleForgotPassword() {
+    if (isDemoMode || !isSupabaseConfigured || !supabase) {
+      Alert.alert('Indisponible en mode démo', 'La réinitialisation par email nécessite un compte Supabase réel.');
+      return;
+    }
+    if (!email.trim()) {
+      Alert.alert('Email requis', 'Saisis ton adresse email ci-dessus, puis appuie de nouveau sur "Mot de passe oublié".');
+      return;
+    }
+    setSendingReset(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo: 'https://bardec.vercel.app/auth/reset-password',
+    });
+    setSendingReset(false);
+    if (error) {
+      Alert.alert('Erreur', toUserMessage('auth:forgotPassword', error, 'Impossible d\'envoyer l\'email de réinitialisation. Réessaie dans un instant.'));
+      return;
+    }
+    Alert.alert('Email envoyé', 'Vérifie ta boîte de réception (et tes spams) pour réinitialiser ton mot de passe.');
   }
 
   function loginDemo(demoEmail: string) {
@@ -104,8 +128,10 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.forgotBtn}>
-            <Text style={[styles.forgotText, { color: colors.primary }]}>{t('forgot_password')}</Text>
+          <TouchableOpacity style={styles.forgotBtn} onPress={handleForgotPassword} disabled={sendingReset}>
+            <Text style={[styles.forgotText, { color: colors.primary }]}>
+              {sendingReset ? 'Envoi en cours…' : t('forgot_password')}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -123,12 +149,10 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.biometricBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
-          >
-            <Feather name="shield" size={18} color={colors.primary} />
-            <Text style={[styles.biometricText, { color: colors.primary }]}>{t('biometric_login')}</Text>
-          </TouchableOpacity>
+          {/* Biometric login: lib/biometric.ts exists but was never wired up
+              anywhere (no onPress here, profile.tsx toggle didn't call it
+              either) — hidden until it's actually implemented rather than
+              shipping a dead button. */}
         </View>
 
         {/* Demo mode */}

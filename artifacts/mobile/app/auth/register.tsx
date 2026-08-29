@@ -5,11 +5,15 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as DocumentPicker from 'expo-document-picker';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
 import { UserRole } from '@/constants/mockData';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { readLocalImageBytes } from '@/lib/imageUpload';
+import { toUserMessage } from '@/lib/errors';
 
 const ROLES: { id: UserRole; label: string; desc: string }[] = [
   { id: 'CUSTOMER', label: 'Client (B2C)',   desc: 'Achats personnels, prix public' },
@@ -35,6 +39,15 @@ export default function RegisterScreen() {
   const [emailSent,    setEmailSent]    = useState(false);
   // Success state — shown briefly before navigating to the app
   const [successName,  setSuccessName]  = useState<string | null>(null);
+
+  // Optional KYC step — shown only for a freshly-registered VENDOR (session
+  // active, so we can upload right away). Skippable: kyc_status stays
+  // 'pending' either way, and vendor-dashboard.tsx's KYC tab covers this
+  // later too. Publishing products is gated on kyc_status === 'approved'
+  // regardless of when the docs were added.
+  const [kycStep,       setKycStep]       = useState(false);
+  const [kycDocAdded,   setKycDocAdded]   = useState(false);
+  const [uploadingKyc,  setUploadingKyc]  = useState(false);
 
   // Auto-redirect 2 s after showing the success screen
   useEffect(() => {
@@ -79,8 +92,107 @@ export default function RegisterScreen() {
       return;
     }
 
-    // ✅ Account created and session active — show success screen then navigate
-    setSuccessName(name.trim());
+    // ✅ Account created and session active.
+    // Vendors get an extra optional stop to add a KYC document right away
+    // (upload works because the session is already active) before the
+    // usual success screen.
+    if (selectedRole === 'VENDOR' && isSupabaseConfigured) {
+      setKycStep(true);
+    } else {
+      setSuccessName(name.trim());
+    }
+  }
+
+  async function handleUploadKycAtRegister() {
+    if (!supabase) return;
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ['image/*', 'application/pdf'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (picked.canceled || !picked.assets?.[0]) return;
+      const file = picked.assets[0];
+
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) { Alert.alert('Erreur', 'Session expirée. Reconnecte-toi et réessaie depuis ton espace vendeur.'); return; }
+
+      setUploadingKyc(true);
+      const ext = (file.name?.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const contentType = file.mimeType || (ext === 'pdf' ? 'application/pdf' : 'image/jpeg');
+      const path = `${authUser.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+      const bytes = await readLocalImageBytes(file.uri);
+
+      const { error: upErr } = await supabase.storage
+        .from('kyc-documents')
+        .upload(path, bytes, { contentType, upsert: false });
+      if (upErr) {
+        Alert.alert('Erreur', toUserMessage('register:uploadKycDoc', upErr, 'Impossible d\'envoyer ce document. Tu pourras réessayer depuis ton espace vendeur.'));
+        return;
+      }
+
+      const { error: dbErr } = await supabase
+        .from('vendors')
+        .upsert({ id: authUser.id, company_name: company.trim() || name.trim(), documents: [path] }, { onConflict: 'id' });
+      if (dbErr) {
+        Alert.alert('Erreur', toUserMessage('register:saveKycDoc', dbErr, 'Document envoyé mais impossible de mettre à jour ton profil. Réessaie depuis ton espace vendeur.'));
+        return;
+      }
+      setKycDocAdded(true);
+    } catch (e: any) {
+      Alert.alert('Erreur', toUserMessage('register:uploadKycDoc', e, 'Impossible d\'envoyer ce document.'));
+    } finally {
+      setUploadingKyc(false);
+    }
+  }
+
+  // ── Optional KYC step (VENDOR only) ─────────────────────────────────────────
+  if (kycStep) {
+    return (
+      <KeyboardAvoidingView style={[styles.container, { backgroundColor: colors.background }]}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 40 }]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.header}>
+            <Text style={[styles.title, { color: colors.primary }]}>Vérification KYC</Text>
+            <Text style={[styles.subtitle, { color: colors.foreground }]}>Ajoute un document (optionnel)</Text>
+            <Text style={[styles.desc, { color: colors.mutedForeground }]}>
+              Registre de commerce, pièce d'identité… Tu peux le faire maintenant ou plus tard depuis ton espace vendeur.
+              Tant que ton dossier n'est pas approuvé, tu ne pourras pas publier de produits.
+            </Text>
+          </View>
+
+          {kycDocAdded ? (
+            <View style={[styles.kycNote, { backgroundColor: '#D1FAE5', borderColor: '#22C55E' }]}>
+              <Feather name="check-circle" size={16} color="#059669" />
+              <Text style={[styles.kycText, { color: '#059669' }]}>
+                Document envoyé. Un admin va l'examiner — tu recevras une notification.
+              </Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={[styles.inputGroup, { borderColor: colors.border, backgroundColor: colors.card, opacity: uploadingKyc ? 0.6 : 1 }]}
+              onPress={handleUploadKycAtRegister}
+              disabled={uploadingKyc}
+            >
+              <Feather name="upload" size={18} color={colors.primary} />
+              <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 14, flex: 1 }}>
+                {uploadingKyc ? 'Envoi en cours…' : 'Ajouter un document'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={[styles.registerBtn, { backgroundColor: colors.primary }]}
+            onPress={() => setSuccessName(name.trim())}
+          >
+            <Feather name="arrow-right" size={18} color="white" />
+            <Text style={styles.registerBtnText}>{kycDocAdded ? 'Terminer' : 'Plus tard'}</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
   }
 
   // ── Success screen ─────────────────────────────────────────────────────────

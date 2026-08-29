@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  ActivityIndicator, Dimensions, Image, ScrollView, StyleSheet, Text,
+  ActivityIndicator, Dimensions, Image, Linking, ScrollView, StyleSheet, Text,
   TouchableOpacity, View, Alert, TextInput,
 } from 'react-native';
 import { Feather } from '@/components/Icon';
@@ -13,6 +13,7 @@ import { useFocusEffect } from 'expo-router';
 import { ADMIN_STATS, DEMO_USERS, MOCK_ORDERS, UserRole } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toUserMessage } from '@/lib/errors';
+import { notifyVendorKycEvent } from '@/lib/notifications';
 
 const { width } = Dimensions.get('window');
 type AdminTab = 'dashboard' | 'users' | 'vendors' | 'orders' | 'disputes' | 'payments' | 'notifications' | 'support' | 'settings' | 'apikeys';
@@ -163,6 +164,68 @@ function AdminScreenInner() {
     payment_status: string; payment_notes: string | null; created_at: string;
     customer: { display_name: string | null; email: string } | null;
   }
+  interface RealVendorKyc {
+    id: string; company_name: string; country: string | null;
+    kyc_status: string; documents: string[]; verified: boolean; created_at: string;
+  }
+  const [realVendorsKyc,   setRealVendorsKyc]   = useState<RealVendorKyc[]>([]);
+  const [vendorKycUsers,   setVendorKycUsers]   = useState<Record<string, { display_name: string | null; email: string }>>({});
+  const [loadingVendorsKyc, setLoadingVendorsKyc] = useState(isSupabaseConfigured);
+  const [kycFilter,        setKycFilter]        = useState<'pending' | 'incomplete' | 'rejected' | 'approved'>('pending');
+  const [kycRejectOpen,    setKycRejectOpen]    = useState<string | null>(null);
+  const [kycRejectNotes,   setKycRejectNotes]   = useState<Record<string, string>>({});
+  const [kycActingId,      setKycActingId]      = useState<string | null>(null);
+
+  const fetchVendorsKyc = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingVendorsKyc(false); return; }
+    setLoadingVendorsKyc(true);
+    const { data: vendorsData, error: vendorsErr } = await supabase
+      .from('vendors')
+      .select('id, company_name, country, kyc_status, documents, verified, created_at')
+      .order('created_at', { ascending: false });
+    if (vendorsErr) { console.warn('Admin vendors KYC fetch error:', vendorsErr.message); setLoadingVendorsKyc(false); return; }
+    setRealVendorsKyc((vendorsData ?? []) as RealVendorKyc[]);
+
+    const ids = (vendorsData ?? []).map((v: { id: string }) => v.id);
+    if (ids.length > 0) {
+      const { data: usersData } = await supabase.from('users').select('id, display_name, email').in('id', ids);
+      setVendorKycUsers(Object.fromEntries((usersData ?? []).map((u: any) => [u.id, { display_name: u.display_name, email: u.email }])));
+    }
+    setLoadingVendorsKyc(false);
+  }, []);
+
+  useEffect(() => { fetchVendorsKyc(); }, [fetchVendorsKyc]);
+  useFocusEffect(useCallback(() => { fetchVendorsKyc(); }, [fetchVendorsKyc]));
+
+  async function openKycDoc(path: string) {
+    if (!supabase) return;
+    const { data, error } = await supabase.storage.from('kyc-documents').createSignedUrl(path, 3600);
+    if (error || !data?.signedUrl) { Alert.alert('Erreur', 'Impossible d\'ouvrir ce document.'); return; }
+    Linking.openURL(data.signedUrl);
+  }
+
+  async function handleApproveVendorKyc(vendorId: string) {
+    if (!supabase) return;
+    setKycActingId(vendorId);
+    const { error } = await supabase.from('vendors').update({ kyc_status: 'approved', verified: true }).eq('id', vendorId);
+    setKycActingId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:approveVendorKyc', error, 'Impossible d\'approuver ce vendeur. Réessaie dans un instant.')); return; }
+    setRealVendorsKyc(prev => prev.map(v => v.id === vendorId ? { ...v, kyc_status: 'approved', verified: true } : v));
+    notifyVendorKycEvent(supabase, vendorId, 'approved');
+  }
+
+  async function handleRejectVendorKyc(vendorId: string) {
+    if (!supabase) return;
+    const note = (kycRejectNotes[vendorId] ?? '').trim();
+    setKycActingId(vendorId);
+    const { error } = await supabase.from('vendors').update({ kyc_status: 'rejected', verified: false }).eq('id', vendorId);
+    setKycActingId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:rejectVendorKyc', error, 'Impossible de rejeter ce vendeur. Réessaie dans un instant.')); return; }
+    setRealVendorsKyc(prev => prev.map(v => v.id === vendorId ? { ...v, kyc_status: 'rejected', verified: false } : v));
+    setKycRejectOpen(null);
+    notifyVendorKycEvent(supabase, vendorId, 'rejected', note || undefined);
+  }
+
   const [realUsers,        setRealUsers]        = useState<RealUser[]>([]);
   const [realOrders,       setRealOrders]        = useState<RealOrder[]>([]);
   const [realDisputes,     setRealDisputes]      = useState<RealDispute[]>([]);
@@ -354,24 +417,16 @@ function AdminScreenInner() {
     setRefreshing(false);
   }, [fetchAdminData]);
 
-  async function handleApproveVendor(id: string, name: string) {
-    if (!supabase) return;
-    const { error } = await supabase.from('users').update({ is_approved: true }).eq('id', id);
-    if (error) { Alert.alert('Erreur', toUserMessage('admin:approveVendor', error, 'Impossible d\'approuver ce vendeur. Réessaie dans un instant.')); return; }
-    setRealUsers(prev => prev.map(u => u.id === id ? { ...u, is_approved: true } : u));
-    Alert.alert('Approuvé', `${name} a été approuvé comme vendeur.`);
-  }
-
-  const realVendors        = realUsers.filter(u => u.role === 'VENDOR');
-  const realPendingVendors = realVendors.filter(u => !u.is_approved);
-  const realRevenueTotal   = realOrders.reduce((sum, o) => sum + (o.total ?? 0), 0);
+  const realVendors      = realUsers.filter(u => u.role === 'VENDOR');
+  const pendingKycCount  = realVendorsKyc.filter(v => v.kyc_status === 'pending').length;
+  const realRevenueTotal = realOrders.reduce((sum, o) => sum + (o.total ?? 0), 0);
 
   const kpis = isSupabaseConfigured ? [
     { icon: 'users', label: 'Utilisateurs', value: realUsers.length.toLocaleString(), color: colors.primary, trend: '' },
     { icon: 'briefcase', label: 'Vendeurs', value: realVendors.length, color: '#7C3AED', trend: '' },
     { icon: 'shopping-cart', label: 'Commandes', value: realOrders.length.toLocaleString(), color: colors.secondary, trend: '' },
     { icon: 'dollar-sign', label: 'Revenus (total commandes)', value: `${realRevenueTotal.toLocaleString('fr-FR')} FCFA`, color: '#22C55E', trend: '' },
-    { icon: 'clock', label: 'Vendeurs en attente', value: realPendingVendors.length, color: '#F59E0B', trend: '' },
+    { icon: 'clock', label: 'Vendeurs en attente (KYC)', value: pendingKycCount, color: '#F59E0B', trend: '' },
     { icon: 'alert-triangle', label: 'Litiges actifs', value: realDisputes.filter(d => d.status !== 'resolved').length, color: '#EF4444', trend: '' },
   ] : [
     { icon: 'users', label: 'Utilisateurs', value: ADMIN_STATS.totalUsers.toLocaleString(), color: colors.primary, trend: '+8.2%' },
@@ -604,7 +659,7 @@ function AdminScreenInner() {
   const TABS: { id: AdminTab; label: string; icon: string; badge?: number }[] = [
     { id: 'dashboard', label: 'Dashboard',    icon: 'bar-chart-2'   },
     { id: 'users',     label: 'Utilisateurs', icon: 'users'         },
-    { id: 'vendors',   label: t('vendors'),   icon: 'briefcase'     },
+    { id: 'vendors',   label: t('vendors'),   icon: 'briefcase',     badge: pendingKycCount },
     { id: 'orders',    label: t('orders'),    icon: 'shopping-cart' },
     { id: 'disputes',  label: t('disputes'),  icon: 'alert-triangle'},
     { id: 'payments',  label: 'Paiements',     icon: 'credit-card',  badge: pendingCount },
@@ -633,7 +688,7 @@ function AdminScreenInner() {
         <View style={styles.alertBadge}>
           <Feather name="bell" size={16} color="white" />
           <Text style={styles.alertBadgeText}>
-            {(isSupabaseConfigured ? realPendingVendors.length : ADMIN_STATS.pendingVendors)
+            {(isSupabaseConfigured ? pendingKycCount : ADMIN_STATS.pendingVendors)
               + (isSupabaseConfigured ? realDisputes.filter(d => d.status !== 'resolved').length : ADMIN_STATS.activeDisputes)
               + pendingCount}
           </Text>
@@ -716,40 +771,124 @@ function AdminScreenInner() {
         </View>
       )}
 
-      {/* VENDORS */}
+      {/* VENDORS — KYC (vendors.kyc_status/documents/verified) */}
       {activeTab === 'vendors' && (
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
-            {isSupabaseConfigured ? 'Vendeurs en attente d\'approbation' : 'Validation KYC vendeurs'}
+            {isSupabaseConfigured ? 'Vérification KYC vendeurs' : 'Validation KYC vendeurs'}
           </Text>
           {loadingAdminData && <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />}
           {isSupabaseConfigured ? (
             <>
-              {!loadingAdminData && realPendingVendors.length === 0 && (
-                <Text style={{ color: colors.mutedForeground, padding: 12 }}>Aucun vendeur en attente.</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 4 }}>
+                {(['pending', 'incomplete', 'rejected', 'approved'] as const).map(f => (
+                  <TouchableOpacity
+                    key={f}
+                    style={[styles.tabChip, { backgroundColor: kycFilter === f ? colors.primary : colors.card, borderColor: colors.border }]}
+                    onPress={() => setKycFilter(f)}
+                  >
+                    <Text style={[styles.tabChipText, { color: kycFilter === f ? 'white' : colors.foreground }]}>
+                      {f === 'pending' ? 'En attente' : f === 'incomplete' ? 'Incomplet' : f === 'rejected' ? 'Rejeté' : 'Vérifié'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {loadingVendorsKyc && <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />}
+              {!loadingVendorsKyc && realVendorsKyc.filter(v => v.kyc_status === kycFilter).length === 0 && (
+                <Text style={{ color: colors.mutedForeground, padding: 12 }}>Aucun vendeur dans cette catégorie.</Text>
               )}
-              {realPendingVendors.map(v => (
-                <View key={v.id} style={[styles.vendorCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <View style={styles.vendorHeader}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.vendorName, { color: colors.foreground }]}>{v.display_name ?? v.email}</Text>
-                      <Text style={[styles.vendorCountry, { color: colors.mutedForeground }]}>{v.email}</Text>
+              {realVendorsKyc.filter(v => v.kyc_status === kycFilter).map(v => {
+                const info = vendorKycUsers[v.id];
+                const badgeStyle: Record<string, [string, string, string]> = {
+                  pending:    ['#FEF3C7', '#D97706', 'En attente'],
+                  approved:   ['#D1FAE5', '#059669', 'Vérifié'],
+                  rejected:   ['#FEE2E2', '#DC2626', 'Rejeté'],
+                  incomplete: ['#FEE2E2', '#DC2626', 'Incomplet'],
+                };
+                const [badgeBg, badgeColor, badgeLabel] = badgeStyle[v.kyc_status] ?? ['#FEF3C7', '#D97706', v.kyc_status];
+                const acting = kycActingId === v.id;
+                return (
+                  <View key={v.id} style={[styles.vendorCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                    <View style={styles.vendorHeader}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.vendorName, { color: colors.foreground }]}>{v.company_name}</Text>
+                        <Text style={[styles.vendorCountry, { color: colors.mutedForeground }]}>
+                          {info?.display_name ?? info?.email ?? '—'}{v.country ? ` · ${v.country}` : ''}
+                        </Text>
+                      </View>
+                      <View style={[styles.kycStatusBadge, { backgroundColor: badgeBg }]}>
+                        <Text style={[styles.kycStatusText, { color: badgeColor }]}>{badgeLabel}</Text>
+                      </View>
                     </View>
-                    <View style={[styles.kycStatusBadge, { backgroundColor: '#FEF3C7' }]}>
-                      <Text style={[styles.kycStatusText, { color: '#D97706' }]}>En attente</Text>
+
+                    <View style={styles.docStatus}>
+                      <Feather name={v.documents?.length ? 'check-circle' : 'x-circle'} size={14} color={v.documents?.length ? '#22C55E' : '#EF4444'} />
+                      <Text style={[styles.docStatusText, { color: colors.mutedForeground }]}>
+                        {v.documents?.length ? `${v.documents.length} document(s) soumis` : 'Aucun document soumis'}
+                      </Text>
                     </View>
+
+                    {(v.documents ?? []).length > 0 && (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                        {v.documents.map((path, idx) => (
+                          <TouchableOpacity
+                            key={path}
+                            style={[styles.vendorActionBtn, { backgroundColor: colors.accent, borderColor: colors.border }]}
+                            onPress={() => openKycDoc(path)}
+                          >
+                            <Feather name="file-text" size={13} color={colors.primary} />
+                            <Text style={[styles.vendorActionText, { color: colors.primary }]}>Doc {idx + 1}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+
+                    {v.kyc_status !== 'approved' && (
+                      <View style={styles.vendorActions}>
+                        <TouchableOpacity
+                          style={[styles.vendorActionBtn, { backgroundColor: '#D1FAE5', borderColor: '#22C55E', opacity: acting ? 0.6 : 1 }]}
+                          onPress={() => handleApproveVendorKyc(v.id)}
+                          disabled={acting}
+                        >
+                          <Feather name="check" size={14} color="#059669" />
+                          <Text style={[styles.vendorActionText, { color: '#059669' }]}>{t('approve')}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.vendorActionBtn, { backgroundColor: '#FEE2E2', borderColor: '#EF4444', opacity: acting ? 0.6 : 1 }]}
+                          onPress={() => setKycRejectOpen(kycRejectOpen === v.id ? null : v.id)}
+                          disabled={acting}
+                        >
+                          <Feather name="x" size={14} color="#DC2626" />
+                          <Text style={[styles.vendorActionText, { color: '#DC2626' }]}>{t('reject')}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {kycRejectOpen === v.id && (
+                      <View style={[styles.pmtRejectForm, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                        <Text style={[styles.pmtRejectTitle, { color: colors.foreground }]}>Motif du rejet (optionnel)</Text>
+                        <TextInput
+                          style={[styles.pmtRejectInput, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                          placeholder="Ex: document illisible, pièce d'identité expirée…"
+                          placeholderTextColor={colors.mutedForeground}
+                          value={kycRejectNotes[v.id] ?? ''}
+                          onChangeText={val => setKycRejectNotes(r => ({ ...r, [v.id]: val }))}
+                          multiline
+                          numberOfLines={3}
+                        />
+                        <TouchableOpacity
+                          style={[styles.pmtRejectConfirm, { backgroundColor: '#EF4444' }]}
+                          onPress={() => handleRejectVendorKyc(v.id)}
+                        >
+                          <Feather name="x" size={14} color="white" />
+                          <Text style={styles.pmtRejectConfirmText}>Confirmer le rejet</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
-                  <View style={styles.vendorActions}>
-                    <TouchableOpacity
-                      style={[styles.vendorActionBtn, { backgroundColor: '#D1FAE5', borderColor: '#22C55E' }]}
-                      onPress={() => handleApproveVendor(v.id, v.display_name ?? v.email)}
-                    >
-                      <Feather name="check" size={14} color="#059669" />
-                      <Text style={[styles.vendorActionText, { color: '#059669' }]}>{t('approve')}</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
+                );
+              })}
             </>
           ) : (
             mockPendingVendors.map(v => (

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  ActivityIndicator, Alert, Dimensions, Image, KeyboardAvoidingView, Modal,
+  ActivityIndicator, Alert, Dimensions, Image, KeyboardAvoidingView, Linking, Modal,
   Platform, ScrollView, StyleSheet, Text, TextInput,
   TouchableOpacity, View, Switch,
 } from 'react-native';
@@ -22,6 +22,14 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { readLocalImageBytes } from '@/lib/imageUpload';
 import { toUserMessage } from '@/lib/errors';
 import { notifyOrderEvent } from '@/lib/notifications';
+
+// ─── KYC status display (vendors.kyc_status) ────────────────────────────────
+const KYC_STATUS_STYLES: Record<string, { bg: string; color: string; icon: string; label: string; desc: string }> = {
+  pending:    { bg: '#FEF3C7', color: '#D97706', icon: 'clock',        label: 'En attente de vérification', desc: 'Ton dossier sera examiné par un administrateur BARDEC.' },
+  approved:   { bg: '#D1FAE5', color: '#059669', icon: 'check-circle', label: 'Vérifié',                    desc: 'Ton compte vendeur est vérifié. Tu peux vendre librement sur BARDEC.' },
+  rejected:   { bg: '#FEE2E2', color: '#DC2626', icon: 'x-circle',     label: 'Documents rejetés',           desc: 'Envoie de nouveaux documents pour relancer la vérification.' },
+  incomplete: { bg: '#FEE2E2', color: '#DC2626', icon: 'alert-circle', label: 'Dossier incomplet',           desc: 'Ajoute les documents manquants pour continuer la vérification.' },
+};
 
 const { width } = Dimensions.get('window');
 
@@ -133,7 +141,7 @@ export default function VendorDashboardScreen() {
   const [period, setPeriod] = useState<Period>('30j');
   const [shopActive, setShopActive] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'products'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'orders' | 'products' | 'kyc'>('overview');
 
   // ─── Resolved company/shop display name ───────────────────────────────────
   const [shopName, setShopName] = useState<string>('Ma Boutique');
@@ -170,6 +178,133 @@ export default function VendorDashboardScreen() {
   const [trackingNumber,  setTrackingNumber]  = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
+  // ─── KYC (vendors.kyc_status / documents / verified) — also backs the
+  // Overview tab's response-rate/rating KPIs, since both live on the same row.
+  interface VendorKyc { kyc_status: string; documents: string[]; verified: boolean; response_rate: number; avg_rating: number }
+  const [vendorKyc,    setVendorKyc]    = useState<VendorKyc | null>(null);
+  const [kycLoading,   setKycLoading]   = useState(isSupabaseConfigured);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [deletingDoc,  setDeletingDoc]  = useState<string | null>(null);
+
+  const fetchVendorKyc = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setKycLoading(false); return; }
+    setKycLoading(true);
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) { setKycLoading(false); return; }
+    const { data, error } = await supabase
+      .from('vendors')
+      .select('kyc_status, documents, verified, response_rate, avg_rating')
+      .eq('id', authUser.id)
+      .maybeSingle();
+    if (error) console.warn('Vendor KYC fetch error:', error.message);
+    setVendorKyc(data ? {
+      kyc_status: data.kyc_status, documents: data.documents ?? [], verified: data.verified,
+      response_rate: data.response_rate ?? 0, avg_rating: data.avg_rating ?? 0,
+    } : null);
+    setKycLoading(false);
+  }, []);
+
+  useEffect(() => { fetchVendorKyc(); }, [fetchVendorKyc]);
+  useFocusEffect(useCallback(() => { fetchVendorKyc(); }, [fetchVendorKyc]));
+
+  // Gate: a vendor can register and even upload KYC docs freely, but cannot
+  // publish products (manual add or CSV import) until an admin approves them.
+  function ensureKycApprovedToPublish(): boolean {
+    if (!isSupabaseConfigured) return true; // demo mode has no real KYC data
+    if (vendorKyc?.kyc_status === 'approved') return true;
+    Alert.alert(
+      'Vérification KYC requise',
+      'Complète ta vérification KYC pour publier tes produits.',
+      [
+        { text: 'Plus tard', style: 'cancel' },
+        { text: 'Aller à KYC', onPress: () => setActiveTab('kyc') },
+      ],
+    );
+    return false;
+  }
+
+  // Upserts on `vendors` so a first-time upload works even before any row
+  // exists (register() never creates one — see AGENTS.md). Only `documents`
+  // and `company_name` are ever set here, never kyc_status/verified, so the
+  // anti-self-approval trigger never fires for a vendor's own upload.
+  async function handleUploadKycDoc() {
+    if (!supabase) return;
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ['image/*', 'application/pdf'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (picked.canceled || !picked.assets?.[0]) return;
+      const file = picked.assets[0];
+
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) { Alert.alert('Erreur', 'Session expirée. Reconnecte-toi et réessaie.'); return; }
+
+      setUploadingDoc(true);
+      const ext = (file.name?.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const contentType = file.mimeType || (ext === 'pdf' ? 'application/pdf' : 'image/jpeg');
+      const path = `${authUser.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+      const bytes = await readLocalImageBytes(file.uri);
+
+      const { error: upErr } = await supabase.storage
+        .from('kyc-documents')
+        .upload(path, bytes, { contentType, upsert: false });
+      if (upErr) {
+        Alert.alert('Erreur', toUserMessage('vendor:uploadKycDoc', upErr, 'Impossible d\'envoyer ce document. Réessaie dans un instant.'));
+        return;
+      }
+
+      const nextDocs = [...(vendorKyc?.documents ?? []), path];
+      const { error: dbErr } = await supabase
+        .from('vendors')
+        .upsert({ id: authUser.id, company_name: shopName || 'Vendeur', documents: nextDocs }, { onConflict: 'id' });
+      if (dbErr) {
+        Alert.alert('Erreur', toUserMessage('vendor:saveKycDoc', dbErr, 'Document envoyé mais impossible de mettre à jour ton profil. Réessaie.'));
+        return;
+      }
+
+      setVendorKyc(prev => prev
+        ? { ...prev, documents: nextDocs }
+        : { kyc_status: 'pending', documents: nextDocs, verified: false, response_rate: 0, avg_rating: 0 });
+    } catch (e: any) {
+      Alert.alert('Erreur', toUserMessage('vendor:uploadKycDoc', e, 'Impossible d\'envoyer ce document. Réessaie dans un instant.'));
+    } finally {
+      setUploadingDoc(false);
+    }
+  }
+
+  async function handleViewKycDoc(path: string) {
+    if (!supabase) return;
+    const { data, error } = await supabase.storage.from('kyc-documents').createSignedUrl(path, 3600);
+    if (error || !data?.signedUrl) { Alert.alert('Erreur', 'Impossible d\'ouvrir ce document.'); return; }
+    Linking.openURL(data.signedUrl);
+  }
+
+  function handleDeleteKycDoc(path: string) {
+    Alert.alert('Supprimer ce document', 'Confirmer la suppression ?', [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Supprimer', style: 'destructive',
+        onPress: async () => {
+          if (!supabase || !vendorKyc) return;
+          setDeletingDoc(path);
+          const { data: { user: authUser } } = await supabase.auth.getUser();
+          if (!authUser) { setDeletingDoc(null); return; }
+          const nextDocs = vendorKyc.documents.filter(d => d !== path);
+          const { error } = await supabase.from('vendors').update({ documents: nextDocs }).eq('id', authUser.id);
+          setDeletingDoc(null);
+          if (error) {
+            Alert.alert('Erreur', toUserMessage('vendor:deleteKycDoc', error, 'Impossible de supprimer ce document. Réessaie dans un instant.'));
+            return;
+          }
+          setVendorKyc(prev => prev ? { ...prev, documents: nextDocs } : prev);
+          supabase.storage.from('kyc-documents').remove([path]).catch(() => {}); // best-effort
+        },
+      },
+    ]);
+  }
+
   // ─── Product images for add-product modal ──────────────────────────────────
   const [pendingImages,      setPendingImages]      = useState<string[]>([]);
   const [isUploadingImages,  setIsUploadingImages]  = useState(false);
@@ -197,6 +332,7 @@ export default function VendorDashboardScreen() {
   });
 
   function openAddModal() {
+    if (!ensureKycApprovedToPublish()) return;
     setEditingProduct(null);
     setAddForm({ name: '', category: '', pricePublic: '', priceWholesale: '', stock: '' });
     setPendingImages([]);
@@ -581,7 +717,19 @@ export default function VendorDashboardScreen() {
     '90j': [...VENDOR_STATS.monthlySales, ...VENDOR_STATS.monthlySales.slice(0, 3)],
     '12m': VENDOR_STATS.monthlySales,
   };
-  const kpis = [
+  // Real vendorOrders/displayedProducts (fetched from Supabase above) — was
+  // hardcoded to the VENDOR_STATS mock unconditionally before, so these cards
+  // never matched what the vendor actually had in the database.
+  const realActiveOrdersCount = vendorOrders.filter((o: any) => !['completed', 'cancelled'].includes(o.status)).length;
+  const realSalesTotal        = vendorOrders.reduce((sum: number, o: any) => sum + (o.total ?? 0), 0);
+
+  const kpis = isSupabaseConfigured ? [
+    { icon: 'dollar-sign', label: t('sales'),         value: `${realSalesTotal.toLocaleString('fr-FR')} FCFA`, color: colors.primary },
+    { icon: 'package',     label: t('active_orders'),  value: realActiveOrdersCount,                            color: colors.secondary },
+    { icon: 'message-circle', label: t('response_rate'), value: `${Math.round(vendorKyc?.response_rate ?? 0)}%`, color: '#22C55E' },
+    { icon: 'grid',        label: t('products'),       value: displayedProducts.length,                          color: '#8B5CF6' },
+    { icon: 'star',        label: t('rating'),         value: (vendorKyc?.avg_rating ?? 0).toFixed(1),           color: '#F59E0B' },
+  ] : [
     { icon: 'dollar-sign', label: t('sales'),         value: `$${(VENDOR_STATS.totalSales / 1000).toFixed(0)}k`, color: colors.primary },
     { icon: 'package',     label: t('active_orders'),  value: VENDOR_STATS.activeOrders,                          color: colors.secondary },
     { icon: 'message-circle', label: t('response_rate'), value: `${VENDOR_STATS.responseRate}%`,                  color: '#22C55E' },
@@ -594,6 +742,7 @@ export default function VendorDashboardScreen() {
 
   // ─── IMPORT CSV ───────────────────────────────────────────────────────────
   const handleImportCSV = async () => {
+    if (!ensureKycApprovedToPublish()) return;
     try {
       const picked = await DocumentPicker.getDocumentAsync({
         type: ['text/csv', 'text/comma-separated-values',
@@ -905,10 +1054,12 @@ export default function VendorDashboardScreen() {
           <View>
             <View style={styles.shopNameRow}>
               <Text style={styles.shopName}>{user?.company ?? 'Ma Boutique'}</Text>
-              <View style={styles.verifiedBadge}>
-                <Feather name="check-circle" size={12} color="white" />
-                <Text style={styles.verifiedText}>Vérifié</Text>
-              </View>
+              {(!isSupabaseConfigured || vendorKyc?.verified) && (
+                <View style={styles.verifiedBadge}>
+                  <Feather name="check-circle" size={12} color="white" />
+                  <Text style={styles.verifiedText}>Vérifié</Text>
+                </View>
+              )}
             </View>
             <Text style={styles.shopEmail}>{user?.email}</Text>
           </View>
@@ -939,14 +1090,14 @@ export default function VendorDashboardScreen() {
 
       {/* Tab navigation */}
       <View style={[styles.tabRow, { borderBottomColor: colors.border }]}>
-        {(['overview', 'orders', 'products'] as const).map(tab => (
+        {(['overview', 'orders', 'products', 'kyc'] as const).map(tab => (
           <TouchableOpacity
             key={tab}
             style={[styles.tabBtn, activeTab === tab && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
             onPress={() => setActiveTab(tab)}
           >
             <Text style={[styles.tabText, { color: activeTab === tab ? colors.primary : colors.mutedForeground }]}>
-              {tab === 'overview' ? 'Vue d\'ensemble' : tab === 'orders' ? 'Commandes' : 'Produits'}
+              {tab === 'overview' ? 'Vue d\'ensemble' : tab === 'orders' ? 'Commandes' : tab === 'products' ? 'Produits' : 'KYC'}
             </Text>
           </TouchableOpacity>
         ))}
@@ -1164,6 +1315,79 @@ export default function VendorDashboardScreen() {
           ))}
         </View>
       )}
+
+      {/* ── KYC tab ──────────────────────────────────────────────────────── */}
+      {activeTab === 'kyc' && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Vérification KYC</Text>
+
+          {kycLoading ? (
+            <ActivityIndicator color={colors.primary} style={{ marginVertical: 20 }} />
+          ) : (
+            <>
+              {(() => {
+                const s = KYC_STATUS_STYLES[vendorKyc?.kyc_status ?? 'pending'];
+                return (
+                  <View style={[styles.kycStatusCard, { backgroundColor: s.bg, borderColor: s.color }]}>
+                    <Feather name={s.icon as any} size={20} color={s.color} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.kycStatusTitle, { color: s.color }]}>{s.label}</Text>
+                      <Text style={[styles.kycStatusDesc, { color: colors.mutedForeground }]}>{s.desc}</Text>
+                    </View>
+                  </View>
+                );
+              })()}
+
+              <TouchableOpacity
+                style={[styles.imagePicker, { backgroundColor: colors.background, borderColor: colors.border, opacity: uploadingDoc ? 0.6 : 1 }]}
+                onPress={handleUploadKycDoc}
+                disabled={uploadingDoc}
+              >
+                {uploadingDoc
+                  ? <ActivityIndicator size="small" color={colors.primary} />
+                  : <Feather name="upload" size={18} color={colors.primary} />}
+                <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 14, flexShrink: 1 }}>
+                  {uploadingDoc ? 'Envoi en cours…' : 'Ajouter un document (registre de commerce, pièce d\'identité…)'}
+                </Text>
+              </TouchableOpacity>
+
+              <Text style={[styles.modalLabel, { color: colors.foreground, marginTop: 4 }]}>
+                Documents envoyés{vendorKyc?.documents?.length ? ` (${vendorKyc.documents.length})` : ''}
+              </Text>
+
+              {(!vendorKyc?.documents || vendorKyc.documents.length === 0) ? (
+                <View style={[styles.emptyState, { borderColor: colors.border }]}>
+                  <Feather name="file-text" size={32} color={colors.mutedForeground} />
+                  <Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Aucun document envoyé pour l'instant.</Text>
+                </View>
+              ) : (
+                vendorKyc.documents.map((path, idx) => (
+                  <View key={path} style={[styles.productRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                    <View style={[styles.productIcon, { backgroundColor: colors.muted }]}>
+                      <Feather name={path.toLowerCase().endsWith('.pdf') ? 'file-text' : 'image'} size={18} color={colors.mutedForeground} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.productName, { color: colors.foreground }]} numberOfLines={1}>Document {idx + 1}</Text>
+                      <Text style={[styles.productMeta, { color: colors.mutedForeground }]} numberOfLines={1}>{path.split('/').pop()}</Text>
+                    </View>
+                    <View style={styles.productActions}>
+                      <TouchableOpacity style={styles.prodActionBtn} onPress={() => handleViewKycDoc(path)}>
+                        <Feather name="eye" size={15} color={colors.primary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.prodActionBtn} onPress={() => handleDeleteKycDoc(path)} disabled={deletingDoc === path}>
+                        {deletingDoc === path
+                          ? <ActivityIndicator size="small" color={colors.destructive} />
+                          : <Feather name="trash-2" size={15} color={colors.destructive} />}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))
+              )}
+            </>
+          )}
+        </View>
+      )}
+
       {/* ── Add product modal ─────────────────────────────────────────────── */}
       <Modal
         visible={showAddModal}
@@ -1487,4 +1711,10 @@ const styles = StyleSheet.create({
   },
   emptyTitle:      { fontSize: 16, fontWeight: '700' },
   emptyDesc:       { fontSize: 13, textAlign: 'center', lineHeight: 18 },
+  kycStatusCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderRadius: 14, borderWidth: 1.5, padding: 14,
+  },
+  kycStatusTitle: { fontSize: 14, fontWeight: '700' },
+  kycStatusDesc:  { fontSize: 12, marginTop: 2, lineHeight: 16 },
 });

@@ -35,7 +35,6 @@ export default function ProfileScreen() {
   const { user, logout, switchDemoRole, isDemoMode, updateUserAvatar, updateUserName } = useAuth();
   const canSwitchRole = isDemoMode || TEST_ACCOUNT_EMAILS.includes(user?.email ?? '');
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [biometricEnabled,     setBiometricEnabled]     = useState(false);
   const [isUploadingAvatar,    setIsUploadingAvatar]    = useState(false);
   // Pending avatar: URI picked by user but not yet confirmed / uploaded
   const [pendingAvatarUri,     setPendingAvatarUri]     = useState<string | null>(null);
@@ -414,16 +413,9 @@ export default function ProfileScreen() {
           />
         </View>
 
-        <View style={styles.menuRow}>
-          <Feather name="shield" size={18} color={colors.primary} />
-          <Text style={[styles.menuLabel, { color: colors.foreground, flex: 1 }]}>{t('biometric_login')}</Text>
-          <Switch
-            value={biometricEnabled}
-            onValueChange={setBiometricEnabled}
-            trackColor={{ false: colors.muted, true: colors.primary }}
-            thumbColor="white"
-          />
-        </View>
+        {/* Biometric login toggle removed — lib/biometric.ts was never wired
+            to this switch (onValueChange just set local state, nothing was
+            persisted or enforced at login). Hidden until actually implemented. */}
 
         <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
         <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>Commerce de proximité</Text>
