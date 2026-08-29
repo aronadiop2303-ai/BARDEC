@@ -99,6 +99,21 @@ function resolveCategoryId(raw: string): string | null {
   return CATEGORY_ALIASES[key] ?? null;
 }
 
+// "Clé: Valeur" per line → products.specifications (jsonb). Was never
+// written anywhere, so the "Spécifications" tab on the product detail page
+// always fell back to its dash placeholder for every real product.
+function parseSpecsText(text: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  text.split('\n').forEach(line => {
+    const idx = line.indexOf(':');
+    if (idx <= 0) return;
+    const key = line.slice(0, idx).trim();
+    const val = line.slice(idx + 1).trim();
+    if (key && val) result[key] = val;
+  });
+  return result;
+}
+
 // ─── Mini bar chart ──────────────────────────────────────────────────────────
 function MiniChart({ data, color }: { data: number[]; color: string }) {
   const max = Math.max(...data);
@@ -119,6 +134,41 @@ function MiniChart({ data, color }: { data: number[]; color: string }) {
       ))}
     </View>
   );
+}
+
+// ─── Real order buckets for the sales chart (vendorOrders → time series) ────
+// Oldest bucket at index 0, most recent (today / this month) at the last —
+// matches MiniChart's opacity ramp, which highlights the last bar.
+function bucketOrdersByDay(orders: any[], days: number): number[] {
+  const buckets = new Array(days).fill(0);
+  const now = Date.now();
+  orders.forEach(o => {
+    const diffDays = Math.floor((now - new Date(o.created_at).getTime()) / 86400000);
+    const idx = days - 1 - diffDays;
+    if (idx >= 0 && idx < days) buckets[idx] += o.total ?? 0;
+  });
+  return buckets;
+}
+function bucketOrdersByWeek(orders: any[], weeks: number): number[] {
+  const buckets = new Array(weeks).fill(0);
+  const now = Date.now();
+  orders.forEach(o => {
+    const diffWeeks = Math.floor((now - new Date(o.created_at).getTime()) / (7 * 86400000));
+    const idx = weeks - 1 - diffWeeks;
+    if (idx >= 0 && idx < weeks) buckets[idx] += o.total ?? 0;
+  });
+  return buckets;
+}
+function bucketOrdersByMonth(orders: any[], months: number): number[] {
+  const buckets = new Array(months).fill(0);
+  const now = new Date();
+  orders.forEach(o => {
+    const d = new Date(o.created_at);
+    const diffMonths = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+    const idx = months - 1 - diffMonths;
+    if (idx >= 0 && idx < months) buckets[idx] += o.total ?? 0;
+  });
+  return buckets;
 }
 
 // ─── Local product shape (for imported-but-not-yet-synced rows in demo mode) ─
@@ -166,6 +216,14 @@ export default function VendorDashboardScreen() {
 
   // Loading states
   const [isImporting, setIsImporting] = useState(false);
+  // TEMPORARY diagnostic for the "Importer CSV" bug report (no visible
+  // action on tap) — on-screen log since console.log isn't reachable from a
+  // standalone Expo Go device. Remove once the real blocking point is found.
+  const [csvDebugLog, setCsvDebugLog] = useState<string[]>([]);
+  function dbgCsv(msg: string) {
+    console.log('[csvDebug]', msg);
+    setCsvDebugLog(prev => [...prev.slice(-9), msg]);
+  }
   const [isExporting, setIsExporting] = useState(false);
 
   // ─── Vendor orders (real Supabase data) ────────────────────────────────────
@@ -328,13 +386,13 @@ export default function VendorDashboardScreen() {
   const [editingProduct,  setEditingProduct]  = useState<LocalProduct | null>(null);
   const [addForm, setAddForm] = useState({
     name: '', category: '',
-    pricePublic: '', priceWholesale: '', stock: '',
+    pricePublic: '', priceWholesale: '', stock: '', specifications: '',
   });
 
   function openAddModal() {
     if (!ensureKycApprovedToPublish()) return;
     setEditingProduct(null);
-    setAddForm({ name: '', category: '', pricePublic: '', priceWholesale: '', stock: '' });
+    setAddForm({ name: '', category: '', pricePublic: '', priceWholesale: '', stock: '', specifications: '' });
     setPendingImages([]);
     setShowAddModal(true);
   }
@@ -347,6 +405,7 @@ export default function VendorDashboardScreen() {
       pricePublic:   product.pricePublic ? String(product.pricePublic) : '',
       priceWholesale: product.priceWholesale ? String(product.priceWholesale) : '',
       stock:         String(product.stock ?? ''),
+      specifications: '',
     });
     setPendingImages([]);
     setShowAddModal(true);
@@ -452,6 +511,7 @@ export default function VendorDashboardScreen() {
       }
 
       const category = addForm.category;
+      const specifications = parseSpecsText(addForm.specifications);
 
       if (editingProduct) {
         // ── UPDATE ────────────────────────────────────────────────────────────
@@ -465,6 +525,9 @@ export default function VendorDashboardScreen() {
           stock_quantity:  stock,
           category,
           ...(imageUrls.length > 0 ? { images: updatedImages } : {}),
+          // Only overwrite if the vendor actually typed something this time —
+          // an empty field on edit must not silently wipe existing specs.
+          ...(Object.keys(specifications).length > 0 ? { specifications } : {}),
         }).eq('id', editingProduct.id);
         setIsSavingProduct(false);
         if (error) { Alert.alert('Erreur', toUserMessage('vendor:updateProduct', error, 'Impossible d\'enregistrer ce produit. Réessaie dans un instant.')); return; }
@@ -489,6 +552,7 @@ export default function VendorDashboardScreen() {
           category,
           images:             imageUrls,
           is_active:          true,
+          specifications:     Object.keys(specifications).length > 0 ? specifications : null,
         }).select('id').single();
         setIsSavingProduct(false);
         if (error) { Alert.alert('Erreur', toUserMessage('vendor:createProduct', error, 'Impossible d\'enregistrer ce produit. Réessaie dans un instant.')); return; }
@@ -711,12 +775,23 @@ export default function VendorDashboardScreen() {
       ];
 
   // ─── KPIs & chart ─────────────────────────────────────────────────────────
-  const periodData: Record<Period, number[]> = {
+  // Real per-period buckets from vendorOrders — was unconditionally
+  // VENDOR_STATS.monthlySales (mock) regardless of isSupabaseConfigured,
+  // separate from the KPI cards fixed in the previous session.
+  const realPeriodData: Record<Period, number[]> = {
+    '7j': bucketOrdersByDay(vendorOrders, 7),
+    '30j': bucketOrdersByDay(vendorOrders, 30),
+    '90j': bucketOrdersByWeek(vendorOrders, 13),
+    '12m': bucketOrdersByMonth(vendorOrders, 12),
+  };
+  const mockPeriodData: Record<Period, number[]> = {
     '7j': VENDOR_STATS.monthlySales.slice(-7),
     '30j': VENDOR_STATS.monthlySales,
     '90j': [...VENDOR_STATS.monthlySales, ...VENDOR_STATS.monthlySales.slice(0, 3)],
     '12m': VENDOR_STATS.monthlySales,
   };
+  const periodData = isSupabaseConfigured ? realPeriodData : mockPeriodData;
+  const realPeriodTotal = periodData[period].reduce((sum, v) => sum + v, 0);
   // Real vendorOrders/displayedProducts (fetched from Supabase above) — was
   // hardcoded to the VENDOR_STATS mock unconditionally before, so these cards
   // never matched what the vendor actually had in the database.
@@ -742,18 +817,24 @@ export default function VendorDashboardScreen() {
 
   // ─── IMPORT CSV ───────────────────────────────────────────────────────────
   const handleImportCSV = async () => {
-    if (!ensureKycApprovedToPublish()) return;
+    setCsvDebugLog([]);
+    dbgCsv('1. handleImportCSV appelé');
+    if (!ensureKycApprovedToPublish()) { dbgCsv('2. bloqué par le garde-fou KYC'); return; }
+    dbgCsv('2. garde-fou KYC OK');
     try {
+      dbgCsv('3. ouverture de DocumentPicker.getDocumentAsync…');
       const picked = await DocumentPicker.getDocumentAsync({
         type: ['text/csv', 'text/comma-separated-values',
                'application/csv', 'application/vnd.ms-excel', '*/*'],
         copyToCacheDirectory: true,
         multiple: false,
       });
+      dbgCsv(`4. picker résultat : canceled=${picked.canceled}, assets=${picked.canceled ? 0 : (picked.assets?.length ?? 0)}`);
 
-      if (picked.canceled || !picked.assets?.[0]) return;
+      if (picked.canceled || !picked.assets?.[0]) { dbgCsv('5. sortie — canceled ou aucun fichier'); return; }
 
       const file = picked.assets[0];
+      dbgCsv(`5. fichier sélectionné : ${file.name ?? '?'} (${file.uri.slice(0, 40)}…)`);
 
       // Read content
       let content: string;
@@ -761,7 +842,9 @@ export default function VendorDashboardScreen() {
         content = await FileSystem.readAsStringAsync(file.uri, {
           encoding: FileSystem.EncodingType.UTF8,
         });
-      } catch {
+        dbgCsv(`6. fichier lu, ${content.length} caractères`);
+      } catch (readErr: any) {
+        dbgCsv(`6. échec lecture fichier : ${readErr?.message ?? readErr}`);
         Alert.alert('Erreur', 'Impossible de lire le fichier. Vérifiez qu\'il est bien au format texte UTF-8.');
         return;
       }
@@ -893,8 +976,10 @@ export default function VendorDashboardScreen() {
           : '',
       ].filter(Boolean).join('');
 
+      dbgCsv(`7. terminé — ${imported} importé(s), ${errors.length} erreur(s)`);
       Alert.alert('Import terminé', summary);
     } catch (e: any) {
+      dbgCsv(`EXCEPTION : ${e?.message ?? String(e)}`);
       Alert.alert('Erreur', toUserMessage('vendor:csvImport', e, 'Impossible d\'importer ce fichier. Vérifie son format et réessaie.'));
     } finally {
       setIsImporting(false);
@@ -1124,10 +1209,18 @@ export default function VendorDashboardScreen() {
             </View>
             <MiniChart data={periodData[period]} color={colors.primary} />
             <View style={styles.chartFooter}>
-              <Text style={[styles.chartTotal, { color: colors.primary }]}>
-                ${VENDOR_STATS.totalSales.toLocaleString()}
-              </Text>
-              <Text style={[styles.chartChange, { color: '#22C55E' }]}>↑ +12.4%</Text>
+              {isSupabaseConfigured ? (
+                <Text style={[styles.chartTotal, { color: colors.primary }]}>
+                  {realPeriodTotal.toLocaleString('fr-FR')} FCFA
+                </Text>
+              ) : (
+                <>
+                  <Text style={[styles.chartTotal, { color: colors.primary }]}>
+                    ${VENDOR_STATS.totalSales.toLocaleString()}
+                  </Text>
+                  <Text style={[styles.chartChange, { color: '#22C55E' }]}>↑ +12.4%</Text>
+                </>
+              )}
             </View>
           </View>
 
@@ -1195,6 +1288,17 @@ export default function VendorDashboardScreen() {
               <Text style={[styles.actionLabel, { color: colors.foreground }]}>Commandes locales</Text>
             </TouchableOpacity>
           </View>
+
+          {/* TEMPORARY diagnostic panel for the "Importer CSV" bug report —
+              remove once the real blocking step is confirmed. */}
+          {csvDebugLog.length > 0 && (
+            <View style={{ backgroundColor: '#FEF3C7', borderColor: '#FCD34D', borderWidth: 1, borderRadius: 12, padding: 10, marginTop: 4 }}>
+              <Text style={{ fontSize: 11, fontWeight: '800', color: '#92400E', marginBottom: 4 }}>Debug CSV (temporaire)</Text>
+              {csvDebugLog.map((l, i) => (
+                <Text key={i} style={{ fontSize: 10, color: '#92400E' }}>{l}</Text>
+              ))}
+            </View>
+          )}
         </View>
       )}
 
@@ -1477,6 +1581,24 @@ export default function VendorDashboardScreen() {
                 />
               </View>
             ))}
+
+            {/* Specifications — free text, "Clé: Valeur" per line → products.specifications (jsonb) */}
+            <View style={styles.modalField}>
+              <Text style={[styles.modalLabel, { color: colors.foreground }]}>Spécifications (optionnel)</Text>
+              <TextInput
+                style={[styles.modalInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground, height: 80, textAlignVertical: 'top' }]}
+                placeholder={'Une par ligne, format "Clé: Valeur"\nEx: Poids net: 25 kg\nPays d\'origine: Sénégal'}
+                placeholderTextColor={colors.mutedForeground}
+                value={addForm.specifications}
+                onChangeText={v => setAddForm(prev => ({ ...prev, specifications: v }))}
+                multiline
+              />
+              {editingProduct && (
+                <Text style={{ fontSize: 11, color: colors.mutedForeground, marginTop: 4 }}>
+                  Laisse vide pour conserver les spécifications déjà enregistrées.
+                </Text>
+              )}
+            </View>
 
             {/* Product images picker */}
             <View style={styles.modalField}>

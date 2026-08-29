@@ -1833,15 +1833,30 @@ function AdminScreenInner() {
                 <Feather name="arrow-left" size={16} color={colors.primary} />
                 <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 13 }}>Retour aux conversations</Text>
               </TouchableOpacity>
-              <View style={{ gap: 10, marginBottom: 16 }}>
-                {supportMsgs.map(m => (
-                  <View key={m.id} style={[styles.createKeyForm, { backgroundColor: colors.card, borderColor: colors.border, padding: 12 }]}>
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.mutedForeground, marginBottom: 4 }}>
-                      {m.sender_id === supportConvs.find(c => c.id === activeSupportId)?.requesterId ? 'Client' : 'Admin (toi ou un collègue)'}
-                    </Text>
-                    <Text style={{ fontSize: 14, color: colors.foreground }}>{m.content}</Text>
-                  </View>
-                ))}
+              <View style={{ gap: 8, marginBottom: 16 }}>
+                {supportMsgs.map(m => {
+                  // Was a plain neutral card + text label for every message
+                  // regardless of sender ("Client" vs "Admin" only readable
+                  // as text, no color/alignment distinction) — same bubble
+                  // convention as the customer-facing support.tsx now.
+                  const requesterId = supportConvs.find(c => c.id === activeSupportId)?.requesterId;
+                  const isAdminMsg = m.sender_id !== requesterId;
+                  return (
+                    <View key={m.id} style={[styles.chatBubbleRow, isAdminMsg ? styles.chatBubbleRowMe : styles.chatBubbleRowOther]}>
+                      <View style={{ maxWidth: '80%' }}>
+                        <Text style={[styles.chatSenderLabel, { color: colors.mutedForeground, textAlign: isAdminMsg ? 'right' : 'left' }]}>
+                          {isAdminMsg ? 'Admin' : 'Client'}
+                        </Text>
+                        <View style={[styles.chatBubble, isAdminMsg
+                          ? { backgroundColor: colors.primary }
+                          : { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+                        >
+                          <Text style={isAdminMsg ? styles.chatBubbleTextMe : { color: colors.foreground, fontSize: 14 }}>{m.content}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <TextInput
@@ -2484,6 +2499,12 @@ const styles = StyleSheet.create({
   createKeyForm: { borderRadius: 14, borderWidth: 1.5, padding: 16, gap: 12 },
   formTitle: { fontSize: 15, fontWeight: '700' },
   formLabel: { fontSize: 13, fontWeight: '600', marginBottom: -4 },
+  chatBubbleRow:      { flexDirection: 'row' },
+  chatBubbleRowMe:    { justifyContent: 'flex-end' },
+  chatBubbleRowOther: { justifyContent: 'flex-start' },
+  chatSenderLabel:    { fontSize: 10, fontWeight: '700', marginBottom: 2 },
+  chatBubble:         { borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8 },
+  chatBubbleTextMe:   { color: 'white', fontSize: 14 },
   formInput: {
     borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 13,
   },

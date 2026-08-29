@@ -19,6 +19,7 @@ function mapRow(p: any): Product {
     reviewCount:    p.review_count ?? 0,
     stock:          p.stock_quantity ?? 0,
     tags:           [],
+    specifications: p.specifications && typeof p.specifications === 'object' ? p.specifications : {},
   };
 }
 
@@ -40,7 +41,7 @@ export function useProducts() {
         .from('products')
         .select(
           'id, name_i18n, description_i18n, images, price_public, price_wholesale, ' +
-          'min_order_quantity, stock_quantity, category, vendor_id, rating, review_count'
+          'min_order_quantity, stock_quantity, category, vendor_id, rating, review_count, specifications'
         )
         .eq('is_active', true)
         .order('created_at', { ascending: false });

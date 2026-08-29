@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Alert, Dimensions, Image, ScrollView, StyleSheet, Text,
+  ActivityIndicator, Alert, Dimensions, Image, ScrollView, StyleSheet, Text,
   TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -48,9 +48,15 @@ export default function ProductDetailScreen() {
   const { addItem } = useCart();
   const insets = useSafeAreaInsets();
 
-  const { products } = useProducts();
-  // Prefer Supabase data; fall back to MOCK_PRODUCTS for demo IDs
-  const product = products.find(p => p.id === id) ?? MOCK_PRODUCTS.find(p => p.id === id) ?? MOCK_PRODUCTS[0];
+  const { products, loading: productsLoading } = useProducts();
+  // Prefer Supabase data; fall back to MOCK_PRODUCTS only in demo mode. In
+  // real mode, an unmatched id used to silently fall through to
+  // MOCK_PRODUCTS[0] ("Industrial LED Panel 100W" / "Vega Electronics Co.")
+  // instead of showing an error — confirmed via a direct products count (1
+  // real row in the whole table) that this was never real inventory leaking
+  // through, just an unconditional fallback masking a bad/stale id.
+  const product = products.find(p => p.id === id)
+    ?? (!isSupabaseConfigured ? (MOCK_PRODUCTS.find(p => p.id === id) ?? MOCK_PRODUCTS[0]) : undefined);
 
   // isB2B must be computed BEFORE the quantity useState so the initial value
   // can be role-aware. B2B buyers start at minQuantity (e.g. 50 for bulk items);
@@ -65,7 +71,11 @@ export default function ProductDetailScreen() {
   const [omniVisible, setOmniVisible] = useState(false);
 
   // ── Real reviews from Supabase ──────────────────────────────────────────────
-  const [reviews, setReviews] = useState(MOCK_REVIEWS);
+  // Was seeded with MOCK_REVIEWS and only ever overwritten `if data.length > 0`
+  // — a real product with zero reviews kept showing the 3 fake reviews
+  // ("Ahmed D.", "Sophie M.", dated Jan 2024) forever. Empty by default in
+  // real mode; mock only ever appears in demo mode.
+  const [reviews, setReviews] = useState<typeof MOCK_REVIEWS>(isSupabaseConfigured ? [] : MOCK_REVIEWS);
   const fetchReviews = useCallback(async () => {
     if (!id || !isSupabaseConfigured || !supabase) return;
     const { data } = await supabase
@@ -86,12 +96,41 @@ export default function ProductDetailScreen() {
     }
   }, [id]);
   useEffect(() => { fetchReviews(); }, [fetchReviews]);
+
+  // Real mode, id didn't match any product — either still loading (first
+  // render, before useProducts' fetch resolves) or genuinely gone/invalid.
+  // Previously fell through silently to MOCK_PRODUCTS[0].
+  if (!product) {
+    return (
+      <View style={[styles.container, styles.notFoundContainer, { backgroundColor: colors.background }]}>
+        {productsLoading ? (
+          <ActivityIndicator size="large" color={colors.primary} />
+        ) : (
+          <>
+            <Feather name="alert-circle" size={40} color={colors.mutedForeground} />
+            <Text style={[styles.notFoundTitle, { color: colors.foreground }]}>Produit introuvable</Text>
+            <Text style={[styles.notFoundDesc, { color: colors.mutedForeground }]}>
+              Ce produit n'existe plus ou n'est plus disponible.
+            </Text>
+            <TouchableOpacity style={[styles.notFoundBtn, { backgroundColor: colors.primary }]} onPress={() => router.back()}>
+              <Text style={styles.notFoundBtnText}>Retour</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
+    );
+  }
+
   const displayPrice = isB2B ? product.priceWholesale : product.pricePublic;
   const savings = isB2B ? ((product.pricePublic - product.priceWholesale) / product.pricePublic * 100).toFixed(0) : null;
   const similar = (products.length > 0 ? products : MOCK_PRODUCTS)
     .filter(p => p.category === product.category && p.id !== product.id)
     .slice(0, 4);
-  const specs = PRODUCT_SPECS[product.id] ?? {};
+  // Real mode reads the actual `products.specifications` jsonb column (was
+  // always empty here — this map only ever had entries for mock ids p1/p3,
+  // so every real product showed the dash fallback regardless of what's
+  // actually stored). Demo mode keeps the richer mock specs.
+  const specs = isSupabaseConfigured ? (product.specifications ?? {}) : (PRODUCT_SPECS[product.id] ?? {});
 
   const omniContext: OmniContext = {
     type: 'product',
@@ -108,6 +147,7 @@ export default function ProductDetailScreen() {
   };
 
   function handleAddToCart() {
+    if (!product) return; // unreachable — guarded above — TS just can't narrow across this closure
     addItem({
       productId: product.id,
       productName: product.name,
@@ -429,6 +469,11 @@ export default function ProductDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  notFoundContainer: { justifyContent: 'center', alignItems: 'center', gap: 10, padding: 32 },
+  notFoundTitle: { fontSize: 17, fontWeight: '700', marginTop: 4 },
+  notFoundDesc: { fontSize: 13, textAlign: 'center', lineHeight: 18 },
+  notFoundBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, marginTop: 8 },
+  notFoundBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },
   topBar: {
     position: 'absolute',
     top: 0,

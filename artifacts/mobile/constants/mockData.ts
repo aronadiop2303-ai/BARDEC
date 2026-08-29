@@ -27,6 +27,7 @@ export interface Product {
   reviewCount: number;
   stock: number;
   tags: string[];
+  specifications?: Record<string, string>;
 }
 
 export interface OrderItem {
