@@ -55,7 +55,7 @@ export default function AddProductScreen() {
     if (productJson) {
       try {
         const p = JSON.parse(productJson);
-        setForm({ name: p.name, price: String(p.price), unit: p.unit, imageUri: p.image_url ?? '', in_stock: p.in_stock });
+        setForm({ name: p.name, price: String(p.price), unit: p.unit, imageUri: p.image ?? '', in_stock: p.in_stock });
       } catch {}
     }
   }, [productJson]);
@@ -118,12 +118,17 @@ export default function AddProductScreen() {
         imageUrl = await uploadImage(form.imageUri);
       }
 
+      // proximity_products' column is `image`, not `image_url` — the mismatch
+      // made every insert/update from this screen fail with PGRST204
+      // ("Could not find the 'image_url' column... in the schema cache"),
+      // regardless of whether a photo was even attached (the key is always
+      // present in the payload). Confirmed against live information_schema.
       const payload = {
         shop_id: shopId,
         name: form.name.trim(),
         price: priceNum,
         unit: form.unit.trim() || 'unité',
-        image_url: imageUrl || null,
+        image: imageUrl || null,
         in_stock: form.in_stock,
       };
 
