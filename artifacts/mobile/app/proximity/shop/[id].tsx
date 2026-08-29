@@ -26,6 +26,7 @@ import {
   useMyProximityReview,
   useSubmitProximityReview,
 } from '@/hooks/useProximityReviews';
+import { ReportModal } from '@/components/ReportModal';
 
 const GREEN = '#22C55E';
 const STAR_COLOR = '#F59E0B';
@@ -101,6 +102,7 @@ export default function ShopProductsScreen() {
   const { addItem, totalItems, shopId: cartShopId } = useProximityCart();
   const { user } = useAuth();
   const [adding, setAdding] = useState<Record<string, boolean>>({});
+  const [reportShopOpen, setReportShopOpen] = useState(false);
 
   // Review state
   const [showReviewForm, setShowReviewForm] = useState(false);
@@ -212,6 +214,9 @@ export default function ShopProductsScreen() {
           <Text style={styles.shopName} numberOfLines={1}>{shop.name}</Text>
           <Text style={styles.shopSub}>{shop.subcategory ?? shop.category}</Text>
         </View>
+        <TouchableOpacity style={styles.reportShopBtn} onPress={() => setReportShopOpen(true)}>
+          <Feather name="flag" size={18} color="white" />
+        </TouchableOpacity>
         {totalItems > 0 && (
           <TouchableOpacity
             style={styles.cartBadge}
@@ -222,6 +227,13 @@ export default function ShopProductsScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      <ReportModal
+        visible={reportShopOpen}
+        onClose={() => setReportShopOpen(false)}
+        targetType="shop"
+        targetId={shop.id}
+      />
 
       <FlatList
         data={products}
@@ -405,6 +417,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   shopHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 16, gap: 12 },
   backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.2)', justifyContent: 'center', alignItems: 'center' },
+  reportShopBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.2)', justifyContent: 'center', alignItems: 'center', marginRight: 8 },
   shopName: { color: 'white', fontSize: 18, fontWeight: '800' },
   shopSub: { color: 'rgba(255,255,255,0.8)', fontSize: 13 },
   cartBadge: { backgroundColor: 'white', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 6 },

@@ -17,7 +17,7 @@ import { notifyVendorKycEvent } from '@/lib/notifications';
 import { ENUM_TO_CATEGORY } from '@/constants/proximityData';
 
 const { width } = Dimensions.get('window');
-type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'orders' | 'disputes' | 'payments' | 'notifications' | 'support' | 'settings' | 'apikeys';
+type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'reports' | 'orders' | 'disputes' | 'payments' | 'notifications' | 'support' | 'settings' | 'apikeys';
 
 // ── API keys — matches what mcp-server actually enforces (validateApiKey):
 // hasWrite = perms.includes('write') || perms.includes('*');
@@ -327,7 +327,7 @@ function AdminScreenInner() {
     }
   }
 
-  async function handleUpdateReportStatus(shopId: string, reportId: string, status: 'actioned' | 'dismissed') {
+  async function handleUpdateReportStatus(shopId: string, reportId: string, status: 'reviewed' | 'actioned' | 'dismissed') {
     if (!supabase) return;
     const { data: { user: authUser } } = await supabase.auth.getUser();
     const { error } = await supabase
@@ -367,6 +367,105 @@ function AdminScreenInner() {
     } : s));
     setEditingShopId(null);
   }
+
+  // ─── Signalements globaux (content_reports — product/shop/review/vendor/user) ──
+  interface ContentReport {
+    id: string; reporter_id: string; target_type: 'product' | 'shop' | 'review' | 'vendor' | 'user';
+    target_id: string; reason: string; details: string | null; status: string; created_at: string;
+  }
+  interface ReportTargetPreview { label: string; sub?: string; image?: string | null; missing?: boolean; isActive?: boolean }
+  const [allReports,           setAllReports]           = useState<ContentReport[]>([]);
+  const [loadingReports,       setLoadingReports]       = useState(isSupabaseConfigured);
+  const [reportsFilter,        setReportsFilter]        = useState<'pending' | 'reviewed' | 'actioned' | 'dismissed' | 'all'>('pending');
+  const [reportTargetPreviews, setReportTargetPreviews] = useState<Record<string, ReportTargetPreview>>({});
+  const [reportReporters,      setReportReporters]      = useState<Record<string, { display_name: string | null; email: string }>>({});
+  const [reportActingId,       setReportActingId]       = useState<string | null>(null);
+
+  const TARGET_TYPE_ICON: Record<string, string> = { product: 'package', shop: 'map-pin', review: 'star', vendor: 'briefcase', user: 'user' };
+  const TARGET_TYPE_LABEL: Record<string, string> = { product: 'Produit', shop: 'Boutique', review: 'Avis', vendor: 'Vendeur', user: 'Utilisateur' };
+  const REPORT_STATUS_BADGE: Record<string, [string, string, string]> = {
+    pending:   ['#FEF3C7', '#D97706', 'En attente'],
+    reviewed:  ['#E0F2FE', '#0369A1', 'Traité'],
+    actioned:  ['#D1FAE5', '#059669', 'Actionné'],
+    dismissed: ['#FEE2E2', '#DC2626', 'Rejeté'],
+  };
+
+  const fetchAllReports = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingReports(false); return; }
+    setLoadingReports(true);
+    const { data, error } = await supabase.from('content_reports').select('*').order('created_at', { ascending: false });
+    if (error) { console.warn('Admin reports fetch error:', error.message); setLoadingReports(false); return; }
+    const reports = (data ?? []) as ContentReport[];
+    setAllReports(reports);
+
+    const reporterIds = [...new Set(reports.map(r => r.reporter_id))];
+    if (reporterIds.length > 0) {
+      const { data: users } = await supabase.from('users').select('id, display_name, email').in('id', reporterIds);
+      setReportReporters(Object.fromEntries((users ?? []).map((u: any) => [u.id, { display_name: u.display_name, email: u.email }])));
+    }
+
+    const productIds = reports.filter(r => r.target_type === 'product').map(r => r.target_id);
+    const shopIds    = reports.filter(r => r.target_type === 'shop').map(r => r.target_id);
+    const reviewIds  = reports.filter(r => r.target_type === 'review').map(r => r.target_id);
+    const previews: Record<string, ReportTargetPreview> = {};
+
+    if (productIds.length > 0) {
+      const { data: prods } = await supabase.from('products').select('id, name, images, is_active').in('id', productIds);
+      (prods ?? []).forEach((p: any) => { previews[`product:${p.id}`] = { label: p.name, image: p.images?.[0] ?? null, isActive: p.is_active }; });
+      productIds.forEach(id => { if (!previews[`product:${id}`]) previews[`product:${id}`] = { label: 'Produit introuvable (supprimé)', missing: true }; });
+    }
+    if (shopIds.length > 0) {
+      const { data: shops } = await supabase.from('proximity_shops').select('id, name, images, address_text, is_active').in('id', shopIds);
+      (shops ?? []).forEach((s: any) => { previews[`shop:${s.id}`] = { label: s.name, sub: s.address_text, image: s.images?.[0] ?? null, isActive: s.is_active }; });
+      shopIds.forEach(id => { if (!previews[`shop:${id}`]) previews[`shop:${id}`] = { label: 'Boutique introuvable (supprimée)', missing: true }; });
+    }
+    if (reviewIds.length > 0) {
+      // 'review' can only ever point at the real `reviews` table (product
+      // reviews) — proximity_reviews doesn't exist in production (see
+      // BUGS.md), so the "Signaler" entry point was never wired to it.
+      const { data: revs } = await supabase.from('reviews').select('id, comment, rating').in('id', reviewIds);
+      (revs ?? []).forEach((r: any) => { previews[`review:${r.id}`] = { label: `${r.rating}★ — ${r.comment ? r.comment.slice(0, 80) : 'sans commentaire'}` }; });
+      reviewIds.forEach(id => { if (!previews[`review:${id}`]) previews[`review:${id}`] = { label: 'Avis introuvable (supprimé)', missing: true }; });
+    }
+
+    setReportTargetPreviews(previews);
+    setLoadingReports(false);
+  }, []);
+
+  useEffect(() => { fetchAllReports(); }, [fetchAllReports]);
+  useFocusEffect(useCallback(() => { fetchAllReports(); }, [fetchAllReports]));
+
+  async function handleGlobalReportStatus(reportId: string, status: 'reviewed' | 'actioned' | 'dismissed') {
+    if (!supabase) return;
+    setReportActingId(reportId);
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const { error } = await supabase
+      .from('content_reports')
+      .update({ status, reviewed_by: authUser?.id, reviewed_at: new Date().toISOString() })
+      .eq('id', reportId);
+    setReportActingId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:updateReport', error, 'Impossible de mettre à jour ce signalement. Réessaie dans un instant.')); return; }
+    setAllReports(prev => prev.map(r => r.id === reportId ? { ...r, status } : r));
+  }
+
+  async function handleHideReportTarget(report: ContentReport) {
+    if (!supabase) return;
+    const table = report.target_type === 'product' ? 'products' : report.target_type === 'shop' ? 'proximity_shops' : null;
+    if (!table) return;
+    setReportActingId(report.id);
+    const { error } = await supabase.from(table).update({ is_active: false }).eq('id', report.target_id);
+    if (error) {
+      setReportActingId(null);
+      Alert.alert('Erreur', toUserMessage('admin:hideReportTarget', error, 'Impossible de masquer ce contenu. Réessaie dans un instant.'));
+      return;
+    }
+    const key = `${report.target_type}:${report.target_id}`;
+    setReportTargetPreviews(prev => ({ ...prev, [key]: { ...prev[key], isActive: false } }));
+    await handleGlobalReportStatus(report.id, 'actioned');
+  }
+
+  const filteredReports = allReports.filter(r => reportsFilter === 'all' ? true : r.status === reportsFilter);
+  const pendingReportsCount = allReports.filter(r => r.status === 'pending').length;
 
   const filteredShops = realShops.filter(s => {
     if (shopStatusFilter === 'active' && !s.is_active) return false;
@@ -812,6 +911,7 @@ function AdminScreenInner() {
     { id: 'users',     label: 'Utilisateurs', icon: 'users'         },
     { id: 'vendors',   label: t('vendors'),   icon: 'briefcase',     badge: pendingKycCount },
     { id: 'shops',     label: 'Boutiques',    icon: 'map-pin',       badge: totalPendingShopReports },
+    { id: 'reports',   label: 'Signalements', icon: 'flag',          badge: pendingReportsCount },
     { id: 'orders',    label: t('orders'),    icon: 'shopping-cart' },
     { id: 'disputes',  label: t('disputes'),  icon: 'alert-triangle'},
     { id: 'payments',  label: 'Paiements',     icon: 'credit-card',  badge: pendingCount },
@@ -1272,24 +1372,138 @@ function AdminScreenInner() {
                               Par {reporter?.display_name ?? reporter?.email ?? '—'} · {new Date(r.created_at).toLocaleDateString('fr-FR')} · {r.status}
                             </Text>
                             {r.status === 'pending' && (
-                              <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+                              <View style={{ flexDirection: 'row', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                                <TouchableOpacity
+                                  style={[styles.vendorActionBtn, { backgroundColor: colors.accent, borderColor: colors.border }]}
+                                  onPress={() => handleUpdateReportStatus(shop.id, r.id, 'reviewed')}
+                                >
+                                  <Text style={[styles.vendorActionText, { color: colors.foreground }]}>Traité</Text>
+                                </TouchableOpacity>
                                 <TouchableOpacity
                                   style={[styles.vendorActionBtn, { backgroundColor: '#D1FAE5', borderColor: '#22C55E' }]}
                                   onPress={() => handleUpdateReportStatus(shop.id, r.id, 'actioned')}
                                 >
-                                  <Text style={[styles.vendorActionText, { color: '#059669' }]}>Traité</Text>
+                                  <Text style={[styles.vendorActionText, { color: '#059669' }]}>Actionné</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
-                                  style={[styles.vendorActionBtn, { backgroundColor: colors.accent, borderColor: colors.border }]}
+                                  style={[styles.vendorActionBtn, { backgroundColor: '#FEE2E2', borderColor: '#EF4444' }]}
                                   onPress={() => handleUpdateReportStatus(shop.id, r.id, 'dismissed')}
                                 >
-                                  <Text style={[styles.vendorActionText, { color: colors.foreground }]}>Rejeter</Text>
+                                  <Text style={[styles.vendorActionText, { color: '#DC2626' }]}>Rejeté</Text>
                                 </TouchableOpacity>
                               </View>
                             )}
                           </View>
                         );
                       })
+                    )}
+                  </View>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      )}
+
+      {/* REPORTS — content_reports (product/shop/review), cross-type moderation queue */}
+      {activeTab === 'reports' && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Signalements</Text>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 4 }}>
+            {(['pending', 'reviewed', 'actioned', 'dismissed', 'all'] as const).map(f => (
+              <TouchableOpacity
+                key={f}
+                style={[styles.tabChip, { backgroundColor: reportsFilter === f ? colors.primary : colors.card, borderColor: colors.border }]}
+                onPress={() => setReportsFilter(f)}
+              >
+                <Text style={[styles.tabChipText, { color: reportsFilter === f ? 'white' : colors.foreground }]}>
+                  {f === 'all' ? 'Tous' : f === 'pending' ? 'En attente' : f === 'reviewed' ? 'Traité' : f === 'actioned' ? 'Actionné' : 'Rejeté'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {loadingReports && <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />}
+          {!loadingReports && filteredReports.length === 0 && (
+            <Text style={{ color: colors.mutedForeground, padding: 12 }}>Aucun signalement dans cette catégorie.</Text>
+          )}
+
+          {filteredReports.map(r => {
+            const preview = reportTargetPreviews[`${r.target_type}:${r.target_id}`];
+            const reporter = reportReporters[r.reporter_id];
+            const [badgeBg, badgeColor, badgeLabel] = REPORT_STATUS_BADGE[r.status] ?? ['#FEF3C7', '#D97706', r.status];
+            const acting = reportActingId === r.id;
+            const canHide = (r.target_type === 'product' || r.target_type === 'shop') && preview && !preview.missing && preview.isActive !== false;
+
+            return (
+              <View key={r.id} style={[styles.vendorCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={styles.vendorHeader}>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Feather name={(TARGET_TYPE_ICON[r.target_type] ?? 'flag') as any} size={12} color={colors.mutedForeground} />
+                      <Text style={[styles.vendorCountry, { color: colors.mutedForeground }]}>{TARGET_TYPE_LABEL[r.target_type] ?? r.target_type}</Text>
+                    </View>
+                    <Text style={[styles.vendorName, { color: colors.foreground }]} numberOfLines={1}>
+                      {preview?.label ?? '…'}
+                    </Text>
+                    {preview?.sub ? (
+                      <Text style={[styles.vendorCountry, { color: colors.mutedForeground }]} numberOfLines={1}>{preview.sub}</Text>
+                    ) : null}
+                  </View>
+                  {preview?.image ? (
+                    <Image source={{ uri: preview.image }} style={{ width: 48, height: 48, borderRadius: 8 }} />
+                  ) : null}
+                  <View style={[styles.kycStatusBadge, { backgroundColor: badgeBg }]}>
+                    <Text style={[styles.kycStatusText, { color: badgeColor }]}>{badgeLabel}</Text>
+                  </View>
+                </View>
+
+                <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: '600', marginTop: 4 }}>{r.reason}</Text>
+                {r.details ? <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{r.details}</Text> : null}
+                <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 2 }}>
+                  Par {reporter?.display_name ?? reporter?.email ?? '—'} · {new Date(r.created_at).toLocaleString('fr-FR')}
+                </Text>
+
+                {preview?.isActive === false && (
+                  <View style={styles.docStatus}>
+                    <Feather name="eye-off" size={13} color="#DC2626" />
+                    <Text style={[styles.docStatusText, { color: '#DC2626' }]}>Contenu déjà masqué</Text>
+                  </View>
+                )}
+
+                {r.status === 'pending' && (
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                    <TouchableOpacity
+                      style={[styles.vendorActionBtn, { backgroundColor: colors.accent, borderColor: colors.border, opacity: acting ? 0.6 : 1 }]}
+                      onPress={() => handleGlobalReportStatus(r.id, 'reviewed')}
+                      disabled={acting}
+                    >
+                      <Text style={[styles.vendorActionText, { color: colors.foreground }]}>Traité</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.vendorActionBtn, { backgroundColor: '#D1FAE5', borderColor: '#22C55E', opacity: acting ? 0.6 : 1 }]}
+                      onPress={() => handleGlobalReportStatus(r.id, 'actioned')}
+                      disabled={acting}
+                    >
+                      <Text style={[styles.vendorActionText, { color: '#059669' }]}>Actionné</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.vendorActionBtn, { backgroundColor: '#FEE2E2', borderColor: '#EF4444', opacity: acting ? 0.6 : 1 }]}
+                      onPress={() => handleGlobalReportStatus(r.id, 'dismissed')}
+                      disabled={acting}
+                    >
+                      <Text style={[styles.vendorActionText, { color: '#DC2626' }]}>Rejeté</Text>
+                    </TouchableOpacity>
+                    {canHide && (
+                      <TouchableOpacity
+                        style={[styles.vendorActionBtn, { backgroundColor: '#7C3AED18', borderColor: '#7C3AED', opacity: acting ? 0.6 : 1 }]}
+                        onPress={() => handleHideReportTarget(r)}
+                        disabled={acting}
+                      >
+                        <Feather name="eye-off" size={13} color="#7C3AED" />
+                        <Text style={[styles.vendorActionText, { color: '#7C3AED' }]}>Masquer</Text>
+                      </TouchableOpacity>
                     )}
                   </View>
                 )}

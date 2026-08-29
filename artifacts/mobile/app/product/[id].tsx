@@ -17,6 +17,7 @@ import BardecLayout from '@/components/BardecLayout';
 import ProductCard from '@/components/ProductCard';
 import { OmniChatModal } from '@/components/OmniChatModal';
 import type { OmniContext } from '@/hooks/useOmniChat';
+import { ReportModal, ReportTargetType } from '@/components/ReportModal';
 
 const { width } = Dimensions.get('window');
 type ProductTab = 'description' | 'specifications' | 'reviews' | 'trade_assurance';
@@ -60,6 +61,7 @@ export default function ProductDetailScreen() {
   const [activeTab, setActiveTab] = useState<ProductTab>('description');
   const [quantity, setQuantity] = useState(isB2B ? (product?.minQuantity ?? 1) : 1);
   const [wishlist, setWishlist] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{ type: ReportTargetType; id: string } | null>(null);
   const [omniVisible, setOmniVisible] = useState(false);
 
   // ── Real reviews from Supabase ──────────────────────────────────────────────
@@ -146,8 +148,21 @@ export default function ProductDetailScreen() {
           <TouchableOpacity style={[styles.iconBtn, { backgroundColor: 'rgba(255,255,255,0.9)' }]} onPress={() => setWishlist(!wishlist)}>
             <Feather name="heart" size={20} color={wishlist ? '#EF4444' : colors.foreground} />
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: 'rgba(255,255,255,0.9)' }]}
+            onPress={() => setReportTarget({ type: 'product', id: product.id })}
+          >
+            <Feather name="flag" size={20} color={colors.foreground} />
+          </TouchableOpacity>
         </View>
       </View>
+
+      <ReportModal
+        visible={!!reportTarget}
+        onClose={() => setReportTarget(null)}
+        targetType={reportTarget?.type ?? 'product'}
+        targetId={reportTarget?.id ?? ''}
+      />
 
       <ScrollView showsVerticalScrollIndicator={false} stickyHeaderIndices={[]} contentContainerStyle={{ paddingBottom: 140 + insets.bottom }}>
         {/* Image carousel */}
@@ -341,6 +356,13 @@ export default function ProductDetailScreen() {
                     </View>
                   </View>
                   <Text style={[styles.reviewComment, { color: colors.foreground }]}>{rev.comment}</Text>
+                  <TouchableOpacity
+                    style={styles.reportReviewBtn}
+                    onPress={() => setReportTarget({ type: 'review', id: rev.id })}
+                  >
+                    <Feather name="flag" size={12} color={colors.mutedForeground} />
+                    <Text style={[styles.reportReviewText, { color: colors.mutedForeground }]}>Signaler</Text>
+                  </TouchableOpacity>
                 </View>
               ))}
             </View>
@@ -541,6 +563,8 @@ const styles = StyleSheet.create({
   specKey: { fontSize: 13, flex: 1 },
   specVal: { fontSize: 13, fontWeight: '600', flex: 1, textAlign: 'right' },
   reviewsList: { gap: 16 },
+  reportReviewBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8, alignSelf: 'flex-start' },
+  reportReviewText: { fontSize: 11, fontWeight: '600' },
   reviewCard: { borderBottomWidth: 1, paddingBottom: 16, gap: 10 },
   reviewHeader: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   reviewAvatar: {
