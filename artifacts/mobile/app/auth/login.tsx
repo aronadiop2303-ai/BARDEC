@@ -151,8 +151,17 @@ export default function LoginScreen() {
 
           {/* Biometric login: lib/biometric.ts exists but was never wired up
               anywhere (no onPress here, profile.tsx toggle didn't call it
-              either) — hidden until it's actually implemented rather than
-              shipping a dead button. */}
+              either). Shown disabled with a "Bientôt disponible" badge —
+              same convention as ChatFiniButton's "Chat Fini" row and the
+              landing page's iOS/Google Play buttons — instead of a dead
+              tappable button or hiding it outright. */}
+          <View style={[styles.biometricBtn, { borderColor: colors.border, backgroundColor: colors.card, borderStyle: 'dashed', opacity: 0.55 }]}>
+            <Feather name="shield" size={18} color={colors.mutedForeground} />
+            <Text style={[styles.biometricText, { color: colors.mutedForeground }]}>{t('biometric_login')}</Text>
+            <View style={[styles.soonBadge, { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' }]}>
+              <Text style={styles.soonBadgeText}>Bientôt disponible</Text>
+            </View>
+          </View>
         </View>
 
         {/* Demo mode */}
@@ -260,6 +269,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   biometricText: { fontSize: 15, fontWeight: '600' },
+  soonBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1 },
+  soonBadgeText: { fontSize: 10, fontWeight: '700', color: '#D97706' },
   demoSection: { gap: 10 },
   demoToggle: {
     flexDirection: 'row',

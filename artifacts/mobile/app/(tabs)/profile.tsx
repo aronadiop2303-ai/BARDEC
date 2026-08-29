@@ -413,9 +413,18 @@ export default function ProfileScreen() {
           />
         </View>
 
-        {/* Biometric login toggle removed — lib/biometric.ts was never wired
-            to this switch (onValueChange just set local state, nothing was
-            persisted or enforced at login). Hidden until actually implemented. */}
+        {/* lib/biometric.ts was never wired to this switch (onValueChange
+            just set local state, nothing was persisted or enforced at
+            login) — shown disabled with a "Bientôt disponible" badge, same
+            convention as ChatFiniButton's "Chat Fini" row and the landing
+            page's iOS/Google Play buttons, instead of a dead toggle. */}
+        <View style={[styles.menuRow, { opacity: 0.55 }]}>
+          <Feather name="shield" size={18} color={colors.mutedForeground} />
+          <Text style={[styles.menuLabel, { color: colors.mutedForeground, flex: 1 }]}>{t('biometric_login')}</Text>
+          <View style={[styles.soonBadge, { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' }]}>
+            <Text style={styles.soonBadgeText}>Bientôt disponible</Text>
+          </View>
+        </View>
 
         <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
         <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>Commerce de proximité</Text>
@@ -552,6 +561,8 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   menuLabel: { fontSize: 15, fontWeight: '500' },
+  soonBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1 },
+  soonBadgeText: { fontSize: 10, fontWeight: '700', color: '#D97706' },
   menuValue: { fontSize: 13, marginTop: 1 },
   menuRowText: { flex: 1 },
   badge: {
