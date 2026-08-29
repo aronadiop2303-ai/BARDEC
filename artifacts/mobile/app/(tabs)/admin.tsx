@@ -14,9 +14,10 @@ import { ADMIN_STATS, DEMO_USERS, MOCK_ORDERS, UserRole } from '@/constants/mock
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toUserMessage } from '@/lib/errors';
 import { notifyVendorKycEvent } from '@/lib/notifications';
+import { ENUM_TO_CATEGORY } from '@/constants/proximityData';
 
 const { width } = Dimensions.get('window');
-type AdminTab = 'dashboard' | 'users' | 'vendors' | 'orders' | 'disputes' | 'payments' | 'notifications' | 'support' | 'settings' | 'apikeys';
+type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'orders' | 'disputes' | 'payments' | 'notifications' | 'support' | 'settings' | 'apikeys';
 
 // ── API keys — matches what mcp-server actually enforces (validateApiKey):
 // hasWrite = perms.includes('write') || perms.includes('*');
@@ -225,6 +226,156 @@ function AdminScreenInner() {
     setKycRejectOpen(null);
     notifyVendorKycEvent(supabase, vendorId, 'rejected', note || undefined);
   }
+
+  // ─── Proximity shops (proximity_shops — shops_owner_manage gives ADMIN a
+  // full ALL policy already, no backend change needed) ───────────────────────
+  interface RealShop {
+    id: string; owner_id: string; name: string; category: string; subcategory: string;
+    description: string | null; phone: string | null; address_text: string;
+    images: string[] | null; is_active: boolean; verified: boolean;
+    rating: number; review_count: number; created_at: string;
+  }
+  interface ShopReport {
+    id: string; reporter_id: string; reason: string; details: string | null; status: string; created_at: string;
+  }
+  const [realShops,        setRealShops]        = useState<RealShop[]>([]);
+  const [shopOwners,       setShopOwners]       = useState<Record<string, { display_name: string | null; email: string }>>({});
+  const [loadingShops,     setLoadingShops]     = useState(isSupabaseConfigured);
+  const [shopStatusFilter, setShopStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [shopVerifiedFilter, setShopVerifiedFilter] = useState<'all' | 'verified' | 'unverified'>('all');
+  const [shopPendingReportCounts, setShopPendingReportCounts] = useState<Record<string, number>>({});
+  const [expandedShopId,   setExpandedShopId]   = useState<string | null>(null);
+  const [shopReports,      setShopReports]      = useState<Record<string, ShopReport[]>>({});
+  const [reporterUsers,    setReporterUsers]    = useState<Record<string, { display_name: string | null; email: string }>>({});
+  const [editingShopId,    setEditingShopId]    = useState<string | null>(null);
+  const [shopEditForm,     setShopEditForm]     = useState({ name: '', phone: '', address_text: '', description: '' });
+  const [savingShopEdit,   setSavingShopEdit]   = useState(false);
+  const [shopActingId,     setShopActingId]     = useState<string | null>(null);
+
+  const fetchShops = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingShops(false); return; }
+    setLoadingShops(true);
+    const { data, error } = await supabase
+      .from('proximity_shops')
+      .select('id, owner_id, name, category, subcategory, description, phone, address_text, images, is_active, verified, rating, review_count, created_at')
+      .order('created_at', { ascending: false });
+    if (error) { console.warn('Admin shops fetch error:', error.message); setLoadingShops(false); return; }
+    setRealShops((data ?? []) as RealShop[]);
+
+    const ownerIds = [...new Set((data ?? []).map((s: { owner_id: string }) => s.owner_id))];
+    if (ownerIds.length > 0) {
+      const { data: users } = await supabase.from('users').select('id, display_name, email').in('id', ownerIds);
+      setShopOwners(Object.fromEntries((users ?? []).map((u: any) => [u.id, { display_name: u.display_name, email: u.email }])));
+    }
+
+    const shopIds = (data ?? []).map((s: { id: string }) => s.id);
+    if (shopIds.length > 0) {
+      const { data: reports } = await supabase
+        .from('content_reports')
+        .select('target_id')
+        .eq('target_type', 'shop')
+        .eq('status', 'pending')
+        .in('target_id', shopIds);
+      const counts: Record<string, number> = {};
+      (reports ?? []).forEach((r: { target_id: string }) => { counts[r.target_id] = (counts[r.target_id] ?? 0) + 1; });
+      setShopPendingReportCounts(counts);
+    }
+    setLoadingShops(false);
+  }, []);
+
+  useEffect(() => { fetchShops(); }, [fetchShops]);
+  useFocusEffect(useCallback(() => { fetchShops(); }, [fetchShops]));
+
+  async function handleToggleShopActive(shop: RealShop) {
+    if (!supabase) return;
+    setShopActingId(shop.id);
+    const { error } = await supabase.from('proximity_shops').update({ is_active: !shop.is_active }).eq('id', shop.id);
+    setShopActingId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:toggleShopActive', error, 'Impossible de modifier le statut de cette boutique. Réessaie dans un instant.')); return; }
+    setRealShops(prev => prev.map(s => s.id === shop.id ? { ...s, is_active: !shop.is_active } : s));
+  }
+
+  async function handleToggleShopVerified(shop: RealShop) {
+    if (!supabase) return;
+    setShopActingId(shop.id);
+    const { error } = await supabase.from('proximity_shops').update({ verified: !shop.verified }).eq('id', shop.id);
+    setShopActingId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:toggleShopVerified', error, 'Impossible de modifier la vérification de cette boutique. Réessaie dans un instant.')); return; }
+    setRealShops(prev => prev.map(s => s.id === shop.id ? { ...s, verified: !shop.verified } : s));
+  }
+
+  async function toggleShopExpand(shop: RealShop) {
+    const next = expandedShopId === shop.id ? null : shop.id;
+    setExpandedShopId(next);
+    if (next && !shopReports[shop.id] && supabase) {
+      const { data } = await supabase
+        .from('content_reports')
+        .select('id, reporter_id, reason, details, status, created_at')
+        .eq('target_type', 'shop')
+        .eq('target_id', shop.id)
+        .order('created_at', { ascending: false });
+      setShopReports(prev => ({ ...prev, [shop.id]: (data ?? []) as ShopReport[] }));
+
+      const reporterIds = [...new Set((data ?? []).map((r: { reporter_id: string }) => r.reporter_id))];
+      if (reporterIds.length > 0) {
+        const { data: users } = await supabase.from('users').select('id, display_name, email').in('id', reporterIds);
+        setReporterUsers(prev => ({
+          ...prev,
+          ...Object.fromEntries((users ?? []).map((u: any) => [u.id, { display_name: u.display_name, email: u.email }])),
+        }));
+      }
+    }
+  }
+
+  async function handleUpdateReportStatus(shopId: string, reportId: string, status: 'actioned' | 'dismissed') {
+    if (!supabase) return;
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const { error } = await supabase
+      .from('content_reports')
+      .update({ status, reviewed_by: authUser?.id, reviewed_at: new Date().toISOString() })
+      .eq('id', reportId);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:updateShopReport', error, 'Impossible de mettre à jour ce signalement. Réessaie dans un instant.')); return; }
+    setShopReports(prev => ({ ...prev, [shopId]: (prev[shopId] ?? []).map(r => r.id === reportId ? { ...r, status } : r) }));
+    setShopPendingReportCounts(prev => ({ ...prev, [shopId]: Math.max(0, (prev[shopId] ?? 0) - 1) }));
+  }
+
+  function openEditShop(shop: RealShop) {
+    setEditingShopId(shop.id);
+    setShopEditForm({
+      name: shop.name, phone: shop.phone ?? '',
+      address_text: shop.address_text, description: shop.description ?? '',
+    });
+  }
+
+  async function handleSaveShopEdit(shopId: string) {
+    if (!supabase) return;
+    if (!shopEditForm.name.trim() || !shopEditForm.address_text.trim()) {
+      Alert.alert('Champs requis', 'Le nom et l\'adresse sont obligatoires.'); return;
+    }
+    setSavingShopEdit(true);
+    const { error } = await supabase.from('proximity_shops').update({
+      name: shopEditForm.name.trim(),
+      phone: shopEditForm.phone.trim() || null,
+      address_text: shopEditForm.address_text.trim(),
+      description: shopEditForm.description.trim() || null,
+    }).eq('id', shopId);
+    setSavingShopEdit(false);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:saveShopEdit', error, 'Impossible d\'enregistrer ces modifications. Réessaie dans un instant.')); return; }
+    setRealShops(prev => prev.map(s => s.id === shopId ? {
+      ...s, name: shopEditForm.name.trim(), phone: shopEditForm.phone.trim() || null,
+      address_text: shopEditForm.address_text.trim(), description: shopEditForm.description.trim() || null,
+    } : s));
+    setEditingShopId(null);
+  }
+
+  const filteredShops = realShops.filter(s => {
+    if (shopStatusFilter === 'active' && !s.is_active) return false;
+    if (shopStatusFilter === 'inactive' && s.is_active) return false;
+    if (shopVerifiedFilter === 'verified' && !s.verified) return false;
+    if (shopVerifiedFilter === 'unverified' && s.verified) return false;
+    return true;
+  });
+  const totalPendingShopReports = Object.values(shopPendingReportCounts).reduce((a, b) => a + b, 0);
 
   const [realUsers,        setRealUsers]        = useState<RealUser[]>([]);
   const [realOrders,       setRealOrders]        = useState<RealOrder[]>([]);
@@ -660,6 +811,7 @@ function AdminScreenInner() {
     { id: 'dashboard', label: 'Dashboard',    icon: 'bar-chart-2'   },
     { id: 'users',     label: 'Utilisateurs', icon: 'users'         },
     { id: 'vendors',   label: t('vendors'),   icon: 'briefcase',     badge: pendingKycCount },
+    { id: 'shops',     label: 'Boutiques',    icon: 'map-pin',       badge: totalPendingShopReports },
     { id: 'orders',    label: t('orders'),    icon: 'shopping-cart' },
     { id: 'disputes',  label: t('disputes'),  icon: 'alert-triangle'},
     { id: 'payments',  label: 'Paiements',     icon: 'credit-card',  badge: pendingCount },
@@ -933,6 +1085,217 @@ function AdminScreenInner() {
               </View>
             ))
           )}
+        </View>
+      )}
+
+      {/* SHOPS — proximity_shops moderation */}
+      {activeTab === 'shops' && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Boutiques de proximité</Text>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 4 }}>
+            {(['all', 'active', 'inactive'] as const).map(f => (
+              <TouchableOpacity
+                key={f}
+                style={[styles.tabChip, { backgroundColor: shopStatusFilter === f ? colors.primary : colors.card, borderColor: colors.border }]}
+                onPress={() => setShopStatusFilter(f)}
+              >
+                <Text style={[styles.tabChipText, { color: shopStatusFilter === f ? 'white' : colors.foreground }]}>
+                  {f === 'all' ? 'Toutes' : f === 'active' ? 'Actives' : 'Inactives'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingTop: 2, paddingBottom: 4 }}>
+            {(['all', 'verified', 'unverified'] as const).map(f => (
+              <TouchableOpacity
+                key={f}
+                style={[styles.tabChip, { backgroundColor: shopVerifiedFilter === f ? colors.primary : colors.card, borderColor: colors.border }]}
+                onPress={() => setShopVerifiedFilter(f)}
+              >
+                <Text style={[styles.tabChipText, { color: shopVerifiedFilter === f ? 'white' : colors.foreground }]}>
+                  {f === 'all' ? 'Toutes (vérif.)' : f === 'verified' ? 'Vérifiées' : 'Non vérifiées'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {loadingShops && <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />}
+          {!loadingShops && filteredShops.length === 0 && (
+            <Text style={{ color: colors.mutedForeground, padding: 12 }}>Aucune boutique dans cette catégorie.</Text>
+          )}
+
+          {filteredShops.map(shop => {
+            const owner = shopOwners[shop.owner_id];
+            const pendingReports = shopPendingReportCounts[shop.id] ?? 0;
+            const expanded = expandedShopId === shop.id;
+            const editing = editingShopId === shop.id;
+            const acting = shopActingId === shop.id;
+            return (
+              <View key={shop.id} style={[styles.vendorCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={styles.vendorHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.vendorName, { color: colors.foreground }]}>{shop.name}</Text>
+                    <Text style={[styles.vendorCountry, { color: colors.mutedForeground }]}>
+                      {owner?.display_name ?? owner?.email ?? '—'} · {ENUM_TO_CATEGORY[shop.category] ?? shop.category}
+                    </Text>
+                    <Text style={[styles.vendorCountry, { color: colors.mutedForeground }]} numberOfLines={1}>{shop.address_text}</Text>
+                  </View>
+                  <View style={{ gap: 6, alignItems: 'flex-end' }}>
+                    <View style={[styles.kycStatusBadge, { backgroundColor: shop.is_active ? '#D1FAE5' : '#FEE2E2' }]}>
+                      <Text style={[styles.kycStatusText, { color: shop.is_active ? '#059669' : '#DC2626' }]}>
+                        {shop.is_active ? 'Active' : 'Inactive'}
+                      </Text>
+                    </View>
+                    <View style={[styles.kycStatusBadge, { backgroundColor: shop.verified ? '#DBEAFE' : '#F1F5F9' }]}>
+                      <Text style={[styles.kycStatusText, { color: shop.verified ? '#1D4ED8' : '#64748B' }]}>
+                        {shop.verified ? 'Vérifiée' : 'Non vérifiée'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {pendingReports > 0 && (
+                  <View style={styles.docStatus}>
+                    <Feather name="alert-triangle" size={14} color="#EF4444" />
+                    <Text style={[styles.docStatusText, { color: '#DC2626' }]}>{pendingReports} signalement(s) en attente</Text>
+                  </View>
+                )}
+
+                <View style={styles.vendorActions}>
+                  <TouchableOpacity
+                    style={[styles.vendorActionBtn, {
+                      backgroundColor: shop.is_active ? '#FEE2E2' : '#D1FAE5',
+                      borderColor: shop.is_active ? '#EF4444' : '#22C55E',
+                      opacity: acting ? 0.6 : 1,
+                    }]}
+                    onPress={() => handleToggleShopActive(shop)}
+                    disabled={acting}
+                  >
+                    <Feather name={shop.is_active ? 'pause-circle' : 'play-circle'} size={14} color={shop.is_active ? '#DC2626' : '#059669'} />
+                    <Text style={[styles.vendorActionText, { color: shop.is_active ? '#DC2626' : '#059669' }]}>
+                      {shop.is_active ? 'Désactiver' : 'Activer'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.vendorActionBtn, { backgroundColor: colors.accent, borderColor: colors.border, opacity: acting ? 0.6 : 1 }]}
+                    onPress={() => handleToggleShopVerified(shop)}
+                    disabled={acting}
+                  >
+                    <Feather name={shop.verified ? 'shield-off' : 'shield'} size={14} color={colors.primary} />
+                    <Text style={[styles.vendorActionText, { color: colors.primary }]}>{shop.verified ? 'Retirer vérif.' : 'Vérifier'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.vendorActionBtn, { backgroundColor: colors.accent, borderColor: colors.border }]}
+                    onPress={() => toggleShopExpand(shop)}
+                  >
+                    <Feather name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={colors.primary} />
+                    <Text style={[styles.vendorActionText, { color: colors.primary }]}>{expanded ? 'Réduire' : 'Détails'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {expanded && (
+                  <View style={{ gap: 10, marginTop: 4 }}>
+                    {(shop.images ?? []).length > 0 && (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                        {shop.images!.map((uri, idx) => (
+                          <Image key={idx} source={{ uri }} style={{ width: 96, height: 96, borderRadius: 10 }} />
+                        ))}
+                      </ScrollView>
+                    )}
+
+                    {!editing ? (
+                      <>
+                        {shop.description ? <Text style={{ color: colors.foreground, fontSize: 13 }}>{shop.description}</Text> : null}
+                        {shop.phone ? <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Tél : {shop.phone}</Text> : null}
+                        <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>
+                          {(shop.rating ?? 0).toFixed(1)} ★ · {shop.review_count ?? 0} avis
+                        </Text>
+                        <TouchableOpacity
+                          style={[styles.vendorActionBtn, { backgroundColor: colors.accent, borderColor: colors.border, alignSelf: 'flex-start' }]}
+                          onPress={() => openEditShop(shop)}
+                        >
+                          <Feather name="edit-2" size={13} color={colors.primary} />
+                          <Text style={[styles.vendorActionText, { color: colors.primary }]}>Modifier</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <View style={{ gap: 8 }}>
+                        {([
+                          { key: 'name', label: 'Nom' },
+                          { key: 'phone', label: 'Téléphone' },
+                          { key: 'address_text', label: 'Adresse' },
+                          { key: 'description', label: 'Description' },
+                        ] as const).map(f => (
+                          <View key={f.key}>
+                            <Text style={[styles.formLabel, { color: colors.foreground }]}>{f.label}</Text>
+                            <TextInput
+                              style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                              value={shopEditForm[f.key]}
+                              onChangeText={v => setShopEditForm(prev => ({ ...prev, [f.key]: v }))}
+                              multiline={f.key === 'description'}
+                            />
+                          </View>
+                        ))}
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          <TouchableOpacity
+                            style={[styles.vendorActionBtn, { backgroundColor: colors.primary, borderColor: colors.primary, opacity: savingShopEdit ? 0.6 : 1 }]}
+                            onPress={() => handleSaveShopEdit(shop.id)}
+                            disabled={savingShopEdit}
+                          >
+                            <Feather name="check" size={13} color="white" />
+                            <Text style={[styles.vendorActionText, { color: 'white' }]}>{savingShopEdit ? 'Enregistrement…' : 'Enregistrer'}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.vendorActionBtn, { backgroundColor: colors.accent, borderColor: colors.border }]}
+                            onPress={() => setEditingShopId(null)}
+                          >
+                            <Text style={[styles.vendorActionText, { color: colors.foreground }]}>Annuler</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+
+                    <Text style={[styles.formLabel, { color: colors.foreground, marginTop: 4 }]}>
+                      Signalements{shopReports[shop.id] ? ` (${shopReports[shop.id].length})` : ''}
+                    </Text>
+                    {(shopReports[shop.id] ?? []).length === 0 ? (
+                      <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>Aucun signalement.</Text>
+                    ) : (
+                      shopReports[shop.id].map(r => {
+                        const reporter = reporterUsers[r.reporter_id];
+                        return (
+                          <View key={r.id} style={[styles.pmtRejectForm, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                            <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: '600' }}>{r.reason}</Text>
+                            {r.details ? <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{r.details}</Text> : null}
+                            <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>
+                              Par {reporter?.display_name ?? reporter?.email ?? '—'} · {new Date(r.created_at).toLocaleDateString('fr-FR')} · {r.status}
+                            </Text>
+                            {r.status === 'pending' && (
+                              <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+                                <TouchableOpacity
+                                  style={[styles.vendorActionBtn, { backgroundColor: '#D1FAE5', borderColor: '#22C55E' }]}
+                                  onPress={() => handleUpdateReportStatus(shop.id, r.id, 'actioned')}
+                                >
+                                  <Text style={[styles.vendorActionText, { color: '#059669' }]}>Traité</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={[styles.vendorActionBtn, { backgroundColor: colors.accent, borderColor: colors.border }]}
+                                  onPress={() => handleUpdateReportStatus(shop.id, r.id, 'dismissed')}
+                                >
+                                  <Text style={[styles.vendorActionText, { color: colors.foreground }]}>Rejeter</Text>
+                                </TouchableOpacity>
+                              </View>
+                            )}
+                          </View>
+                        );
+                      })
+                    )}
+                  </View>
+                )}
+              </View>
+            );
+          })}
         </View>
       )}
 
