@@ -1849,9 +1849,9 @@ function AdminScreenInner() {
                         </Text>
                         <View style={[styles.chatBubble, isAdminMsg
                           ? { backgroundColor: colors.primary }
-                          : { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+                          : { backgroundColor: '#F1F0F0' }]}
                         >
-                          <Text style={isAdminMsg ? styles.chatBubbleTextMe : { color: colors.foreground, fontSize: 14 }}>{m.content}</Text>
+                          <Text style={isAdminMsg ? styles.chatBubbleTextMe : styles.chatBubbleTextOther}>{m.content}</Text>
                         </View>
                       </View>
                     </View>
@@ -2505,6 +2505,7 @@ const styles = StyleSheet.create({
   chatSenderLabel:    { fontSize: 10, fontWeight: '700', marginBottom: 2 },
   chatBubble:         { borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8 },
   chatBubbleTextMe:   { color: 'white', fontSize: 14 },
+  chatBubbleTextOther: { color: '#1F2937', fontSize: 14 },
   formInput: {
     borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 13,
   },

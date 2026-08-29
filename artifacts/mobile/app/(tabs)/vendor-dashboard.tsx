@@ -35,6 +35,41 @@ const { width } = Dimensions.get('window');
 
 type Period = '7j' | '30j' | '90j' | '12m';
 
+// ─── Encoding-safe CSV file decode ───────────────────────────────────────────
+// FileSystem.readAsStringAsync(..., { encoding: 'utf8' }) blindly decodes
+// the raw bytes as UTF-8 — a BOM-prefixed UTF-8 file mangles just the first
+// header, but a CSV actually saved as UTF-16 (common from Excel's "Unicode
+// Text"/"CSV UTF-16" export options) turns into near-total garbage
+// ("Colonnes détectées : ◆◆◆◆…"), since every 2-byte UTF-16 code unit gets
+// misread as UTF-8. Reading as base64 first lets us sniff the BOM and pick
+// the right decode ourselves instead of trusting a fixed encoding.
+function decodeUtf16(bytes: string, littleEndian: boolean): string {
+  let out = '';
+  for (let i = 0; i + 1 < bytes.length; i += 2) {
+    const b0 = bytes.charCodeAt(i);
+    const b1 = bytes.charCodeAt(i + 1);
+    out += String.fromCharCode(littleEndian ? (b0 | (b1 << 8)) : (b1 | (b0 << 8)));
+  }
+  return out;
+}
+function decodeCsvBase64(base64: string): string {
+  const binary = atob(base64); // one raw byte per char code
+  if (binary.length >= 3 && binary.charCodeAt(0) === 0xEF && binary.charCodeAt(1) === 0xBB && binary.charCodeAt(2) === 0xBF) {
+    return decodeURIComponent(escape(binary.slice(3))); // UTF-8 with BOM
+  }
+  if (binary.length >= 2 && binary.charCodeAt(0) === 0xFF && binary.charCodeAt(1) === 0xFE) {
+    return decodeUtf16(binary.slice(2), true); // UTF-16 LE
+  }
+  if (binary.length >= 2 && binary.charCodeAt(0) === 0xFE && binary.charCodeAt(1) === 0xFF) {
+    return decodeUtf16(binary.slice(2), false); // UTF-16 BE
+  }
+  try {
+    return decodeURIComponent(escape(binary)); // plain UTF-8, no BOM
+  } catch {
+    return binary; // not valid UTF-8 at all — surface raw rather than throw
+  }
+}
+
 // ─── Lightweight CSV parser (handles quoted fields) ─────────────────────────
 function parseCSV(text: string): { headers: string[]; rows: Record<string, string>[] } {
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
@@ -99,21 +134,6 @@ function resolveCategoryId(raw: string): string | null {
   return CATEGORY_ALIASES[key] ?? null;
 }
 
-// "Clé: Valeur" per line → products.specifications (jsonb). Was never
-// written anywhere, so the "Spécifications" tab on the product detail page
-// always fell back to its dash placeholder for every real product.
-function parseSpecsText(text: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  text.split('\n').forEach(line => {
-    const idx = line.indexOf(':');
-    if (idx <= 0) return;
-    const key = line.slice(0, idx).trim();
-    const val = line.slice(idx + 1).trim();
-    if (key && val) result[key] = val;
-  });
-  return result;
-}
-
 // ─── Mini bar chart ──────────────────────────────────────────────────────────
 function MiniChart({ data, color }: { data: number[]; color: string }) {
   const max = Math.max(...data);
@@ -175,12 +195,14 @@ function bucketOrdersByMonth(orders: any[], months: number): number[] {
 interface LocalProduct {
   id: string;
   name: string;
+  description?: string;
   stock: number;
   pricePublic: number;
   priceWholesale: number;
   category: string;
   images: string[];
   vendorId: string;
+  specifications?: Record<string, string>;
   _imported?: boolean;
 }
 
@@ -384,28 +406,46 @@ export default function VendorDashboardScreen() {
   const [showAddModal,    setShowAddModal]    = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [editingProduct,  setEditingProduct]  = useState<LocalProduct | null>(null);
-  const [addForm, setAddForm] = useState({
-    name: '', category: '',
-    pricePublic: '', priceWholesale: '', stock: '', specifications: '',
-  });
+  // Matches the exact French labels product/[id].tsx already falls back to
+  // when a real product has no specifications yet, so populated values show
+  // up under the same headings.
+  const SPEC_FIELDS = [
+    { formKey: 'specReference',  specKey: 'Référence',       label: 'Référence',       placeholder: 'Ex: BDC-RIZ-25' },
+    { formKey: 'specWeight',     specKey: 'Poids net',       label: 'Poids net',       placeholder: 'Ex: 25 kg' },
+    { formKey: 'specDimensions', specKey: 'Dimensions',      label: 'Dimensions',      placeholder: 'Ex: 60 × 40 × 15 cm' },
+    { formKey: 'specOrigin',     specKey: 'Pays d\'origine', label: 'Pays d\'origine', placeholder: 'Ex: Sénégal' },
+    { formKey: 'specHsCode',     specKey: 'HS Code',         label: 'HS Code',         placeholder: 'Ex: 1006.30' },
+  ] as const;
+  const EMPTY_ADD_FORM = {
+    name: '', description: '', category: '',
+    pricePublic: '', priceWholesale: '', stock: '',
+    specReference: '', specWeight: '', specDimensions: '', specOrigin: '', specHsCode: '',
+  };
+  const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
 
   function openAddModal() {
     if (!ensureKycApprovedToPublish()) return;
     setEditingProduct(null);
-    setAddForm({ name: '', category: '', pricePublic: '', priceWholesale: '', stock: '', specifications: '' });
+    setAddForm(EMPTY_ADD_FORM);
     setPendingImages([]);
     setShowAddModal(true);
   }
 
   function openEditModal(product: LocalProduct) {
     setEditingProduct(product);
+    const specs = product.specifications ?? {};
     setAddForm({
       name:          product.name,
+      description:   product.description ?? '',
       category:      CATEGORIES.some(c => c.id === product.category) ? product.category : '',
       pricePublic:   product.pricePublic ? String(product.pricePublic) : '',
       priceWholesale: product.priceWholesale ? String(product.priceWholesale) : '',
       stock:         String(product.stock ?? ''),
-      specifications: '',
+      specReference:  specs['Référence'] ?? '',
+      specWeight:     specs['Poids net'] ?? '',
+      specDimensions: specs['Dimensions'] ?? '',
+      specOrigin:     specs['Pays d\'origine'] ?? '',
+      specHsCode:     specs['HS Code'] ?? '',
     });
     setPendingImages([]);
     setShowAddModal(true);
@@ -511,7 +551,12 @@ export default function VendorDashboardScreen() {
       }
 
       const category = addForm.category;
-      const specifications = parseSpecsText(addForm.specifications);
+      const description = addForm.description.trim();
+      const specifications: Record<string, string> = {};
+      SPEC_FIELDS.forEach(f => {
+        const val = addForm[f.formKey].trim();
+        if (val) specifications[f.specKey] = val;
+      });
 
       if (editingProduct) {
         // ── UPDATE ────────────────────────────────────────────────────────────
@@ -519,15 +564,14 @@ export default function VendorDashboardScreen() {
           ? [...(editingProduct.images ?? []), ...imageUrls]
           : (editingProduct.images ?? []);
         const { error } = await supabase.from('products').update({
-          name_i18n:       { fr: name },
-          price_public:    pricePublic,
-          price_wholesale: priceWholesale,
-          stock_quantity:  stock,
+          name_i18n:        { fr: name },
+          description_i18n: { fr: description },
+          price_public:     pricePublic,
+          price_wholesale:  priceWholesale,
+          stock_quantity:   stock,
           category,
+          specifications,
           ...(imageUrls.length > 0 ? { images: updatedImages } : {}),
-          // Only overwrite if the vendor actually typed something this time —
-          // an empty field on edit must not silently wipe existing specs.
-          ...(Object.keys(specifications).length > 0 ? { specifications } : {}),
         }).eq('id', editingProduct.id);
         setIsSavingProduct(false);
         if (error) { Alert.alert('Erreur', toUserMessage('vendor:updateProduct', error, 'Impossible d\'enregistrer ce produit. Réessaie dans un instant.')); return; }
@@ -535,7 +579,7 @@ export default function VendorDashboardScreen() {
         // Optimistic update
         setSupabaseProducts(prev => prev.map(p =>
           p.id === editingProduct.id
-            ? { ...p, name, stock, pricePublic, priceWholesale, category, images: updatedImages }
+            ? { ...p, name, description, stock, pricePublic, priceWholesale, category, images: updatedImages, specifications }
             : p,
         ));
         setEditingProduct(null);
@@ -544,7 +588,7 @@ export default function VendorDashboardScreen() {
         const { data: insertedRows, error } = await supabase.from('products').insert({
           vendor_id:          realVendorId,
           name_i18n:          { fr: name },
-          description_i18n:   { fr: '' },
+          description_i18n:   { fr: description },
           price_public:       pricePublic,
           price_wholesale:    priceWholesale,
           min_order_quantity: 1,
@@ -561,12 +605,14 @@ export default function VendorDashboardScreen() {
         const newLocalProduct: LocalProduct = {
           id:            insertedRows?.id ?? `opt-${Date.now()}`,
           name,
+          description,
           stock,
           pricePublic,
           priceWholesale,
           category,
           images:        imageUrls,
           vendorId:      realVendorId,
+          specifications,
         };
         setSupabaseProducts(prev => [newLocalProduct, ...prev]);
         fetchProducts().catch(() => {});
@@ -600,7 +646,7 @@ export default function VendorDashboardScreen() {
     if (!vendorId) return;
     const { data, error } = await supabase
       .from('products')
-      .select('id, name_i18n, price_public, price_wholesale, stock_quantity, category, images')
+      .select('id, name_i18n, description_i18n, price_public, price_wholesale, stock_quantity, category, images, specifications')
       .eq('vendor_id', vendorId)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
@@ -609,12 +655,14 @@ export default function VendorDashboardScreen() {
       (data ?? []).map((p: any) => ({
         id:            p.id,
         name:          p.name_i18n?.fr ?? p.name_i18n?.en ?? Object.values(p.name_i18n ?? {})[0] ?? '—',
+        description:   p.description_i18n?.fr ?? p.description_i18n?.en ?? Object.values(p.description_i18n ?? {})[0] ?? '',
         stock:         p.stock_quantity ?? 0,
         pricePublic:   p.price_public ?? 0,
         priceWholesale: p.price_wholesale ?? 0,
         category:      p.category ?? 'Général',
         images:        p.images ?? [],
         vendorId,
+        specifications: p.specifications && typeof p.specifications === 'object' ? p.specifications : {},
       })),
     );
   }, []);
@@ -836,12 +884,15 @@ export default function VendorDashboardScreen() {
       const file = picked.assets[0];
       dbgCsv(`5. fichier sélectionné : ${file.name ?? '?'} (${file.uri.slice(0, 40)}…)`);
 
-      // Read content
+      // Read content — base64 first so we can sniff the BOM ourselves
+      // (UTF-8, UTF-16 LE/BE) instead of assuming UTF-8 blindly.
       let content: string;
       try {
-        content = await FileSystem.readAsStringAsync(file.uri, {
-          encoding: FileSystem.EncodingType.UTF8,
+        const base64 = await FileSystem.readAsStringAsync(file.uri, {
+          encoding: FileSystem.EncodingType.Base64,
         });
+        content = decodeCsvBase64(base64);
+        if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1); // belt-and-suspenders BOM strip
         dbgCsv(`6. fichier lu, ${content.length} caractères`);
       } catch (readErr: any) {
         dbgCsv(`6. échec lecture fichier : ${readErr?.message ?? readErr}`);
@@ -1531,6 +1582,20 @@ export default function VendorDashboardScreen() {
               </View>
             ))}
 
+            {/* Description — was missing entirely from this form, so an existing
+                product's description could never be edited from the app. */}
+            <View style={styles.modalField}>
+              <Text style={[styles.modalLabel, { color: colors.foreground }]}>Description</Text>
+              <TextInput
+                style={[styles.modalInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground, height: 80, textAlignVertical: 'top' }]}
+                placeholder="Décris le produit pour les acheteurs…"
+                placeholderTextColor={colors.mutedForeground}
+                value={addForm.description}
+                onChangeText={v => setAddForm(prev => ({ ...prev, description: v }))}
+                multiline
+              />
+            </View>
+
             {/* Category picker — same CATEGORIES list/ids used to filter the home screen,
                 so a product's category always matches a filter chip there. */}
             <View style={styles.modalField}>
@@ -1582,23 +1647,21 @@ export default function VendorDashboardScreen() {
               </View>
             ))}
 
-            {/* Specifications — free text, "Clé: Valeur" per line → products.specifications (jsonb) */}
-            <View style={styles.modalField}>
-              <Text style={[styles.modalLabel, { color: colors.foreground }]}>Spécifications (optionnel)</Text>
-              <TextInput
-                style={[styles.modalInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground, height: 80, textAlignVertical: 'top' }]}
-                placeholder={'Une par ligne, format "Clé: Valeur"\nEx: Poids net: 25 kg\nPays d\'origine: Sénégal'}
-                placeholderTextColor={colors.mutedForeground}
-                value={addForm.specifications}
-                onChangeText={v => setAddForm(prev => ({ ...prev, specifications: v }))}
-                multiline
-              />
-              {editingProduct && (
-                <Text style={{ fontSize: 11, color: colors.mutedForeground, marginTop: 4 }}>
-                  Laisse vide pour conserver les spécifications déjà enregistrées.
-                </Text>
-              )}
-            </View>
+            {/* Specifications — structured fields → products.specifications (jsonb),
+                same French keys product/[id].tsx's specs table already expects. */}
+            <Text style={[styles.modalLabel, { color: colors.foreground, marginTop: 4 }]}>Spécifications (optionnel)</Text>
+            {SPEC_FIELDS.map(f => (
+              <View key={f.formKey} style={styles.modalField}>
+                <Text style={[styles.modalLabel, { color: colors.foreground }]}>{f.label}</Text>
+                <TextInput
+                  style={[styles.modalInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                  placeholder={f.placeholder}
+                  placeholderTextColor={colors.mutedForeground}
+                  value={addForm[f.formKey]}
+                  onChangeText={v => setAddForm(prev => ({ ...prev, [f.formKey]: v }))}
+                />
+              </View>
+            ))}
 
             {/* Product images picker */}
             <View style={styles.modalField}>
