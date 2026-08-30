@@ -253,7 +253,14 @@ $$;
 CREATE TABLE IF NOT EXISTS proximity_reviews (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   shop_id    uuid NOT NULL REFERENCES proximity_shops(id) ON DELETE CASCADE,
-  user_id    uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  -- References the app's own `users` table (not auth.users) — matches every
+  -- other content table's FK convention in schema.sql, and lets PostgREST
+  -- auto-embed a join for the reviewer's display_name (impossible against
+  -- auth.users, which isn't exposed via the REST API). Safe because a review
+  -- is only ever submitted after the reviewer's `users` row already exists
+  -- (post-registration browsing), unlike auth.users which exists immediately
+  -- at signup.
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   rating     smallint NOT NULL CHECK (rating BETWEEN 1 AND 5),
   comment    text,
   created_at timestamptz DEFAULT now(),
@@ -304,6 +311,12 @@ ALTER TABLE proximity_reviews ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "anyone can read reviews"
   ON proximity_reviews FOR SELECT USING (true);
+
+-- Sans ceci, un avis abusif de boutique de quartier n'aurait aucun chemin
+-- RLS pour être modéré/supprimé par un admin — même convention que
+-- reviews_admin/disputes_admin/vendors_admin dans schema.sql.
+CREATE POLICY "proximity_reviews_admin"
+  ON proximity_reviews FOR ALL USING (current_user_role() = 'ADMIN');
 
 -- Pas de policy INSERT/UPDATE directe pour les utilisateurs :
 -- ils passent obligatoirement par submit_proximity_review() (SECURITY DEFINER).
