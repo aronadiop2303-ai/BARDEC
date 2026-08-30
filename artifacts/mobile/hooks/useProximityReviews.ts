@@ -13,8 +13,9 @@ export interface ReviewRow {
   rating: number;
   comment?: string;
   created_at: string;
-  // joined from profiles when available
-  user_name?: string;
+  // Embedded via the users(id) FK (proximity_reviews.user_id → users.id) —
+  // PostgREST returns this as a joined object, not a flat field.
+  users?: { display_name: string | null } | null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -28,18 +29,23 @@ async function fetchReviews(shopId: string): Promise<ProximityReview[]> {
 
   const { data, error } = await supabase
     .from('proximity_reviews')
-    .select('id, shop_id, user_id, rating, comment, created_at')
+    .select('id, shop_id, user_id, rating, comment, created_at, users(display_name)')
     .eq('shop_id', shopId)
     .order('created_at', { ascending: false })
     .limit(20);
 
   if (error) throw new Error(error.message);
 
-  return (data ?? []).map((r: ReviewRow) => ({
+  // Cast to `any` for the embedded `users` field — same convention already
+  // used for the equivalent product-reviews join in app/product/[id].tsx.
+  // Supabase-js's untyped client can't infer the to-one embed shape here
+  // (proximity_reviews.user_id → users.id is many-to-one), but PostgREST
+  // returns it as a single object at runtime, not an array.
+  return (data ?? []).map((r: any) => ({
     id: r.id,
     shop_id: r.shop_id,
     user_id: r.user_id,
-    user_name: r.user_name ?? 'Client anonyme',
+    user_name: r.users?.display_name ?? 'Client anonyme',
     rating: r.rating,
     comment: r.comment,
     created_at: r.created_at,
