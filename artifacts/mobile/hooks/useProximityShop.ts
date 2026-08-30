@@ -21,9 +21,17 @@ async function fetchShopWithProducts(shopId: string): Promise<ShopWithProducts> 
 
   if (shopRes.error) throw new Error(shopRes.error.message);
 
-  const rawShop = shopRes.data as (ProximityShop & { category: string }) | null;
+  // proximity_shops' real column is review_count, not rating_count (the
+  // ProximityShop type's field, matched by DEMO_SHOPS' mock data) — the `as`
+  // cast below let this typecheck while being silently undefined at runtime
+  // for every real shop. Translated here, once, at the fetch boundary.
+  const rawShop = shopRes.data as (ProximityShop & { category: string; review_count?: number }) | null;
   return {
-    shop: rawShop ? { ...rawShop, category: ENUM_TO_CATEGORY[rawShop.category] ?? rawShop.category } : null,
+    shop: rawShop ? {
+      ...rawShop,
+      category: ENUM_TO_CATEGORY[rawShop.category] ?? rawShop.category,
+      rating_count: rawShop.review_count ?? rawShop.rating_count ?? 0,
+    } : null,
     products: (productsRes.data ?? []) as ProximityProduct[],
   };
 }
