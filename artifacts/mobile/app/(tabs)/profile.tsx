@@ -11,6 +11,8 @@ import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
+import { useCurrency } from '@/context/CurrencyContext';
+import { CURRENCIES } from '@/lib/currency';
 import { LANGUAGES } from '@/constants/languages';
 import { DEMO_USERS, UserRole } from '@/constants/mockData';
 import RoleBadge from '@/components/RoleBadge';
@@ -33,6 +35,7 @@ export default function ProfileScreen() {
   const colors = useColors();
   const { t, language } = useLanguage();
   const { user, logout, switchDemoRole, isDemoMode, updateUserAvatar, updateUserName } = useAuth();
+  const { currency, setCurrency } = useCurrency();
   const canSwitchRole = isDemoMode || TEST_ACCOUNT_EMAILS.includes(user?.email ?? '');
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [isUploadingAvatar,    setIsUploadingAvatar]    = useState(false);
@@ -403,6 +406,25 @@ export default function ProfileScreen() {
         </TouchableOpacity>
 
         <View style={styles.menuRow}>
+          <Feather name="dollar-sign" size={18} color={colors.primary} />
+          <Text style={[styles.menuLabel, { color: colors.foreground, flex: 1 }]}>Devise</Text>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            {CURRENCIES.map(c => (
+              <TouchableOpacity
+                key={c}
+                style={[styles.currencyChip, {
+                  backgroundColor: currency === c ? colors.primary : colors.card,
+                  borderColor:     currency === c ? colors.primary : colors.border,
+                }]}
+                onPress={() => setCurrency(c)}
+              >
+                <Text style={{ color: currency === c ? 'white' : colors.foreground, fontSize: 12, fontWeight: '700' }}>{c}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.menuRow}>
           <Feather name="bell" size={18} color={colors.primary} />
           <Text style={[styles.menuLabel, { color: colors.foreground, flex: 1 }]}>Notifications</Text>
           <Switch
@@ -559,6 +581,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     gap: 14,
+  },
+  currencyChip: {
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1,
   },
   menuLabel: { fontSize: 15, fontWeight: '500' },
   soonBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1 },

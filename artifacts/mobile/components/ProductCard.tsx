@@ -5,6 +5,8 @@ import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
+import { useCurrency } from '@/context/CurrencyContext';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import { Product } from '@/constants/mockData';
 
 interface Props {
@@ -16,6 +18,7 @@ export default function ProductCard({ product, compact = false }: Props) {
   const colors = useColors();
   const { user } = useAuth();
   const { t } = useLanguage();
+  const { formatPrice } = useCurrency();
 
   const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
   const displayPrice = isB2B ? product.priceWholesale : product.pricePublic;
@@ -50,7 +53,9 @@ export default function ProductCard({ product, compact = false }: Props) {
         </Text>
         <View style={styles.priceRow}>
           <Text style={[styles.price, { color: colors.primary }]}>
-            ${displayPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {isSupabaseConfigured
+              ? formatPrice(displayPrice)
+              : `$${displayPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           </Text>
           {isB2B && (
             <Text style={[styles.minOrder, { color: colors.mutedForeground }]}>

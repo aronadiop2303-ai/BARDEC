@@ -14,6 +14,8 @@ import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
+import { useCurrency } from '@/context/CurrencyContext';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import BardecLayout from '@/components/BardecLayout';
 
 export default function CartScreen() {
@@ -21,6 +23,11 @@ export default function CartScreen() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const { items, removeItem, updateQuantity, subtotal, clearCart } = useCart();
+  const { formatPrice } = useCurrency();
+  // Cart item prices come from real product prices (already FCFA in DB) in
+  // real mode, and from mock USD-scale prices in demo mode — same
+  // isSupabaseConfigured branch used everywhere else for this reason.
+  const fmt = (n: number) => isSupabaseConfigured ? formatPrice(n) : `$${n.toFixed(2)}`;
 
   const isB2B = user?.role === 'BUYER';
   const shippingCost = 0;
@@ -79,7 +86,7 @@ export default function CartScreen() {
               {item.productName}
             </Text>
             <Text style={[styles.itemPrice, { color: colors.primary }]}>
-              ${item.price.toFixed(2)}{t('per_unit')}
+              {fmt(item.price)}{t('per_unit')}
             </Text>
             <View style={styles.qtyRow}>
               <TouchableOpacity
@@ -96,7 +103,7 @@ export default function CartScreen() {
                 <Feather name="plus" size={14} color={colors.foreground} />
               </TouchableOpacity>
               <Text style={[styles.lineTotal, { color: colors.foreground }]}>
-                = ${(item.price * item.quantity).toFixed(2)}
+                = {fmt(item.price * item.quantity)}
               </Text>
             </View>
           </View>
@@ -121,7 +128,7 @@ export default function CartScreen() {
         <Text style={[styles.summaryTitle, { color: colors.foreground }]}>Récapitulatif</Text>
         <View style={styles.summaryRow}>
           <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>{t('subtotal')}</Text>
-          <Text style={[styles.summaryValue, { color: colors.foreground }]}>${subtotal.toFixed(2)}</Text>
+          <Text style={[styles.summaryValue, { color: colors.foreground }]}>{fmt(subtotal)}</Text>
         </View>
         <View style={styles.summaryRow}>
           <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>{t('shipping')}</Text>
@@ -129,12 +136,12 @@ export default function CartScreen() {
         </View>
         <View style={styles.summaryRow}>
           <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>{t('tax')} (8%)</Text>
-          <Text style={[styles.summaryValue, { color: colors.foreground }]}>${tax.toFixed(2)}</Text>
+          <Text style={[styles.summaryValue, { color: colors.foreground }]}>{fmt(tax)}</Text>
         </View>
         <View style={[styles.divider, { backgroundColor: colors.border }]} />
         <View style={styles.summaryRow}>
           <Text style={[styles.totalLabel, { color: colors.foreground }]}>{t('total')}</Text>
-          <Text style={[styles.totalValue, { color: colors.primary }]}>${total.toFixed(2)}</Text>
+          <Text style={[styles.totalValue, { color: colors.primary }]}>{fmt(total)}</Text>
         </View>
         <TouchableOpacity
           style={[styles.checkoutBtn, { backgroundColor: colors.primary }]}

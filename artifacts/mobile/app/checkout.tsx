@@ -13,6 +13,7 @@ import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
+import { useCurrency } from '@/context/CurrencyContext';
 
 type Step = 1 | 2 | 3 | 4;
 type DeliveryType = 'home' | 'drone' | 'relay_point' | 'store_pickup';
@@ -36,13 +37,6 @@ interface StorePickup {
 interface DeliveryState {
   type: DeliveryType; homeMethod: HomeMethod; cost: number; days: string;
   relayPoint: RelayPoint | null; storePickup: StorePickup | null; droneEligible: boolean;
-}
-
-// ── Currency ──────────────────────────────────────────────────────────────────
-const XOF_RATE = 656; // 1 USD ≈ 656 FCFA
-function formatXOF(usd: number): string {
-  const xof = Math.round(usd * XOF_RATE);
-  return xof.toLocaleString('fr-FR') + ' FCFA';
 }
 
 // ── Mock data ─────────────────────────────────────────────────────────────────
@@ -147,7 +141,19 @@ export default function CheckoutScreen() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const { items, subtotal, clearCart } = useCart();
+  const { formatPrice } = useCurrency();
   const insets = useSafeAreaInsets();
+
+  // In real mode, cart amounts (subtotal/tax/delivery.cost/total) are already
+  // FCFA — they come straight from products.price_public/price_wholesale.
+  // Demo mode's mock data is USD-scale, so it keeps the old fixed-rate
+  // simulated conversion instead (never real, was always a demo-only
+  // approximation, no currency picker applies there).
+  const XOF_RATE = 656;
+  function formatXOF(amount: number): string {
+    if (isSupabaseConfigured) return formatPrice(amount);
+    return Math.round(amount * XOF_RATE).toLocaleString('fr-FR') + ' FCFA';
+  }
 
   const [step, setStep]           = useState<Step>(1);
   const [submitting, setSubmitting] = useState(false);

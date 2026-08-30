@@ -14,10 +14,11 @@ import { ADMIN_STATS, DEMO_USERS, MOCK_ORDERS, UserRole } from '@/constants/mock
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toUserMessage } from '@/lib/errors';
 import { notifyVendorKycEvent } from '@/lib/notifications';
+import { loadCurrencyRates } from '@/lib/currency';
 import { ENUM_TO_CATEGORY } from '@/constants/proximityData';
 
 const { width } = Dimensions.get('window');
-type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'reports' | 'orders' | 'disputes' | 'payments' | 'notifications' | 'support' | 'settings' | 'apikeys';
+type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'reports' | 'orders' | 'disputes' | 'payments' | 'currencies' | 'notifications' | 'support' | 'settings' | 'apikeys';
 
 // ── API keys — matches what mcp-server actually enforces (validateApiKey):
 // hasWrite = perms.includes('write') || perms.includes('*');
@@ -467,6 +468,47 @@ function AdminScreenInner() {
   const filteredReports = allReports.filter(r => reportsFilter === 'all' ? true : r.status === reportsFilter);
   const pendingReportsCount = allReports.filter(r => r.status === 'pending').length;
 
+  // ─── Currencies (currency_rates — currency_rates_admin_write already gives
+  // ADMIN a full ALL policy, no backend change needed) ───────────────────────
+  interface CurrencyRateRow { currency_code: string; rate_to_fcfa: number; symbol: string; updated_at: string; updated_by: string | null }
+  const [currencyRates,    setCurrencyRates]    = useState<CurrencyRateRow[]>([]);
+  const [loadingCurrencies, setLoadingCurrencies] = useState(isSupabaseConfigured);
+  const [currencyEdits,    setCurrencyEdits]    = useState<Record<string, string>>({});
+  const [savingCurrency,   setSavingCurrency]   = useState<string | null>(null);
+
+  const fetchCurrencyRates = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingCurrencies(false); return; }
+    setLoadingCurrencies(true);
+    const { data, error } = await supabase
+      .from('currency_rates')
+      .select('currency_code, rate_to_fcfa, symbol, updated_at, updated_by')
+      .order('currency_code', { ascending: true });
+    if (error) { console.warn('Admin currency rates fetch error:', error.message); setLoadingCurrencies(false); return; }
+    setCurrencyRates((data ?? []) as CurrencyRateRow[]);
+    setLoadingCurrencies(false);
+  }, []);
+
+  useEffect(() => { fetchCurrencyRates(); }, [fetchCurrencyRates]);
+  useFocusEffect(useCallback(() => { fetchCurrencyRates(); }, [fetchCurrencyRates]));
+
+  async function handleSaveCurrencyRate(code: string) {
+    if (!supabase) return;
+    const raw = currencyEdits[code];
+    const rate = parseFloat((raw ?? '').replace(',', '.'));
+    if (isNaN(rate) || rate <= 0) { Alert.alert('Taux invalide', 'Entre un taux positif.'); return; }
+    setSavingCurrency(code);
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const { error } = await supabase
+      .from('currency_rates')
+      .update({ rate_to_fcfa: rate, updated_by: authUser?.id, updated_at: new Date().toISOString() })
+      .eq('currency_code', code);
+    setSavingCurrency(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:saveCurrencyRate', error, 'Impossible d\'enregistrer ce taux. Réessaie dans un instant.')); return; }
+    setCurrencyRates(prev => prev.map(r => r.currency_code === code ? { ...r, rate_to_fcfa: rate, updated_at: new Date().toISOString() } : r));
+    setCurrencyEdits(prev => ({ ...prev, [code]: '' }));
+    loadCurrencyRates(true); // refresh the app-wide formatPrice() cache immediately
+  }
+
   const filteredShops = realShops.filter(s => {
     if (shopStatusFilter === 'active' && !s.is_active) return false;
     if (shopStatusFilter === 'inactive' && s.is_active) return false;
@@ -915,6 +957,7 @@ function AdminScreenInner() {
     { id: 'orders',    label: t('orders'),    icon: 'shopping-cart' },
     { id: 'disputes',  label: t('disputes'),  icon: 'alert-triangle'},
     { id: 'payments',  label: 'Paiements',     icon: 'credit-card',  badge: pendingCount },
+    { id: 'currencies', label: 'Devises',      icon: 'dollar-sign'  },
     { id: 'notifications', label: 'Notifications', icon: 'bell'    },
     { id: 'support',   label: 'Chat support',  icon: 'headphones',   badge: openSupportCount },
     { id: 'apikeys',   label: 'Clés API / MCP', icon: 'key'         },
@@ -1718,6 +1761,64 @@ function AdminScreenInner() {
               )}
             </View>
           ))}
+        </View>
+      )}
+
+      {/* CURRENCIES — currency_rates, read by lib/currency.ts's formatPrice() app-wide */}
+      {activeTab === 'currencies' && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Devises</Text>
+          <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>
+            1 unité de la devise vaut ce nombre de FCFA. FCFA reste toujours la devise de référence (taux fixé à 1).
+          </Text>
+
+          {loadingCurrencies && <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />}
+
+          {currencyRates.map(rate => {
+            const isBase = rate.currency_code === 'FCFA';
+            const saving = savingCurrency === rate.currency_code;
+            return (
+              <View key={rate.currency_code} style={[styles.createKeyForm, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: colors.foreground }}>
+                    {rate.symbol} {rate.currency_code}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: colors.mutedForeground }}>
+                    Taux actuel : {Number(rate.rate_to_fcfa).toLocaleString('fr-FR')} FCFA
+                  </Text>
+                </View>
+
+                {isBase ? (
+                  <Text style={{ fontSize: 12, color: colors.mutedForeground }}>Devise de référence — taux fixe, non modifiable.</Text>
+                ) : (
+                  <>
+                    <Text style={[styles.formLabel, { color: colors.foreground }]}>Nouveau taux (FCFA pour 1 {rate.currency_code})</Text>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TextInput
+                        style={[styles.formInput, { flex: 1, backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground, marginBottom: 0 }]}
+                        placeholder={String(rate.rate_to_fcfa)}
+                        placeholderTextColor={colors.mutedForeground}
+                        value={currencyEdits[rate.currency_code] ?? ''}
+                        onChangeText={v => setCurrencyEdits(prev => ({ ...prev, [rate.currency_code]: v }))}
+                        keyboardType="numeric"
+                      />
+                      <TouchableOpacity
+                        style={[styles.formConfirmBtn, { backgroundColor: colors.primary, opacity: saving ? 0.6 : 1 }]}
+                        onPress={() => handleSaveCurrencyRate(rate.currency_code)}
+                        disabled={saving}
+                      >
+                        {saving ? <ActivityIndicator size="small" color="white" /> : <Feather name="check" size={16} color="white" />}
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+
+                <Text style={{ fontSize: 11, color: colors.mutedForeground }}>
+                  Dernière mise à jour : {new Date(rate.updated_at).toLocaleString('fr-FR')}
+                </Text>
+              </View>
+            );
+          })}
         </View>
       )}
 

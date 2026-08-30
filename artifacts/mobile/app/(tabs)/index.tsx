@@ -22,6 +22,7 @@ import { SkeletonProductCard } from '@/components/SkeletonCard';
 import { CATEGORIES } from '@/constants/mockData';
 import { useProducts } from '@/hooks/useProducts';
 import { usePendingApprovalsCount } from '@/hooks/usePendingApprovalsCount';
+import { useCurrency } from '@/context/CurrencyContext';
 import { isSupabaseConfigured } from '@/lib/supabase';
 
 const { width } = Dimensions.get('window');
@@ -31,6 +32,7 @@ export default function HomeScreen() {
   const colors = useColors();
   const { t } = useLanguage();
   const { user, isAuthenticated } = useAuth();
+  const { formatPrice } = useCurrency();
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -125,12 +127,16 @@ export default function HomeScreen() {
             </View>
             <View style={[styles.kpiCard, { backgroundColor: colors.secondary }]}>
               <Feather name="dollar-sign" size={18} color="white" />
-              <Text style={styles.kpiValue}>${((user?.creditBalance ?? 0) / 1000).toFixed(0)}k</Text>
+              <Text style={styles.kpiValue}>
+                {isSupabaseConfigured ? formatPrice(user?.creditBalance ?? 0) : `$${((user?.creditBalance ?? 0) / 1000).toFixed(0)}k`}
+              </Text>
               <Text style={styles.kpiLabel}>{t('net30')}</Text>
             </View>
             <View style={[styles.kpiCard, { backgroundColor: '#7C3AED' }]}>
               <Feather name="credit-card" size={18} color="white" />
-              <Text style={styles.kpiValue}>${((user?.creditLimit ?? 50000) / 1000).toFixed(0)}k</Text>
+              <Text style={styles.kpiValue}>
+                {isSupabaseConfigured ? formatPrice(user?.creditLimit ?? 50000) : `$${((user?.creditLimit ?? 50000) / 1000).toFixed(0)}k`}
+              </Text>
               <Text style={styles.kpiLabel}>{t('credit_limit')}</Text>
             </View>
           </ScrollView>

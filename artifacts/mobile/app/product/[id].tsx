@@ -18,6 +18,7 @@ import ProductCard from '@/components/ProductCard';
 import { OmniChatModal } from '@/components/OmniChatModal';
 import type { OmniContext } from '@/hooks/useOmniChat';
 import { ReportModal, ReportTargetType } from '@/components/ReportModal';
+import { useCurrency } from '@/context/CurrencyContext';
 
 const { width } = Dimensions.get('window');
 type ProductTab = 'description' | 'specifications' | 'reviews' | 'trade_assurance';
@@ -46,6 +47,7 @@ export default function ProductDetailScreen() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const { addItem } = useCart();
+  const { formatPrice } = useCurrency();
   const insets = useSafeAreaInsets();
 
   const { products, loading: productsLoading } = useProducts();
@@ -231,13 +233,15 @@ export default function ProductDetailScreen() {
           <View style={styles.priceRow}>
             <View>
               <Text style={[styles.price, { color: colors.primary }]}>
-                ${displayPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {isSupabaseConfigured
+                  ? formatPrice(displayPrice)
+                  : `$${displayPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                 <Text style={[styles.priceUnit, { color: colors.mutedForeground }]}> /{t('per_unit')}</Text>
               </Text>
               {isB2B && (
                 <View style={styles.savingsRow}>
                   <Text style={[styles.publicPrice, { color: colors.mutedForeground }]}>
-                    ${product.pricePublic.toFixed(2)} prix public
+                    {isSupabaseConfigured ? formatPrice(product.pricePublic) : `$${product.pricePublic.toFixed(2)}`} prix public
                   </Text>
                   <View style={[styles.savingsBadge, { backgroundColor: '#D1FAE5' }]}>
                     <Text style={[styles.savingsText, { color: '#059669' }]}>-{savings}%</Text>
@@ -322,7 +326,9 @@ export default function ProductDetailScreen() {
                 <Feather name="plus" size={16} color={colors.foreground} />
               </TouchableOpacity>
               <Text style={[styles.lineTotal, { color: colors.primary }]}>
-                = ${(displayPrice * quantity).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                = {isSupabaseConfigured
+                  ? formatPrice(displayPrice * quantity)
+                  : `$${(displayPrice * quantity).toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
               </Text>
             </View>
           </View>

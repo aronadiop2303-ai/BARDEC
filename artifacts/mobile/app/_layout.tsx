@@ -16,6 +16,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider } from '@/context/AuthContext';
 import { LanguageProvider } from '@/context/LanguageContext';
+import { CurrencyProvider } from '@/context/CurrencyContext';
 import { CartProvider } from '@/context/CartContext';
 import { ProximityCartProvider } from '@/context/ProximityCartContext';
 import CustomerOrdersNotifier from '@/components/CustomerOrdersNotifier';
@@ -80,14 +81,16 @@ export default function RootLayout() {
             <KeyboardProvider>
               <LanguageProvider>
                 <AuthProvider>
-                  <CartProvider>
-                    <ProximityCartProvider>
-                      {/* Keeps a Realtime channel open for customer order status
-                          changes and fires local notifications app-wide */}
-                      <CustomerOrdersNotifier />
-                      <RootLayoutNav />
-                    </ProximityCartProvider>
-                  </CartProvider>
+                  <CurrencyProvider>
+                    <CartProvider>
+                      <ProximityCartProvider>
+                        {/* Keeps a Realtime channel open for customer order status
+                            changes and fires local notifications app-wide */}
+                        <CustomerOrdersNotifier />
+                        <RootLayoutNav />
+                      </ProximityCartProvider>
+                    </CartProvider>
+                  </CurrencyProvider>
                 </AuthProvider>
               </LanguageProvider>
             </KeyboardProvider>

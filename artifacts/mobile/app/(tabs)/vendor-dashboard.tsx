@@ -14,6 +14,7 @@ import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
 import type { TranslationKey } from '@/constants/translations';
 import { useAuth } from '@/context/AuthContext';
+import { useCurrency } from '@/context/CurrencyContext';
 import BardecLayout from '@/components/BardecLayout';
 import { SkeletonBox } from '@/components/SkeletonCard';
 import { router, useFocusEffect } from 'expo-router';
@@ -210,6 +211,7 @@ export default function VendorDashboardScreen() {
   const colors = useColors();
   const { t } = useLanguage();
   const { user, isDemoMode } = useAuth();
+  const { formatPrice } = useCurrency();
   const [period, setPeriod] = useState<Period>('30j');
   const [shopActive, setShopActive] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -847,7 +849,7 @@ export default function VendorDashboardScreen() {
   const realSalesTotal        = vendorOrders.reduce((sum: number, o: any) => sum + (o.total ?? 0), 0);
 
   const kpis = isSupabaseConfigured ? [
-    { icon: 'dollar-sign', label: t('sales'),         value: `${realSalesTotal.toLocaleString('fr-FR')} FCFA`, color: colors.primary },
+    { icon: 'dollar-sign', label: t('sales'),         value: formatPrice(realSalesTotal), color: colors.primary },
     { icon: 'package',     label: t('active_orders'),  value: realActiveOrdersCount,                            color: colors.secondary },
     { icon: 'message-circle', label: t('response_rate'), value: `${Math.round(vendorKyc?.response_rate ?? 0)}%`, color: '#22C55E' },
     { icon: 'grid',        label: t('products'),       value: displayedProducts.length,                          color: '#8B5CF6' },
@@ -1262,7 +1264,7 @@ export default function VendorDashboardScreen() {
             <View style={styles.chartFooter}>
               {isSupabaseConfigured ? (
                 <Text style={[styles.chartTotal, { color: colors.primary }]}>
-                  {realPeriodTotal.toLocaleString('fr-FR')} FCFA
+                  {formatPrice(realPeriodTotal)}
                 </Text>
               ) : (
                 <>
@@ -1381,7 +1383,7 @@ export default function VendorDashboardScreen() {
                   <Text style={[styles.orderDate, { color: colors.mutedForeground }]}>{orderDate}</Text>
                 </View>
                 <View style={styles.orderMeta}>
-                  <Text style={[styles.orderTotal, { color: colors.primary }]}>{orderTotal.toLocaleString()} FCFA</Text>
+                  <Text style={[styles.orderTotal, { color: colors.primary }]}>{formatPrice(orderTotal)}</Text>
                   <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
                 </View>
                 {/* Vendor action: update status */}
@@ -1448,7 +1450,7 @@ export default function VendorDashboardScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.productName, { color: colors.foreground }]} numberOfLines={1}>{product.name}</Text>
                 <Text style={[styles.productMeta, { color: colors.mutedForeground }]}>
-                  Stock : {product.stock} · {product.priceWholesale.toLocaleString('fr-FR')} FCFA/u
+                  Stock : {product.stock} · {formatPrice(product.priceWholesale)}/u
                   {product._imported ? ' · Importé' : ''}
                 </Text>
               </View>
