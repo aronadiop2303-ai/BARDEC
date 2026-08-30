@@ -31,9 +31,14 @@ async function fetchNearbyShops(
   });
 
   if (error) throw new Error(error.message);
-  return ((data ?? []) as ProximityShop[]).map(s => ({
+  // nearby_shops() returns review_count (proximity_shops' real column) —
+  // translated to rating_count here, once, same as useProximityShop.ts's
+  // fetch boundary for the shop detail screen, so ShopBottomSheet.tsx's
+  // existing shop.rating_count read doesn't need to change.
+  return ((data ?? []) as (ProximityShop & { review_count?: number })[]).map(s => ({
     ...s,
     category: ENUM_TO_CATEGORY[s.category as unknown as string] ?? s.category,
+    rating_count: s.review_count ?? s.rating_count ?? 0,
   }));
 }
 

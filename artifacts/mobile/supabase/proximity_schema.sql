@@ -207,45 +207,45 @@ CREATE POLICY "owner can manage products"
   );
 
 -- 7. Fonction RPC : nearby_shops
-CREATE OR REPLACE FUNCTION nearby_shops(
-  user_lat        float8,
-  user_lng        float8,
-  radius_km       float8 DEFAULT 5,
-  filter_category text DEFAULT NULL
+-- ATTENTION : ce bloc a été réécrit le 31 août 2026 pour refléter ce qui est
+-- RÉELLEMENT déployé en production (colonnes/types/calcul de distance
+-- complètement différents de la version précédente de ce fichier — celle-ci
+-- utilisait lat/lng/address/photos/rating_count/earthdistance+ll_to_earth,
+-- alors que la vraie table utilise latitude/longitude/location (PostGIS
+-- geography)/address_text/images/review_count/ST_Distance+ST_DWithin).
+-- Seule cette fonction a été vérifiée et resynchronisée ; le reste du
+-- fichier (table proximity_shops plus haut, proximity_products,
+-- proximity_orders, policies…) n'a PAS été réaudité et peut contenir les
+-- mêmes divergences — à vérifier avant de s'y fier pour quoi que ce soit
+-- d'autre.
+CREATE OR REPLACE FUNCTION public.nearby_shops(
+  user_lat        numeric,
+  user_lng        numeric,
+  radius_km       numeric DEFAULT 5,
+  filter_category shop_category DEFAULT NULL::shop_category
 )
 RETURNS TABLE (
   id            uuid,
   name          text,
-  category      text,
+  category      shop_category,
   subcategory   text,
-  description   text,
-  phone         text,
-  address       text,
-  lat           float8,
-  lng           float8,
-  opening_hours jsonb,
-  photos        text[],
-  rating        float4,
-  rating_count  integer,
-  is_active     boolean,
-  verified      boolean,
-  owner_id      uuid,
-  distance_km   float8
+  address_text  text,
+  latitude      numeric,
+  longitude     numeric,
+  distance_km   numeric,
+  rating        numeric,
+  review_count  integer,
+  is_active     boolean
 )
 LANGUAGE sql STABLE AS $$
-  SELECT
-    s.id, s.name, s.category, s.subcategory, s.description,
-    s.phone, s.address, s.lat, s.lng, s.opening_hours, s.photos,
-    s.rating, s.rating_count, s.is_active, s.verified, s.owner_id,
-    ROUND(
-      (earth_distance(ll_to_earth(user_lat, user_lng), ll_to_earth(s.lat, s.lng)) / 1000)::numeric,
-      2
-    )::float8 AS distance_km
+  SELECT s.id, s.name, s.category, s.subcategory, s.address_text,
+         s.latitude, s.longitude,
+         ROUND((ST_Distance(s.location, ST_SetSRID(ST_MakePoint(user_lng, user_lat),4326)::geography) / 1000)::numeric, 2) AS distance_km,
+         s.rating, s.review_count, s.is_active
   FROM proximity_shops s
-  WHERE
-    s.is_active = true
-    AND earth_distance(ll_to_earth(user_lat, user_lng), ll_to_earth(s.lat, s.lng)) <= (radius_km * 1000)
+  WHERE s.is_active = true
     AND (filter_category IS NULL OR s.category = filter_category)
+    AND ST_DWithin(s.location, ST_SetSRID(ST_MakePoint(user_lng, user_lat),4326)::geography, radius_km * 1000)
   ORDER BY distance_km ASC;
 $$;
 
