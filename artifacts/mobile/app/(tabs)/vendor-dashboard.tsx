@@ -1554,8 +1554,8 @@ export default function VendorDashboardScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.modalOverlay}
         >
-          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            {/* Header */}
+          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border, maxHeight: '85%' }]}>
+            {/* Header — stays pinned above the scrollable form below */}
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: colors.foreground }]}>
                 {editingProduct ? 'Modifier le produit' : 'Nouveau produit'}
@@ -1565,7 +1565,15 @@ export default function VendorDashboardScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Form */}
+            {/* Form — was a plain View with no scroll and no maxHeight on the
+                card above, so it just grew past the screen once the
+                specifications + description fields were added; the save
+                button became unreachable. Now bounded + scrollable. */}
+            <ScrollView
+              contentContainerStyle={{ gap: 14, paddingBottom: 8 }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
             {[
               { key: 'name', label: 'Nom du produit *', placeholder: 'Ex: Riz parfumé 25 kg', keyboard: 'default' as const },
             ].map(f => (
@@ -1708,6 +1716,7 @@ export default function VendorDashboardScreen() {
                   : 'Enregistrer le produit'}
               </Text>
             </TouchableOpacity>
+            </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
