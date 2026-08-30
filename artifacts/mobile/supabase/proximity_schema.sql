@@ -289,7 +289,7 @@ BEGIN
                             WHERE r.shop_id = v_shop_id),
                           0
                         ),
-         rating_count = (SELECT COUNT(*)
+         review_count = (SELECT COUNT(*)
                            FROM proximity_reviews r
                           WHERE r.shop_id = v_shop_id)
    WHERE id = v_shop_id;
