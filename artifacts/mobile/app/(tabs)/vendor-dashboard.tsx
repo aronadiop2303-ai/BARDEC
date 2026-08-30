@@ -488,6 +488,28 @@ export default function VendorDashboardScreen() {
       Math.round(pricePublic * 0.8 * 100) / 100;
     const stock = parseInt(addForm.stock, 10) || 0;
 
+    // Same-name warning — never blocking, just a confirmation step. Checked
+    // against this vendor's own active products only (displayedProducts is
+    // already scoped that way), excluding whichever product is being edited
+    // so renaming back to itself doesn't trigger a false warning.
+    const isDuplicateName = displayedProducts.some(p =>
+      p.id !== editingProduct?.id && p.name.trim().toLowerCase() === name.toLowerCase(),
+    );
+    if (isDuplicateName) {
+      Alert.alert(
+        'Produit déjà existant',
+        `Tu as déjà un produit nommé "${name}" — créer quand même ?`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Créer quand même', onPress: () => saveProduct() },
+        ],
+      );
+      return;
+    }
+
+    await saveProduct();
+
+    async function saveProduct() {
     setIsSavingProduct(true);
     // Gate on isSupabaseConfigured/supabase only — never on context `user`.
     // `user` can be transiently null (auth state change on a flaky connection)
@@ -636,6 +658,7 @@ export default function VendorDashboardScreen() {
     }
     setShowAddModal(false);
     setActiveTab('products');
+    }
   }
 
   // ─── Fetch products from Supabase ─────────────────────────────────────────

@@ -1,6 +1,6 @@
 # BUGS.md — BARDEC
 
-Dernière mise à jour : 30 août 2026 (suite — bouton "Demander un Devis" diagnostiqué, deux boutons fiche produit harmonisés en "Bientôt disponible")
+Dernière mise à jour : 30 août 2026 (suite — avertissement doublon de nom à l'ajout produit)
 
 ## 🔴 BLOQUANT
 
@@ -158,6 +158,7 @@ Dernière mise à jour : 30 août 2026 (suite — bouton "Demander un Devis" dia
 
 ## 🟡 AMÉLIORATIONS / MANQUANT
 
+- [x] **[30 août]** Ajout produit vendeur — avertissement (non bloquant) si le vendeur a déjà un produit actif portant exactement le même nom (trouvé en marge d'une session précédente : "Riz parfumé 25 kg" existait en double à deux prix, deux imports distincts). Vérification faite contre `displayedProducts` (déjà scopé aux produits actifs de ce vendeur, aucune requête supplémentaire), insensible à la casse/espaces, exclut le produit en cours d'édition pour ne pas se déclencher en renommant un produit vers son propre nom. Confirmation "Annuler"/"Créer quand même" — ne bloque jamais la création.
 - [x] Traduction des catégories reste en anglais malgré changement de langue — `CATEGORIES` (mockData.ts) stockait des noms anglais en dur (`cat.name`), jamais passés par `t()`. Ajouté 8 clés de traduction (`cat_all`, `cat_electronics`, …) dans les **20 langues** du fichier `translations.ts`, et les 3 écrans qui affichaient `cat.name` (accueil, recherche, sélecteur catégorie vendeur) utilisent maintenant `t()`. À confirmer sur téléphone en changeant de langue.
 - [ ] Impossible de créer de nouvelles catégories — **pas traité, hors périmètre d'une correction rapide** : les catégories sont une liste fixe dans le code (8 catégories), pas une table en base. En ajouter une nécessiterait une vraie table `categories` (migration DDL — ta validation requise) + une UI admin pour la gérer + décider si les nouvelles catégories doivent être traduisibles comme les 8 actuelles (ce qui casserait le système de clés de traduction fixes que je viens de mettre en place) ou en texte libre. À designer ensemble si tu veux ce chantier.
 - [x] Validation d'adresse manquante (accepte pays/numéros invalides) — `checkout.tsx` ne vérifiait que "non vide" sur nom/adresse/ville ; pays et téléphone n'étaient pas validés du tout. Ajouté : le pays doit contenir des lettres (rejette "1234"), le téléphone doit ressembler à un vrai numéro (chiffres/+/espaces/tirets, 6-20 caractères). Limité à l'écran de checkout (seul formulaire d'adresse trouvé dans l'app — les autres écrans avec "country" sont en lecture seule côté admin).
