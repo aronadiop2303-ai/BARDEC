@@ -293,14 +293,18 @@ export default function ProductDetailScreen() {
                 replies) — never wired to the real conversations/messages
                 tables (AGENTS.md §7 mentions them as existing for P2P chat).
                 Navigating there would look like messaging the real vendor
-                while being entirely fake, so an honest "coming soon" instead. */}
-            <TouchableOpacity
-              style={[styles.contactBtn, { backgroundColor: colors.primary }]}
-              onPress={() => Alert.alert('Bientôt disponible', 'La messagerie avec le vendeur arrive prochainement.')}
-            >
-              <Feather name="message-circle" size={14} color="white" />
-              <Text style={styles.contactBtnText}>{t('contact_vendor')}</Text>
-            </TouchableOpacity>
+                while being entirely fake. Shown disabled with a "Bientôt"
+                badge — same convention as the biometric login row — instead
+                of a tappable alert, so it reads consistently with the quote
+                button right next to it on this same screen rather than one
+                looking active and the other visibly disabled. */}
+            <View style={[styles.contactBtn, { backgroundColor: colors.background, borderColor: colors.border, borderWidth: 1, borderStyle: 'dashed', opacity: 0.55 }]}>
+              <Feather name="message-circle" size={14} color={colors.mutedForeground} />
+              <Text style={[styles.contactBtnText, { color: colors.mutedForeground }]}>{t('contact_vendor')}</Text>
+              <View style={[styles.soonBadgeSmall, { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' }]}>
+                <Text style={styles.soonBadgeSmallText}>Bientôt</Text>
+              </View>
+            </View>
           </TouchableOpacity>
 
           {/* Quantity selector */}
@@ -453,11 +457,24 @@ export default function ProductDetailScreen() {
 
       {/* Bottom action bar */}
       <View style={[styles.actionBar, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: insets.bottom + 12 }]}>
+        {/* No quotes/quote_requests table exists anywhere in the backend —
+            this was never a wired-then-broken button, just a static
+            TouchableOpacity with no onPress at all. Building it for real
+            needs a backend decision (dedicated table vs. structured message
+            on conversations/messages) — out of scope here. Shown disabled
+            with a "Bientôt disponible" badge, same convention as the
+            biometric login row and the "Contacter le Vendeur" chip above on
+            this same screen. */}
         {isB2B && (
-          <TouchableOpacity style={[styles.quoteBtn, { borderColor: colors.primary }]}>
-            <Feather name="file-text" size={18} color={colors.primary} />
-            <Text style={[styles.quoteBtnText, { color: colors.primary }]}>{t('request_quote')}</Text>
-          </TouchableOpacity>
+          <View style={[styles.quoteBtn, { flexDirection: 'column', gap: 4, borderColor: colors.border, borderStyle: 'dashed', opacity: 0.55 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Feather name="file-text" size={18} color={colors.mutedForeground} />
+              <Text style={[styles.quoteBtnText, { color: colors.mutedForeground }]}>{t('request_quote')}</Text>
+            </View>
+            <View style={[styles.soonBadgeSmall, { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' }]}>
+              <Text style={styles.soonBadgeSmallText}>Bientôt disponible</Text>
+            </View>
+          </View>
         )}
         <TouchableOpacity
           style={[styles.addCartBtn, { backgroundColor: colors.primary, flex: isB2B ? 1 : undefined, width: isB2B ? undefined : '100%' }]}
@@ -570,6 +587,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   contactBtnText: { color: 'white', fontSize: 12, fontWeight: '600' },
+  soonBadgeSmall: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, borderWidth: 1 },
+  soonBadgeSmallText: { fontSize: 9, fontWeight: '700', color: '#D97706' },
   qtySection: { gap: 8 },
   qtyLabel: { fontSize: 14, fontWeight: '600' },
   qtyControls: { flexDirection: 'row', alignItems: 'center', gap: 10 },
