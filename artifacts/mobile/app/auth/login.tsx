@@ -84,6 +84,13 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {/* Back button — was missing entirely, so a guest who navigated here
+            from the home tab (router.push, not replace) had no way back
+            other than the OS hardware/gesture back. */}
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Feather name="arrow-left" size={22} color={colors.foreground} />
+        </TouchableOpacity>
+
         {/* Logo */}
         <View style={styles.logoSection}>
           <View style={[styles.logoCircle, { backgroundColor: colors.primary }]}>
@@ -213,6 +220,7 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  backBtn: { width: 40, height: 40, justifyContent: 'center' },
   content: { paddingHorizontal: 24, gap: 24 },
   logoSection: { alignItems: 'center', gap: 8 },
   logoCircle: {
