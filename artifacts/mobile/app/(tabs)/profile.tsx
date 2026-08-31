@@ -5,7 +5,9 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
+import * as Sharing from 'expo-sharing';
 import { router } from 'expo-router';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
@@ -47,6 +49,12 @@ export default function ProfileScreen() {
   const [editNameValue,   setEditNameValue]   = useState('');
   const [savingName,      setSavingName]      = useState(false);
 
+  // ── Confidentialité: export / suppression de compte ─────────────────────────
+  const [exportingData,     setExportingData]     = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [deleteConfirmText,  setDeleteConfirmText]  = useState('');
+  const [deletingAccount,    setDeletingAccount]    = useState(false);
+
   function handleOpenEditName() {
     setEditNameValue(user?.name ?? '');
     setEditNameVisible(true);
@@ -63,6 +71,96 @@ export default function ProfileScreen() {
       Alert.alert('Erreur', toUserMessage('profile:updateName', err, 'Impossible de mettre à jour le nom. Réessaie dans un instant.'));
     } finally {
       setSavingName(false);
+    }
+  }
+
+  async function handleExportData() {
+    if (!isSupabaseConfigured || !supabase) {
+      Alert.alert('Mode démo', 'Cette fonctionnalité nécessite un compte réel connecté à Supabase.');
+      return;
+    }
+    setExportingData(true);
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const realUserId = authUser?.id;
+      if (!realUserId) throw new Error('Session expirée — reconnecte-toi.');
+
+      const { data, error } = await supabase.rpc('export_user_data', { target_user_id: realUserId });
+      if (error) throw error;
+
+      // jsonb_agg() returns null (not []) when a category has zero rows —
+      // normalize to [] so the exported JSON reads as proper arrays.
+      const normalized = {
+        profile:          data?.profile ?? null,
+        orders:            data?.orders ?? [],
+        reviews:           data?.reviews ?? [],
+        proximity_shops:   data?.proximity_shops ?? [],
+        products:          data?.products ?? [],
+      };
+
+      const today    = new Date().toISOString().slice(0, 10);
+      const fileName = `bardec-mes-donnees-${today}.json`;
+      const fileUri  = (FileSystem.documentDirectory ?? FileSystem.cacheDirectory ?? '') + fileName;
+
+      await FileSystem.writeAsStringAsync(fileUri, JSON.stringify(normalized, null, 2), {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType:    'application/json',
+          dialogTitle: 'Exporter mes données BARDEC',
+          UTI:         'public.json',
+        });
+      } else {
+        Alert.alert('Fichier enregistré', `Le fichier ${fileName} a été enregistré dans le stockage de l'application.`);
+      }
+    } catch (err: any) {
+      Alert.alert('Erreur', toUserMessage('profile:exportData', err, 'Impossible d\'exporter tes données. Réessaie dans un instant.'));
+    } finally {
+      setExportingData(false);
+    }
+  }
+
+  function handleDeleteAccountPress() {
+    if (!isSupabaseConfigured || !supabase) {
+      Alert.alert('Mode démo', 'Cette fonctionnalité nécessite un compte réel connecté à Supabase.');
+      return;
+    }
+    Alert.alert(
+      'Supprimer mon compte',
+      'Cette action est irréversible. Ta connexion sera définitivement bloquée et ton contenu personnel (panier, messages) supprimé. Tes commandes, avis et produits resteront visibles de façon anonyme pour préserver l\'historique des autres utilisateurs.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Continuer', style: 'destructive',
+          onPress: () => { setDeleteConfirmText(''); setDeleteModalVisible(true); },
+        },
+      ],
+    );
+  }
+
+  async function handleConfirmDeleteAccount() {
+    if (deleteConfirmText.trim().toUpperCase() !== 'SUPPRIMER') return;
+    setDeletingAccount(true);
+    try {
+      const { data: { user: authUser } } = await supabase!.auth.getUser();
+      const realUserId = authUser?.id;
+      if (!realUserId) throw new Error('Session expirée — reconnecte-toi.');
+
+      const { error } = await supabase!.rpc('anonymize_and_delete_account', { target_user_id: realUserId });
+      if (error) throw error;
+
+      setDeleteModalVisible(false);
+      // logout() clears local session/storage regardless of whether the
+      // server-side session was already revoked by the RPC above.
+      await logout();
+      router.replace('/auth/login');
+    } catch (err: any) {
+      Alert.alert('Erreur', toUserMessage('profile:deleteAccount', err, 'Impossible de supprimer le compte. Réessaie dans un instant.'));
+    } finally {
+      setDeletingAccount(false);
     }
   }
 
@@ -269,6 +367,60 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
+      {/* Delete account confirmation modal — double confirmation: the Alert
+          in handleDeleteAccountPress warns about irreversibility first, this
+          modal then requires typing SUPPRIMER before the button unlocks. */}
+      <Modal
+        visible={deleteModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !deletingAccount && setDeleteModalVisible(false)}
+      >
+        <View style={styles.avatarModalOverlay}>
+          <View style={[styles.avatarModalCard, { backgroundColor: colors.card }]}>
+            <Feather name="alert-triangle" size={32} color={colors.destructive} />
+            <Text style={[styles.avatarModalTitle, { color: colors.foreground }]}>
+              Confirmer la suppression
+            </Text>
+            <Text style={[styles.deleteModalText, { color: colors.mutedForeground }]}>
+              Cette action est définitive et ne peut pas être annulée. Tape SUPPRIMER pour confirmer.
+            </Text>
+            <TextInput
+              value={deleteConfirmText}
+              onChangeText={setDeleteConfirmText}
+              placeholder="SUPPRIMER"
+              placeholderTextColor={colors.mutedForeground}
+              style={[styles.editNameInput, { borderColor: colors.border, color: colors.foreground, width: '100%', marginTop: 0 }]}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              editable={!deletingAccount}
+            />
+            <View style={styles.avatarModalActions}>
+              <TouchableOpacity
+                style={[styles.avatarModalBtn, styles.avatarModalBtnCancel, { borderColor: colors.border }]}
+                onPress={() => setDeleteModalVisible(false)}
+                disabled={deletingAccount}
+              >
+                <Text style={[styles.avatarModalBtnText, { color: colors.mutedForeground }]}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.avatarModalBtn,
+                  styles.avatarModalBtnConfirm,
+                  { backgroundColor: colors.destructive, opacity: deleteConfirmText.trim().toUpperCase() === 'SUPPRIMER' ? 1 : 0.4 },
+                ]}
+                onPress={handleConfirmDeleteAccount}
+                disabled={deleteConfirmText.trim().toUpperCase() !== 'SUPPRIMER' || deletingAccount}
+              >
+                {deletingAccount
+                  ? <ActivityIndicator size="small" color="white" />
+                  : <Text style={[styles.avatarModalBtnText, { color: 'white' }]}>Supprimer</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Profile hero */}
       <View style={[styles.hero, { backgroundColor: colors.primary }]}>
         {/* Tappable avatar with camera-edit overlay */}
@@ -461,6 +613,23 @@ export default function ProfileScreen() {
         </TouchableOpacity>
 
         <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
+        <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>Confidentialité</Text>
+
+        <TouchableOpacity style={styles.menuRow} onPress={handleExportData} disabled={exportingData}>
+          <Feather name="download" size={18} color={colors.primary} />
+          <Text style={[styles.menuLabel, { color: colors.foreground, flex: 1 }]}>Exporter mes données</Text>
+          {exportingData
+            ? <ActivityIndicator size="small" color={colors.primary} />
+            : <Feather name="chevron-right" size={16} color={colors.mutedForeground} />}
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.menuRow} onPress={handleDeleteAccountPress}>
+          <Feather name="user-x" size={18} color={colors.destructive} />
+          <Text style={[styles.menuLabel, { color: colors.destructive, flex: 1 }]}>Supprimer mon compte</Text>
+          <Feather name="chevron-right" size={16} color={colors.destructive} />
+        </TouchableOpacity>
+
+        <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
         <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>Application</Text>
 
         <MenuItem icon="headphones" label={t('support')} colors={colors} onPress={handleSupport} />
@@ -635,6 +804,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  deleteModalText: {
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
   },
   editNameInput: {
     borderWidth: 1,
