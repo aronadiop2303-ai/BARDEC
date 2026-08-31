@@ -32,8 +32,8 @@ const STATUS_CONFIG: Record<
   { label: string; color: string; bg: string; icon: string }
 > = {
   pending:   { label: 'En attente',  color: '#D97706', bg: '#FEF3C7', icon: 'clock' },
-  confirmed: { label: 'Confirmée',   color: '#2563EB', bg: '#EFF6FF', icon: 'check-circle' },
-  delivered: { label: 'Livrée',      color: '#166534', bg: '#F0FDF4', icon: 'package' },
+  approved:  { label: 'Confirmée',   color: '#2563EB', bg: '#EFF6FF', icon: 'check-circle' },
+  completed: { label: 'Livrée',      color: '#166534', bg: '#F0FDF4', icon: 'package' },
   cancelled: { label: 'Annulée',     color: '#DC2626', bg: '#FEF2F2', icon: 'x-circle' },
 };
 
@@ -44,16 +44,16 @@ function getCancelledByLabel(cancelledBy: 'customer' | 'vendor' | null | undefin
 }
 
 const NEXT_STATUS: Record<ProximityOrderStatus, ProximityOrderStatus | null> = {
-  pending:   'confirmed',
-  confirmed: 'delivered',
-  delivered: null,
+  pending:   'approved',
+  approved:  'completed',
+  completed: null,
   cancelled: null,
 };
 
 const NEXT_LABEL: Record<ProximityOrderStatus, string> = {
   pending:   'Confirmer',
-  confirmed: 'Marquer livrée',
-  delivered: '',
+  approved:  'Marquer livrée',
+  completed: '',
   cancelled: '',
 };
 
@@ -63,8 +63,8 @@ type Filter = 'all' | ProximityOrderStatus;
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all',       label: 'Toutes'    },
   { key: 'pending',   label: 'En attente'},
-  { key: 'confirmed', label: 'Confirmées'},
-  { key: 'delivered', label: 'Livrées'   },
+  { key: 'approved',  label: 'Confirmées'},
+  { key: 'completed', label: 'Livrées'   },
 ];
 
 // ── Main screen ───────────────────────────────────────────────────────────────
@@ -131,7 +131,7 @@ export default function MyShopOrdersScreen() {
   }
 
   function handleCancel(order: ProximityOrder) {
-    if (order.status === 'delivered' || order.status === 'cancelled') return;
+    if (order.status === 'completed' || order.status === 'cancelled') return;
 
     if (!isSupabaseConfigured) {
       Alert.alert('Mode démo', 'Connecte Supabase pour modifier les commandes.');
@@ -370,9 +370,9 @@ function OrderCard({
       </View>
 
       {/* Actions */}
-      {(nextStatus || (order.status !== 'delivered' && order.status !== 'cancelled')) && (
+      {(nextStatus || (order.status !== 'completed' && order.status !== 'cancelled')) && (
         <View style={styles.actionsRow}>
-          {order.status !== 'delivered' && order.status !== 'cancelled' && (
+          {order.status !== 'completed' && order.status !== 'cancelled' && (
             <TouchableOpacity
               style={[styles.cancelBtn, { borderColor: colors.border }]}
               onPress={onCancel}

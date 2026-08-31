@@ -33,8 +33,8 @@ const STATUS_CONFIG: Record<
   { label: string; color: string; bg: string; icon: string }
 > = {
   pending:   { label: 'En attente',  color: '#D97706', bg: '#FEF3C7', icon: 'clock'         },
-  confirmed: { label: 'Confirmée',   color: '#2563EB', bg: '#EFF6FF', icon: 'check-circle'  },
-  delivered: { label: 'Livrée',      color: '#166534', bg: '#F0FDF4', icon: 'package'       },
+  approved:  { label: 'Confirmée',   color: '#2563EB', bg: '#EFF6FF', icon: 'check-circle'  },
+  completed: { label: 'Livrée',      color: '#166534', bg: '#F0FDF4', icon: 'package'       },
   cancelled: { label: 'Annulée',     color: '#DC2626', bg: '#FEF2F2', icon: 'x-circle'      },
 };
 
@@ -48,8 +48,8 @@ type Filter = 'all' | ProximityOrderStatus;
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all',       label: 'Toutes'    },
   { key: 'pending',   label: 'En attente'},
-  { key: 'confirmed', label: 'Confirmées'},
-  { key: 'delivered', label: 'Livrées'   },
+  { key: 'approved',  label: 'Confirmées'},
+  { key: 'completed', label: 'Livrées'   },
   { key: 'cancelled', label: 'Annulées'  },
 ];
 
@@ -850,7 +850,7 @@ function OrderCard({
           )}
         </TouchableOpacity>
       )}
-      {order.status === 'confirmed' && (
+      {order.status === 'approved' && (
         <View style={[styles.hint, { backgroundColor: '#EFF6FF', borderColor: '#2563EB40' }]}>
           <Feather name="check-circle" size={13} color="#2563EB" />
           <Text style={[styles.hintTxt, { color: '#1E40AF' }]}>
@@ -860,7 +860,7 @@ function OrderCard({
       )}
 
       {/* Re-order button — only for delivered orders */}
-      {order.status === 'delivered' && (
+      {order.status === 'completed' && (
         <TouchableOpacity
           style={[styles.reorderBtn, { borderColor: GREEN, opacity: reordering ? 0.6 : 1 }]}
           onPress={() => onReorder(order)}

@@ -14,7 +14,6 @@ import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { useProximityCart } from '@/context/ProximityCartContext';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { useAuth } from '@/context/AuthContext';
 import { notifyVendorNewOrder } from '@/hooks/useProximityOrders';
 import { toUserMessage } from '@/lib/errors';
 
@@ -23,7 +22,6 @@ const GREEN = '#22C55E';
 export default function ProximityCartScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
   const { items, shopId, shopName, removeItem, updateQuantity, clearCart, subtotal, totalItems } = useProximityCart();
   const [ordering, setOrdering] = useState(false);
 
@@ -56,19 +54,6 @@ export default function ProximityCartScreen() {
         return;
       }
 
-      // Récupérer les coordonnées client depuis le profil (best-effort)
-      let customerName: string | null = user?.email ?? null;
-      let customerPhone: string | null = null;
-      const { data: profile } = await supabase
-        .from('users')
-        .select('display_name, phone')
-        .eq('id', realCustomerId)
-        .maybeSingle();
-      if (profile) {
-        if (profile.display_name) customerName = profile.display_name;
-        if (profile.phone)        customerPhone = profile.phone;
-      }
-
       const orderItems = items.map(i => ({
         product_id: i.productId,
         name: i.name,
@@ -77,11 +62,15 @@ export default function ProximityCartScreen() {
         total: i.price * i.quantity,
       }));
 
-      const { error } = await supabase.from('proximity_orders').insert({
+      // Reuses the shared `orders` table (proximity_orders never actually
+      // existed in production — see BUGS.md) via proximity_shop_id. orders
+      // has no customer_name/customer_phone columns — that profile lookup
+      // above is still used to notify the vendor, just not persisted here;
+      // the vendor-side order list resolves the name via a users join
+      // instead (hooks/useProximityOrders.ts).
+      const { error } = await supabase.from('orders').insert({
         customer_id:       realCustomerId,
         proximity_shop_id: shopId,
-        customer_name:     customerName,
-        customer_phone:    customerPhone,
         items:             orderItems,
         subtotal,
         total:             subtotal,

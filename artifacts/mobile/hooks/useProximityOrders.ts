@@ -16,7 +16,13 @@ export interface ProximityOrderItem {
   total: number;
 }
 
-export type ProximityOrderStatus = 'pending' | 'confirmed' | 'delivered' | 'cancelled';
+// Was 'pending' | 'confirmed' | 'delivered' | 'cancelled' when this lived in
+// its own proximity_orders table (which never actually existed in
+// production). Now stored in the shared `orders` table, so it uses that
+// table's real order_status enum values — 'confirmed'/'delivered' don't
+// exist there, mapped to the closest equivalents: 'approved' (vendor
+// accepted) and 'completed' (fulfilled).
+export type ProximityOrderStatus = 'pending' | 'approved' | 'completed' | 'cancelled';
 
 export interface ProximityOrder {
   id: string;
@@ -28,6 +34,9 @@ export interface ProximityOrder {
   subtotal: number;
   total: number;
   status: ProximityOrderStatus;
+  // orders has no cancelled_by column — always undefined for real rows.
+  // Kept optional so the UI's "annulée par X" badge degrades gracefully
+  // (simply never renders) instead of needing every call site touched.
   cancelled_by?: 'customer' | 'vendor' | null;
   notes?: string | null;
   created_at: string;
@@ -65,7 +74,7 @@ export const DEMO_ORDERS: ProximityOrder[] = [
     ],
     subtotal: 1200,
     total: 1200,
-    status: 'confirmed',
+    status: 'approved',
     created_at: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
   },
   {
@@ -80,7 +89,7 @@ export const DEMO_ORDERS: ProximityOrder[] = [
     ],
     subtotal: 5500,
     total: 5500,
-    status: 'delivered',
+    status: 'completed',
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
   },
   {
@@ -103,8 +112,8 @@ export const DEMO_ORDERS: ProximityOrder[] = [
 // ── Vendor-initiated cancellation guard ─────────────────────────────────────
 //
 // The Realtime UPDATE subscription cannot distinguish who triggered a status
-// change to 'cancelled' (customer via cancel_my_proximity_order, or vendor via
-// update_proximity_order_status).  This Set is populated by useUpdateOrderStatus
+// change to 'cancelled' (customer via cancel_my_order, or vendor via the
+// direct status update below).  This Set is populated by useUpdateOrderStatus
 // whenever the vendor explicitly cancels an order so the UPDATE handler can
 // suppress the false "customer cancelled" notification.
 const _vendorCancelledOrderIds = new Set<string>();
@@ -122,14 +131,22 @@ const _demoCancelledOrderIds = new Set<string>();
 async function fetchShopOrders(shopId: string): Promise<ProximityOrder[]> {
   if (!isSupabaseConfigured || !supabase) return DEMO_ORDERS;
 
+  // orders has no customer_name/customer_phone columns (proximity_orders
+  // did) — joined from users via customer_id instead and mapped onto the
+  // same field names so this hook's callers (my-shop/orders.tsx) don't
+  // need to change.
   const { data, error } = await supabase
-    .from('proximity_orders')
-    .select('*')
+    .from('orders')
+    .select('*, users!customer_id(display_name, phone)')
     .eq('proximity_shop_id', shopId)
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
-  return (data ?? []) as ProximityOrder[];
+  return ((data ?? []) as any[]).map(row => ({
+    ...row,
+    customer_name: row.users?.display_name ?? null,
+    customer_phone: row.users?.phone ?? null,
+  })) as ProximityOrder[];
 }
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
@@ -154,17 +171,19 @@ export function useProximityOrders() {
         {
           event: 'INSERT',
           schema: 'public',
-          table: 'proximity_orders',
+          table: 'orders',
           filter: `proximity_shop_id=eq.${shopId}`,
         },
         (payload) => {
           const newOrder = payload.new as ProximityOrder;
 
-          // Prepend the new order into the cache immediately
-          qc.setQueryData<ProximityOrder[]>(
-            ['proximity_orders', shopId],
-            (prev) => [newOrder, ...(prev ?? [])],
-          );
+          // Refetch rather than prepend the raw payload — Realtime payloads
+          // are plain table rows with no joins, so newOrder.customer_name/
+          // customer_phone would be missing here (orders has no such
+          // columns; fetchShopOrders joins them from users). A refetch
+          // picks up the customer's name immediately instead of showing it
+          // blank until the next 30s poll.
+          qc.invalidateQueries({ queryKey: ['proximity_orders', shopId] });
 
           // Fire a local push notification to alert the vendor
           scheduleLocalNotification(
@@ -180,7 +199,7 @@ export function useProximityOrders() {
         {
           event: 'UPDATE',
           schema: 'public',
-          table: 'proximity_orders',
+          table: 'orders',
           filter: `proximity_shop_id=eq.${shopId}`,
         },
         (payload) => {
@@ -232,7 +251,19 @@ export function useProximityOrders() {
   });
 }
 
-/** Update the status of a proximity order via security-definer RPC (vendor only, status field only) */
+/**
+ * Update the status of a proximity order (vendor only).
+ *
+ * No update_proximity_order_status()-equivalent RPC exists for orders — the
+ * classic vendor flow (vendor-dashboard.tsx's handleUpdateOrderStatus)
+ * already updates orders.status directly, gated by RLS
+ * (orders_vendor_update), not through an RPC. Reused that same convention
+ * here instead of inventing a proximity-only RPC: a direct update gated by
+ * the new orders_proximity_vendor_update policy. Same trade-off the classic
+ * flow already accepts — RLS restricts which *rows* a vendor can touch, not
+ * which *columns*, so this trusts the client to only ever send `status`
+ * here (which it does).
+ */
 export function useUpdateOrderStatus() {
   const qc = useQueryClient();
   return useMutation({
@@ -241,22 +272,26 @@ export function useUpdateOrderStatus() {
         // Demo mode: return mock success without touching DB
         return;
       }
-      // Register vendor-initiated cancellations BEFORE the RPC so the Realtime
-      // UPDATE event (which arrives asynchronously) sees the flag in time.
+      // Register vendor-initiated cancellations BEFORE the update so the
+      // Realtime UPDATE event (which arrives asynchronously) sees the flag in time.
       if (status === 'cancelled') {
         _vendorCancelledOrderIds.add(orderId);
       }
-      // Uses a SECURITY DEFINER function that only allows changing the status column,
-      // preventing vendors from altering totals, items, or customer fields.
-      // cancelled_by is derived server-side ('vendor') — never sent from the client.
-      const { error } = await supabase.rpc('update_proximity_order_status', {
-        p_order_id: orderId,
-        p_status: status,
-      });
+      // .select('id') so an empty result distinguishes "RLS blocked this"
+      // from "succeeded" — same pattern as vendor-dashboard.tsx's classic
+      // order status update.
+      const { data: updated, error } = await supabase
+        .from('orders')
+        .update({ status })
+        .eq('id', orderId)
+        .select('id');
       if (error) {
-        // Roll back the guard flag so a retry doesn't permanently suppress alerts.
         _vendorCancelledOrderIds.delete(orderId);
         throw new Error(error.message);
+      }
+      if (!updated || updated.length === 0) {
+        _vendorCancelledOrderIds.delete(orderId);
+        throw new Error('Impossible de mettre à jour cette commande (accès refusé).');
       }
     },
     onSuccess: () => {
@@ -268,10 +303,14 @@ export function useUpdateOrderStatus() {
 async function fetchMyOrders(customerId: string): Promise<CustomerProximityOrder[]> {
   if (!isSupabaseConfigured || !supabase) return DEMO_CUSTOMER_ORDERS;
 
+  // orders.customer_id covers both classic (B2B/C2C) and proximity orders —
+  // the proximity_shop_id filter is what scopes this to proximity ones only,
+  // same table now shared by both flows.
   const { data, error } = await supabase
-    .from('proximity_orders')
+    .from('orders')
     .select('*, proximity_shops(name)')
     .eq('customer_id', customerId)
+    .not('proximity_shop_id', 'is', null)
     .order('created_at', { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -301,11 +340,11 @@ export async function notifyCustomerOrderStatus(
   const granted = await requestNotificationPermission();
   if (!granted) return;
   const messages: Partial<Record<ProximityOrderStatus, { title: string; body: string }>> = {
-    confirmed: {
+    approved: {
       title: '✅ Commande confirmée',
       body:  `${shopName} a confirmé ta commande. Elle sera bientôt prête.`,
     },
-    delivered: {
+    completed: {
       title: '🎉 Commande livrée',
       body:  `Ta commande chez ${shopName} a été livrée !`,
     },
@@ -322,8 +361,10 @@ export async function notifyCustomerOrderStatus(
 
 /**
  * Lets a customer cancel one of their own pending orders.
- * In Supabase mode: calls the `cancel_my_proximity_order` SECURITY DEFINER RPC
- *   which verifies customer_id = auth.uid() and status = 'pending'.
+ * In Supabase mode: calls the `cancel_my_order` SECURITY DEFINER RPC (generalized —
+ *   works for any order, not just proximity ones — since no equivalent existed
+ *   for orders at all before) which verifies customer_id = auth.uid() and
+ *   status = 'pending'.
  * In demo mode: optimistically updates the query cache so the UI reflects the
  *   cancellation immediately without touching the database.
  */
@@ -343,8 +384,7 @@ export function useCancelMyOrder() {
         _demoCancelledOrderIds.add(orderId);
         return;
       }
-      // The cancel_my_proximity_order RPC automatically sets cancelled_by = 'customer'.
-      const { error } = await supabase.rpc('cancel_my_proximity_order', {
+      const { error } = await supabase.rpc('cancel_my_order', {
         p_order_id: orderId,
       });
       if (error) throw new Error(error.message);
@@ -424,7 +464,7 @@ export const DEMO_CUSTOMER_ORDERS: CustomerProximityOrder[] = [
     ],
     subtotal: 1450,
     total: 1450,
-    status: 'confirmed',
+    status: 'approved',
     created_at: new Date(Date.now() - 1000 * 60 * 90).toISOString(),
   },
   {
@@ -438,7 +478,7 @@ export const DEMO_CUSTOMER_ORDERS: CustomerProximityOrder[] = [
     ],
     subtotal: 8500,
     total: 8500,
-    status: 'delivered',
+    status: 'completed',
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
   },
   {
@@ -557,7 +597,7 @@ export function useNearbyBadge() {
   if (!isCustomer || isLoading) return { count: 0, markSeen };
 
   const activeOrders = (orders ?? []).filter(
-    o => o.status === 'pending' || o.status === 'confirmed',
+    o => o.status === 'pending' || o.status === 'approved',
   );
 
   // No previous visit recorded → all active orders are unseen
@@ -641,11 +681,18 @@ export function useCustomerOrdersRealtime() {
         {
           event: 'UPDATE',
           schema: 'public',
-          table: 'proximity_orders',
+          table: 'orders',
           filter: `customer_id=eq.${customerId}`,
         },
         async (payload) => {
-          const updated = payload.new as ProximityOrder & { proximity_shop_id: string };
+          const updated = payload.new as ProximityOrder & { proximity_shop_id: string | null };
+          // orders now also carries this customer's classic B2B/C2C orders —
+          // the filter above can't express "proximity_shop_id IS NOT NULL"
+          // (Realtime only supports simple equality), so skip anything that
+          // isn't a proximity order here instead of firing a wrongly-worded
+          // "ta commande chez {shopName}" notification for a classic order.
+          if (!updated.proximity_shop_id) return;
+
           const newStatus = updated.status;
           const orderId = updated.id;
 

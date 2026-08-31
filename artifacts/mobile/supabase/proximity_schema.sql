@@ -48,8 +48,20 @@ CREATE TABLE IF NOT EXISTS proximity_products (
   created_at  timestamptz DEFAULT now()
 );
 
--- 4. Table dédiée aux commandes de proximité
---    (table séparée pour éviter tout conflit avec le type order_status du schéma B2B)
+-- 4. ⚠️ OBSOLÈTE — NE JAMAIS APPLIQUER — décision volontaire du 31 août 2026
+-- Cette table n'a jamais existé en production (confirmé par audit direct :
+-- information_schema.tables, pg_tables — absente). Le code client
+-- (hooks/useProximityOrders.ts, app/proximity/cart.tsx) dépendait pourtant
+-- activement d'elle et de ses 3 fonctions ci-dessous, cassant entièrement
+-- le flux de commande sur les boutiques de quartier en production.
+-- Décision prise : ne PAS créer cette table. Les commandes de proximité
+-- réutilisent désormais la table `orders` existante (déjà dotée d'une
+-- colonne `proximity_shop_id` nullable) — voir les policies
+-- orders_proximity_vendor / orders_proximity_vendor_update et la fonction
+-- cancel_my_order() plus bas dans ce fichier, qui remplacent ce bloc et les
+-- fonctions proximity_orders_set_updated_at()/update_proximity_order_status()/
+-- cancel_my_proximity_order() ci-dessous. Bloc conservé uniquement pour
+-- l'historique — ne pas exécuter, ne pas s'y fier.
 CREATE TABLE IF NOT EXISTS proximity_orders (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   proximity_shop_id uuid NOT NULL REFERENCES proximity_shops(id) ON DELETE CASCADE,
@@ -436,6 +448,72 @@ BEGIN
       AND  tablename  = 'proximity_orders'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE proximity_orders;
+  END IF;
+END;
+$$;
+
+-- 11. Remplacement réel de §4/§9/§10, appliqué en production le 31 août 2026
+-- (voir la note ⚠️ OBSOLÈTE en §4). `orders` était déjà dans la publication
+-- supabase_realtime (vérifié), donc aucune étape supplémentaire de ce
+-- côté-là n'était nécessaire.
+CREATE POLICY "orders_proximity_vendor"
+  ON orders FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM proximity_shops s
+      WHERE s.id = orders.proximity_shop_id AND s.owner_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "orders_proximity_vendor_update"
+  ON orders FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM proximity_shops s
+      WHERE s.id = orders.proximity_shop_id AND s.owner_id = auth.uid()
+    )
+  );
+
+-- Généralisée (pas seulement proximité) — aucune fonction équivalente
+-- n'existait pour `orders` : le flux B2B/C2C classique n'a jamais eu de
+-- chemin d'auto-annulation client, seulement des mises à jour de statut
+-- vendeur/approver directes (gérées par RLS, pas par RPC — voir
+-- orders_vendor_update dans schema.sql). Pas de colonne cancelled_by ici,
+-- contrairement à l'ancien cancel_my_proximity_order() : `orders` n'a pas
+-- cette colonne.
+CREATE OR REPLACE FUNCTION public.cancel_my_order(p_order_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_rows_updated integer;
+  v_exists       boolean;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Accès refusé : authentification requise';
+  END IF;
+
+  UPDATE orders
+     SET status = 'cancelled'
+   WHERE id            = p_order_id
+     AND customer_id   = auth.uid()
+     AND status        = 'pending';
+
+  GET DIAGNOSTICS v_rows_updated = ROW_COUNT;
+
+  IF v_rows_updated = 0 THEN
+    SELECT EXISTS (
+      SELECT 1 FROM orders WHERE id = p_order_id
+    ) INTO v_exists;
+
+    IF NOT v_exists THEN
+      RAISE EXCEPTION 'Commande introuvable';
+    END IF;
+
+    RAISE EXCEPTION
+      'Impossible d''annuler cette commande : elle n''est plus en attente ou ne vous appartient pas';
   END IF;
 END;
 $$;
