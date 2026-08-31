@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { usePathname } from 'expo-router';
 import { DEMO_USERS, User, UserRole } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toAuthMessage, toUserMessage } from '@/lib/errors';
@@ -42,6 +43,7 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const pathname = usePathname();
 
   const isDemoMode = !isSupabaseConfigured;
 
@@ -72,13 +74,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Restore session persisted by AsyncStorage (survives app restarts).
+      // Skip on the reset-password screen: a password-recovery link (web
+      // only — detectSessionInUrl is off on native) creates a real session
+      // there before the user has actually set a new password. Treating it
+      // as "logged in" here would flip isAuthenticated to true and the root
+      // layout's Stack.Protected would redirect straight into the app,
+      // skipping the reset form entirely.
       const { data: { session } } = await supabase!.auth.getSession();
-      if (session?.user) {
+      if (session?.user && pathname !== '/auth/reset-password') {
         const dbUser = await fetchUserProfile(session.user.id);
         if (dbUser) setUser(dbUser);
       }
 
-      supabase!.auth.onAuthStateChange(async (_event, session) => {
+      supabase!.auth.onAuthStateChange(async (event, session) => {
+        // Same reasoning as above, for the case where the app is already
+        // running and the recovery link is opened while backgrounded/foreground.
+        if (event === 'PASSWORD_RECOVERY') return;
+
         if (!session?.user) {
           // Only clear user on explicit sign-out; never during register flow.
           if (!isRegistering.current) setUser(null);
