@@ -72,34 +72,45 @@ export default function RegisterScreen() {
     }
 
     setLoading(true);
-    const { error } = await register(
-      email.trim().toLowerCase(),
-      password,
-      name.trim(),
-      selectedRole,
-      phone.trim(),
-      company.trim() || undefined,
-      inviteCode.trim() || undefined,
-    );
-    setLoading(false);
+    try {
+      // register() is expected to always resolve to { error? } rather than
+      // throw — but a raw network-level exception (fetch failing outright,
+      // not a Postgres error) can still slip through. Without this try/catch
+      // that left the spinner stuck forever with no message (see BUGS.md):
+      // signUp() succeeds, the users-row insert throws instead of returning
+      // an error, and this line never runs, so setLoading(false) never fires.
+      const { error } = await register(
+        email.trim().toLowerCase(),
+        password,
+        name.trim(),
+        selectedRole,
+        phone.trim(),
+        company.trim() || undefined,
+        inviteCode.trim() || undefined,
+      );
 
-    if (error === 'CONFIRM_EMAIL') {
-      setEmailSent(true);
-      return;
-    }
-    if (error) {
-      Alert.alert('Erreur d\'inscription', error);
-      return;
-    }
+      if (error === 'CONFIRM_EMAIL') {
+        setEmailSent(true);
+        return;
+      }
+      if (error) {
+        Alert.alert('Erreur d\'inscription', error);
+        return;
+      }
 
-    // ✅ Account created and session active.
-    // Vendors get an extra optional stop to add a KYC document right away
-    // (upload works because the session is already active) before the
-    // usual success screen.
-    if (selectedRole === 'VENDOR' && isSupabaseConfigured) {
-      setKycStep(true);
-    } else {
-      setSuccessName(name.trim());
+      // ✅ Account created and session active.
+      // Vendors get an extra optional stop to add a KYC document right away
+      // (upload works because the session is already active) before the
+      // usual success screen.
+      if (selectedRole === 'VENDOR' && isSupabaseConfigured) {
+        setKycStep(true);
+      } else {
+        setSuccessName(name.trim());
+      }
+    } catch (err: any) {
+      Alert.alert('Erreur d\'inscription', toUserMessage('auth:register:handleRegister', err, 'Impossible de créer le compte. Réessaie dans un instant.'));
+    } finally {
+      setLoading(false);
     }
   }
 

@@ -102,10 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function fetchUserProfile(userId: string): Promise<User | null> {
-    if (!supabase) return null;
-    const { data } = await supabase.from('users').select('*').eq('id', userId).single();
-    if (!data) return null;
+  function mapUserRow(data: any): User {
     return {
       id:            data.id,
       name:          data.display_name ?? data.email,
@@ -116,6 +113,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       creditBalance: data.net30_balance ?? undefined,
       avatar:        data.avatar_url ?? undefined,
     };
+  }
+
+  async function fetchUserProfile(userId: string): Promise<User | null> {
+    if (!supabase) return null;
+    const { data } = await supabase.from('users').select('*').eq('id', userId).single();
+    if (data) return mapUserRow(data);
+
+    // Self-heal: an authenticated session exists (auth.users row is real and
+    // confirmed) but its public.users profile row is missing — e.g. register()
+    // created the auth account via signUp() but the follow-up profile insert
+    // then failed/threw (network hiccup), leaving an orphaned account with no
+    // way to ever get past this point (see BUGS.md — found via a real orphaned
+    // account). Recreate the missing row from the metadata Supabase already
+    // stored at signUp time instead of leaving the account permanently stuck.
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser || authUser.id !== userId) return null;
+
+    const meta = authUser.user_metadata ?? {};
+    const role = (meta.role as UserRole) ?? 'CUSTOMER';
+    const { data: healed, error: healErr } = await supabase
+      .from('users')
+      .insert({
+        id:           userId,
+        email:        authUser.email,
+        display_name: meta.display_name ?? authUser.email,
+        role,
+        phone:        meta.phone ?? null,
+        is_approved:  role !== 'VENDOR',
+      })
+      .select('*')
+      .single();
+    if (healErr || !healed) {
+      console.error('[fetchUserProfile] self-heal insert failed:', healErr);
+      return null;
+    }
+    return mapUserRow(healed);
   }
 
   async function updateUserAvatar(url: string): Promise<void> {
@@ -267,6 +300,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       return {};
+    } catch (err: any) {
+      // A raw network-level exception (e.g. the users-row insert's fetch
+      // failing outright) used to propagate out of register() unhandled
+      // instead of resolving to { error }, leaving callers' loading state
+      // stuck forever with nothing shown to the user. See BUGS.md.
+      return { error: toUserMessage('auth:register', err, 'Impossible de créer le compte. Réessaie dans un instant.') };
     } finally {
       // Always release the guard so onAuthStateChange works normally afterwards.
       isRegistering.current = false;
