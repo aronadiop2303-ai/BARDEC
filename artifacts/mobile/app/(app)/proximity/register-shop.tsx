@@ -20,13 +20,12 @@ import * as ImagePicker from 'expo-image-picker';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@/components/Icon';
 import {
-  CATEGORY_TO_ENUM,
   DAY_KEYS,
   DAY_LABELS,
-  PROXIMITY_CATEGORIES,
   PROXIMITY_SUBCATEGORIES,
   ProximityCategory,
 } from '@/constants/proximityData';
+import { useShopCategories } from '@/hooks/useShopCategories';
 import ProximityMap from '@/components/proximity/ProximityMap';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { readLocalImageBytes } from '@/lib/imageUpload';
@@ -39,7 +38,10 @@ const STEPS = ['Informations', 'Position', 'Horaires', 'Photos'];
 
 interface ShopForm {
   name: string;
-  category: ProximityCategory | '';
+  // Was ProximityCategory | '' (a compile-time literal union) — now a plain
+  // string since the set of valid categories comes from shop_categories at
+  // runtime (see useShopCategories), not a hardcoded list known at build time.
+  category: string;
   subcategory: string;
   description: string;
   phone: string;
@@ -60,6 +62,7 @@ export default function RegisterShopScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const qc = useQueryClient();
+  const { labels: categoryLabels, labelToSlug, labelToDisplayLabel } = useShopCategories();
 
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
@@ -191,7 +194,7 @@ export default function RegisterShopScreen() {
       const { error } = await supabase.from('proximity_shops').insert({
         owner_id: realOwnerId,
         name: form.name.trim(),
-        category: CATEGORY_TO_ENUM[form.category as ProximityCategory],
+        category: labelToSlug[form.category as ProximityCategory],
         subcategory: form.subcategory.trim(),
         description: form.description.trim() || null,
         phone: form.phone.trim() || null,
@@ -311,7 +314,7 @@ export default function RegisterShopScreen() {
 
               <Field label="Catégorie principale *" colors={colors}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
-                  {PROXIMITY_CATEGORIES.map(cat => (
+                  {categoryLabels.map(cat => (
                     <TouchableOpacity
                       key={cat}
                       style={[styles.catChip, {
@@ -321,7 +324,7 @@ export default function RegisterShopScreen() {
                       onPress={() => { update('category', cat); update('subcategory', ''); }}
                     >
                       <Text style={[styles.catChipTxt, { color: form.category === cat ? 'white' : colors.foreground }]} numberOfLines={1}>
-                        {cat}
+                        {labelToDisplayLabel[cat] ?? cat}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -478,7 +481,7 @@ export default function RegisterShopScreen() {
 
               <View style={[styles.submitSummary, { backgroundColor: colors.muted, borderColor: colors.border }]}>
                 <Text style={[styles.summaryTxt, { color: colors.foreground }]}>✓ {form.name}</Text>
-                <Text style={[styles.summaryTxt, { color: colors.mutedForeground }]}>{form.category}{form.subcategory ? ` · ${form.subcategory}` : ''}</Text>
+                <Text style={[styles.summaryTxt, { color: colors.mutedForeground }]}>{labelToDisplayLabel[form.category] ?? form.category}{form.subcategory ? ` · ${form.subcategory}` : ''}</Text>
                 <Text style={[styles.summaryTxt, { color: colors.mutedForeground }]}>📍 {form.lat.toFixed(4)}, {form.lng.toFixed(4)}</Text>
               </View>
             </View>

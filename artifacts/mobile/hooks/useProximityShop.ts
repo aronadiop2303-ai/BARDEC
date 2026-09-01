@@ -1,13 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { DEMO_PRODUCTS, DEMO_SHOPS, ENUM_TO_CATEGORY, ProximityProduct, ProximityShop } from '@/constants/proximityData';
+import { DEMO_PRODUCTS, DEMO_SHOPS, ProximityProduct, ProximityShop } from '@/constants/proximityData';
+import { useShopCategories } from '@/hooks/useShopCategories';
 
 interface ShopWithProducts {
   shop: ProximityShop | null;
   products: ProximityProduct[];
 }
 
-async function fetchShopWithProducts(shopId: string): Promise<ShopWithProducts> {
+async function fetchShopWithProducts(shopId: string, slugToLabel: Record<string, string>): Promise<ShopWithProducts> {
   if (!isSupabaseConfigured || !supabase) {
     const shop = DEMO_SHOPS.find(s => s.id === shopId) ?? null;
     const products = DEMO_PRODUCTS[shopId] ?? [];
@@ -29,7 +30,7 @@ async function fetchShopWithProducts(shopId: string): Promise<ShopWithProducts> 
   return {
     shop: rawShop ? {
       ...rawShop,
-      category: ENUM_TO_CATEGORY[rawShop.category] ?? rawShop.category,
+      category: (slugToLabel[rawShop.category] ?? rawShop.category) as ProximityShop['category'],
       rating_count: rawShop.review_count ?? rawShop.rating_count ?? 0,
     } : null,
     products: (productsRes.data ?? []) as ProximityProduct[],
@@ -37,9 +38,10 @@ async function fetchShopWithProducts(shopId: string): Promise<ShopWithProducts> 
 }
 
 export function useProximityShop(shopId: string | null) {
+  const { slugToLabel } = useShopCategories();
   return useQuery({
     queryKey: ['proximity_shop', shopId],
-    queryFn: () => fetchShopWithProducts(shopId!),
+    queryFn: () => fetchShopWithProducts(shopId!, slugToLabel),
     enabled: !!shopId,
     staleTime: 1000 * 60 * 5,
   });

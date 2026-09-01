@@ -13,6 +13,7 @@ import { router } from 'expo-router';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { CATEGORY_COLORS, ProximityShop } from '@/constants/proximityData';
+import { useShopCategories } from '@/hooks/useShopCategories';
 import { OmniChatModal } from '@/components/OmniChatModal';
 import type { OmniContext } from '@/hooks/useOmniChat';
 
@@ -39,6 +40,7 @@ function renderStars(rating: number): string {
 export default function ShopBottomSheet({ shop, visible, onClose }: ShopBottomSheetProps) {
   const colors = useColors();
   const [omniVisible, setOmniVisible] = useState(false);
+  const { labelToDisplayLabel } = useShopCategories();
 
   if (!shop) return null;
 
@@ -102,7 +104,7 @@ export default function ShopBottomSheet({ shop, visible, onClose }: ShopBottomSh
           {/* Category badge */}
           <View style={[styles.categoryBadge, { backgroundColor: categoryColor + '18' }]}>
             <Text style={[styles.categoryText, { color: categoryColor }]}>
-              {shop.subcategory ?? shop.category}
+              {shop.subcategory ?? (labelToDisplayLabel[shop.category] ?? shop.category)}
             </Text>
             {shop.verified && (
               <View style={[styles.verifiedBadge, { backgroundColor: '#22C55E' }]}>

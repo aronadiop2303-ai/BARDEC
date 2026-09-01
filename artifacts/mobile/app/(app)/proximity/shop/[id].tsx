@@ -18,6 +18,7 @@ import { useColors } from '@/hooks/useColors';
 import { useProximityShop } from '@/hooks/useProximityShop';
 import { useProximityCart } from '@/context/ProximityCartContext';
 import { CATEGORY_COLORS, ProximityProduct, ProximityReview } from '@/constants/proximityData';
+import { useShopCategories } from '@/hooks/useShopCategories';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { toUserMessage } from '@/lib/errors';
@@ -99,6 +100,7 @@ export default function ShopProductsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { data, isLoading } = useProximityShop(id ?? null);
+  const { labelToDisplayLabel } = useShopCategories();
   const { addItem, totalItems, shopId: cartShopId } = useProximityCart();
   const { user } = useAuth();
   const [adding, setAdding] = useState<Record<string, boolean>>({});
@@ -212,7 +214,7 @@ export default function ShopProductsScreen() {
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.shopName} numberOfLines={1}>{shop.name}</Text>
-          <Text style={styles.shopSub}>{shop.subcategory ?? shop.category}</Text>
+          <Text style={styles.shopSub}>{shop.subcategory ?? (labelToDisplayLabel[shop.category] ?? shop.category)}</Text>
         </View>
         <TouchableOpacity style={styles.reportShopBtn} onPress={() => setReportShopOpen(true)}>
           <Feather name="flag" size={18} color="white" />

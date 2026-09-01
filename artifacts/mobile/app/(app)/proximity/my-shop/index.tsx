@@ -15,6 +15,7 @@ import { useColors } from '@/hooks/useColors';
 import { Feather } from '@/components/Icon';
 import { useMyProximityShop, useToggleShopActive } from '@/hooks/useMyProximityShop';
 import { CATEGORY_COLORS } from '@/constants/proximityData';
+import { useShopCategories } from '@/hooks/useShopCategories';
 import { isSupabaseConfigured } from '@/lib/supabase';
 
 const GREEN = '#22C55E';
@@ -24,6 +25,7 @@ export default function MyShopScreen() {
   const insets = useSafeAreaInsets();
   const { shop, products, isLoading } = useMyProximityShop();
   const toggleActive = useToggleShopActive();
+  const { labelToDisplayLabel } = useShopCategories();
 
   const catColor = shop ? (CATEGORY_COLORS[shop.category] ?? GREEN) : GREEN;
 
@@ -86,7 +88,7 @@ export default function MyShopScreen() {
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.shopName} numberOfLines={1}>{shop.name}</Text>
-          <Text style={styles.shopSub}>{shop.subcategory ?? shop.category}</Text>
+          <Text style={styles.shopSub}>{shop.subcategory ?? (labelToDisplayLabel[shop.category] ?? shop.category)}</Text>
         </View>
       </View>
 

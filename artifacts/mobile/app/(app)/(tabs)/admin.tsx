@@ -15,7 +15,7 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toUserMessage } from '@/lib/errors';
 import { notifyVendorKycEvent } from '@/lib/notifications';
 import { loadCurrencyRates } from '@/lib/currency';
-import { ENUM_TO_CATEGORY } from '@/constants/proximityData';
+import { useShopCategories } from '@/hooks/useShopCategories';
 
 const { width } = Dimensions.get('window');
 type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'reports' | 'orders' | 'disputes' | 'payments' | 'currencies' | 'notifications' | 'support' | 'settings' | 'apikeys';
@@ -141,6 +141,7 @@ function AdminScreenInner() {
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [refreshing, setRefreshing] = useState(false);
+  const { slugToLabel } = useShopCategories();
 
   // ── Real Supabase data — dashboard/users/vendors/orders/disputes/payments.
   // "Payments" has no dedicated table — it reads orders.payment_* columns
@@ -1280,7 +1281,7 @@ function AdminScreenInner() {
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.vendorName, { color: colors.foreground }]}>{shop.name}</Text>
                     <Text style={[styles.vendorCountry, { color: colors.mutedForeground }]}>
-                      {owner?.display_name ?? owner?.email ?? '—'} · {ENUM_TO_CATEGORY[shop.category] ?? shop.category}
+                      {owner?.display_name ?? owner?.email ?? '—'} · {slugToLabel[shop.category] ?? shop.category}
                     </Text>
                     <Text style={[styles.vendorCountry, { color: colors.mutedForeground }]} numberOfLines={1}>{shop.address_text}</Text>
                   </View>

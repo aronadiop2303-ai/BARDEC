@@ -22,10 +22,10 @@ import { useProximityShops } from '@/hooks/useProximityShops';
 import {
   CATEGORY_COLORS,
   CATEGORY_ICONS,
-  PROXIMITY_CATEGORIES,
   ProximityCategory,
   ProximityShop,
 } from '@/constants/proximityData';
+import { useShopCategories } from '@/hooks/useShopCategories';
 import ProximityMap from '@/components/proximity/ProximityMap';
 import ShopBottomSheet from '@/components/proximity/ShopBottomSheet';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -56,8 +56,12 @@ function NearbyScreenInner() {
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
   const [positionApproximate, setPositionApproximate] = useState(false);
   const [retryingLoc, setRetryingLoc] = useState(false);
-  const [selectedCat, setSelectedCat] = useState<ProximityCategory | null>(null);
+  // Was ProximityCategory | null (a compile-time literal union) — now a
+  // plain string since the set of valid categories comes from
+  // shop_categories at runtime (see useShopCategories), not a hardcoded list.
+  const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
+  const { labels: categoryLabels, labelToDisplayLabel } = useShopCategories();
   const [selectedShop, setSelectedShop] = useState<ProximityShop | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -330,18 +334,23 @@ function NearbyScreenInner() {
         >
           <Text style={[styles.chipTxt, { color: selectedCat === null ? 'white' : colors.foreground }]}>Tous</Text>
         </TouchableOpacity>
-        {PROXIMITY_CATEGORIES.map(cat => {
+        {categoryLabels.map(cat => {
           const active = selectedCat === cat;
-          const cc = CATEGORY_COLORS[cat];
+          const cc = CATEGORY_COLORS[cat as ProximityCategory];
           return (
             <TouchableOpacity
               key={cat}
               style={[styles.chip, { backgroundColor: active ? cc : colors.muted, borderColor: active ? cc : colors.border }]}
               onPress={() => setSelectedCat(active ? null : cat)}
             >
-              <Feather name={CATEGORY_ICONS[cat] as any} size={11} color={active ? 'white' : colors.mutedForeground} />
+              <Feather name={CATEGORY_ICONS[cat as ProximityCategory] as any} size={11} color={active ? 'white' : colors.mutedForeground} />
+              {/* Full translated label, not just the first half — the old
+                  ".split(' & ')[0]" shortening relied on every language
+                  using " & " as its category separator, which only en/fr/de
+                  actually do (see translations.ts cat_<slug> keys); numberOfLines
+                  already handles overflow for the others. */}
               <Text style={[styles.chipTxt, { color: active ? 'white' : colors.foreground }]} numberOfLines={1}>
-                {cat.split(' & ')[0]}
+                {labelToDisplayLabel[cat] ?? cat}
               </Text>
             </TouchableOpacity>
           );

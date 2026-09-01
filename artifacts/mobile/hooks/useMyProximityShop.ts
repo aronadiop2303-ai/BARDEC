@@ -1,9 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { ENUM_TO_CATEGORY, ProximityProduct, ProximityShop } from '@/constants/proximityData';
+import { ProximityProduct, ProximityShop } from '@/constants/proximityData';
 import { useAuth } from '@/context/AuthContext';
+import { useShopCategories } from '@/hooks/useShopCategories';
 
-async function fetchMyShop(userId: string): Promise<ProximityShop | null> {
+async function fetchMyShop(userId: string, slugToLabel: Record<string, string>): Promise<ProximityShop | null> {
   if (!isSupabaseConfigured || !supabase) return null;
 
   const { data, error } = await supabase
@@ -16,7 +17,7 @@ async function fetchMyShop(userId: string): Promise<ProximityShop | null> {
 
   if (error) throw new Error(error.message);
   if (!data) return null;
-  return { ...data, category: ENUM_TO_CATEGORY[data.category as string] ?? data.category } as ProximityShop;
+  return { ...data, category: slugToLabel[data.category as string] ?? data.category } as ProximityShop;
 }
 
 async function fetchMyProducts(shopId: string): Promise<ProximityProduct[]> {
@@ -34,11 +35,12 @@ async function fetchMyProducts(shopId: string): Promise<ProximityProduct[]> {
 
 export function useMyProximityShop() {
   const { user } = useAuth();
+  const { slugToLabel } = useShopCategories();
   const userId = user?.id ?? null;
 
   const shopQuery = useQuery({
     queryKey: ['my_proximity_shop', userId],
-    queryFn: () => fetchMyShop(userId!),
+    queryFn: () => fetchMyShop(userId!, slugToLabel),
     enabled: !!userId,
     staleTime: 1000 * 60 * 5,
   });

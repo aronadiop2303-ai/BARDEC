@@ -1,5 +1,7 @@
 /** Catégories, sous-catégories et données de démo — Commerces de proximité BARDEC */
 
+import { TranslationKey } from '@/constants/translations';
+
 export const PROXIMITY_CATEGORIES = [
   'Alimentation & Table',
   'Restauration & Loisirs',
@@ -73,11 +75,13 @@ export const CATEGORY_COLORS: Record<ProximityCategory, string> = {
 // The DB column proximity_shops.category is a Postgres ENUM (shop_category)
 // using short slugs — it does NOT accept the French display labels above
 // (confirmed via postgres_logs: "invalid input value for enum shop_category:
-// \"Alimentation & Table\"", error 22P02). Every write to that column must
-// go through CATEGORY_TO_ENUM; every read must go through ENUM_TO_CATEGORY
-// so the rest of the app keeps working with the pretty labels it already
-// uses everywhere (PROXIMITY_SUBCATEGORIES/CATEGORY_ICONS/CATEGORY_COLORS
-// are all keyed by label, not slug).
+// \"Alimentation & Table\"", error 22P02). This list — and the label↔slug
+// mapping below — is now only a build-time fallback used by
+// hooks/useShopCategories.ts when public.shop_categories can't be read
+// (demo mode, network error). The live source of truth is that table;
+// PROXIMITY_CATEGORIES/CATEGORY_TO_ENUM must stay a mirror of its 7 rows,
+// not be edited independently. PROXIMITY_SUBCATEGORIES/CATEGORY_ICONS/
+// CATEGORY_COLORS remain keyed by label (no DB equivalent for those yet).
 export const CATEGORY_TO_ENUM: Record<ProximityCategory, string> = {
   'Alimentation & Table':   'alimentation_table',
   'Restauration & Loisirs': 'restauration_loisirs',
@@ -88,9 +92,19 @@ export const CATEGORY_TO_ENUM: Record<ProximityCategory, string> = {
   'Services & Entretien':   'services_entretien',
 };
 
-export const ENUM_TO_CATEGORY: Record<string, ProximityCategory> = Object.fromEntries(
-  Object.entries(CATEGORY_TO_ENUM).map(([label, slug]) => [slug, label]),
-) as Record<string, ProximityCategory>;
+// shop_categories.label_i18n only has "fr" filled in (see hooks/useShopCategories.ts)
+// so displayed category text is driven by t() instead, same convention as the
+// product categories fix (cat_all/cat_electronics/... in translations.ts):
+// one cat_<slug> key per row, translated in all 20 languages.
+export const SLUG_TO_CATEGORY_KEY: Record<string, TranslationKey> = {
+  alimentation_table:   'cat_alimentation_table',
+  restauration_loisirs: 'cat_restauration_loisirs',
+  bricolage_maison:     'cat_bricolage_maison',
+  beaute_mode:          'cat_beaute_mode',
+  sante_hygiene:        'cat_sante_hygiene',
+  culture_tech:         'cat_culture_tech',
+  services_entretien:   'cat_services_entretien',
+};
 
 export const DAY_LABELS: Record<string, string> = {
   lun: 'Lundi',
