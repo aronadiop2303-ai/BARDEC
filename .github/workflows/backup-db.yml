@@ -1,0 +1,84 @@
+name: Daily Database Backup
+
+# Backs up the production Supabase Postgres database (pg_dump, custom format)
+# every night and stores it as a GitHub Actions artifact.
+#
+# The repo is currently public (see AGENTS.md §9) — on a public repo, any
+# GitHub account with read access can download workflow artifacts, so the
+# dump is GPG-encrypted before upload. Without BACKUP_ENCRYPTION_PASSPHRASE
+# the uploaded file is useless even if downloaded.
+#
+# ── One-time setup required (repo secrets, Settings > Secrets and variables
+#    > Actions) — nothing here runs until both are added ──────────────────
+#   1. SUPABASE_DB_URL — the "Session pooler" connection string from
+#      Supabase Dashboard > Project Settings > Database > Connection string.
+#      Use the SESSION POOLER tab, not "Direct connection": the direct host
+#      (db.<ref>.supabase.co) is IPv6-only on new Supabase projects, and
+#      GitHub-hosted runners have no IPv6 route — pg_dump would just hang
+#      and time out. Fill in the real DB password in place of [YOUR-PASSWORD]
+#      before saving the secret.
+#   2. BACKUP_ENCRYPTION_PASSPHRASE — a random passphrase, e.g. generated
+#      locally with: openssl rand -base64 32
+#      Save it in a password manager too — GitHub never shows a secret's
+#      value again once saved, and it's the only way to decrypt a restore.
+#
+# ── Restore ─────────────────────────────────────────────────────────────
+#   gpg --batch --passphrase "<passphrase>" -d bardec_YYYY-MM-DD.dump.gpg > backup.dump
+#   pg_restore --clean --if-exists -d "<SUPABASE_DB_URL>" backup.dump
+#
+# First run: trigger manually via the "Run workflow" button (workflow_dispatch)
+# and check the logs before relying on the nightly schedule — this has not
+# been run for real yet (see BUGS.md, "Sauvegardes automatiques").
+
+on:
+  schedule:
+    - cron: '15 3 * * *'  # 03:15 UTC daily — low-traffic window
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install PostgreSQL 17 client tools (matches production server version)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCS.PGP | sudo gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
+          echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+
+      - name: Dump production database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "::error::SUPABASE_DB_URL secret is not set — see workflow header comment for setup." >&2
+            exit 1
+          fi
+          pg_dump "$SUPABASE_DB_URL" --format=custom --no-owner --no-privileges \
+            --file="bardec_$(date -u +%Y-%m-%d).dump"
+
+      - name: Encrypt dump (repo is public — see workflow header comment)
+        env:
+          BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BACKUP_ENCRYPTION_PASSPHRASE:-}" ]; then
+            echo "::error::BACKUP_ENCRYPTION_PASSPHRASE secret is not set — see workflow header comment for setup." >&2
+            exit 1
+          fi
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+            --passphrase "$BACKUP_ENCRYPTION_PASSPHRASE" \
+            "bardec_$(date -u +%Y-%m-%d).dump"
+          rm -f bardec_*.dump   # never upload the plaintext dump
+
+      - name: Upload encrypted backup as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bardec-db-backup-${{ github.run_id }}
+          path: bardec_*.dump.gpg
+          retention-days: 30
+          if-no-files-found: error
