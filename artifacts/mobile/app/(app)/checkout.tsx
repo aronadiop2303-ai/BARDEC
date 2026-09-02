@@ -14,6 +14,8 @@ import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { useCurrency } from '@/context/CurrencyContext';
+import { useRelayPoints } from '@/hooks/useRelayPoints';
+import { useCustomerAddresses, useCreateCustomerAddress } from '@/hooks/useCustomerAddresses';
 
 type Step = 1 | 2 | 3 | 4;
 type DeliveryType = 'home' | 'drone' | 'relay_point' | 'store_pickup';
@@ -29,7 +31,7 @@ interface Address {
   fullName: string; street: string; city: string; country: string; phone: string; zipCode: string;
 }
 interface RelayPoint {
-  id: string; name: string; address: string; hours: string; distance: string;
+  id: string; name: string; address: string;
 }
 interface StorePickup {
   id: string; name: string; address: string; hours: string; contact: string;
@@ -45,14 +47,6 @@ function checkDroneEligibility(city: string): boolean {
     city.toLowerCase().trim()
   );
 }
-
-const RELAY_POINTS: RelayPoint[] = [
-  { id: 'r1', name: 'Relais Marché Central',    address: '12 Rue du Marché, Paris 75001',            hours: 'Lun–Sam 8h–20h, Dim 9h–13h',       distance: '0.3 km' },
-  { id: 'r2', name: 'Point Relais Expo Store',  address: '47 Avenue de la République, 75011',        hours: 'Lun–Ven 9h–19h, Sam 10h–18h',      distance: '0.8 km' },
-  { id: 'r3', name: 'Tabac Presse Voltaire',    address: '89 Boulevard Voltaire, 75011',             hours: 'Lun–Dim 7h–22h',                   distance: '1.1 km' },
-  { id: 'r4', name: 'Bureau de Poste Bastille', address: '1 Rue du Faubourg Saint-Antoine, 75012',  hours: 'Lun–Ven 8h30–18h, Sam 8h30–12h',   distance: '1.4 km' },
-  { id: 'r5', name: 'Carrefour City Oberkampf', address: '125 Rue Oberkampf, 75011',                hours: 'Lun–Sam 7h–22h, Dim 9h–20h',        distance: '1.7 km' },
-];
 
 const STORE_PICKUPS: StorePickup[] = [
   { id: 's1', name: 'BARDEC Hub Paris Centre', address: '8 Rue de Rivoli, 75001 Paris',          hours: 'Lun–Ven 9h–18h, Sam 10h–17h', contact: '+33 1 23 45 67 89' },
@@ -143,6 +137,9 @@ export default function CheckoutScreen() {
   const { items, subtotal, clearCart } = useCart();
   const { formatPrice } = useCurrency();
   const insets = useSafeAreaInsets();
+  const { data: relayPoints = [], isLoading: loadingRelayPoints } = useRelayPoints();
+  const { data: savedAddresses = [] } = useCustomerAddresses();
+  const createAddress = useCreateCustomerAddress();
 
   // In real mode, cart amounts (subtotal/tax/delivery.cost/total) are already
   // FCFA — they come straight from products.price_public/price_wholesale.
@@ -164,6 +161,8 @@ export default function CheckoutScreen() {
     type: 'home', homeMethod: 'standard', cost: 0, days: '5–7 jours',
     relayPoint: null, storePickup: null, droneEligible: false,
   });
+  const [selectedSavedAddressId, setSelectedSavedAddressId] = useState<string | null>(null);
+  const [saveNewAddress, setSaveNewAddress] = useState(false);
 
   const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
   const defaultMethod: PaymentMethod = isB2B ? 'cash_on_delivery' : 'wave';
@@ -360,6 +359,28 @@ export default function CheckoutScreen() {
           .maybeSingle();
         const realIsB2B = realProfile?.role === 'BUYER' || realProfile?.role === 'APPROVER';
 
+        // relay_point_id/drone_zone_id have real FK columns on orders
+        // (verified via information_schema before wiring this — the local
+        // schema.sql previously described this as a delivery_relay_point
+        // JSONB column, which does not exist in production; fixed there
+        // too). delivery_point_name/address are generic columns (not
+        // relay-specific) also filled in for store_pickup for consistency,
+        // even though store_pickup itself still uses local mock data
+        // (STORE_PICKUPS) — wiring real vendor pickup addresses is a
+        // separate chantier, see BUGS.md.
+        const relayOrStoreFields = delivery.type === 'relay_point' && delivery.relayPoint
+          ? {
+              relay_point_id:         delivery.relayPoint.id,
+              delivery_point_name:    delivery.relayPoint.name,
+              delivery_point_address: delivery.relayPoint.address,
+            }
+          : delivery.type === 'store_pickup' && delivery.storePickup
+          ? {
+              delivery_point_name:    delivery.storePickup.name,
+              delivery_point_address: delivery.storePickup.address,
+            }
+          : {};
+
         const { error: dbErr } = await supabase.from('orders').insert({
           customer_id:           realCustomerId,
           company_id:            realProfile?.company_id ?? null,
@@ -379,6 +400,7 @@ export default function CheckoutScreen() {
           payment_method:        paymentMethod,
           payment_status:        newPayStatus,
           delivery_type:         delivery.type,
+          ...relayOrStoreFields,
           shipping_address: {
             full_name: address.fullName,
             street:    address.street,
@@ -398,6 +420,23 @@ export default function CheckoutScreen() {
             'Impossible d\'enregistrer votre commande. Réessaie dans un instant.\n\nVotre panier a été conservé.'
           );
           return; // ← panier intact, on reste sur l'étape 3
+        }
+
+        // Best-effort: save the manually-entered address to the customer's
+        // address book if they checked the box. Never blocks order
+        // confirmation — the order is already placed at this point.
+        if (saveNewAddress && !selectedSavedAddressId && address.street.trim()) {
+          try {
+            await createAddress.mutateAsync({
+              label: null,
+              address: [address.street, address.city, address.zipCode, address.country].filter(Boolean).join(', '),
+              latitude: null,
+              longitude: null,
+              isDefault: savedAddresses.length === 0,
+            });
+          } catch (err) {
+            console.warn('[checkout:saveAddress]', err);
+          }
         }
       }
       // ─────────────────────────────────────────────────────────────────────
@@ -742,6 +781,42 @@ export default function CheckoutScreen() {
         {step === 1 && (
           <View style={styles.stepContent}>
             <Text style={[styles.stepTitle, { color: colors.foreground }]}>{t('step_address')}</Text>
+
+            {/* Saved addresses (customer_addresses) — optional shortcut, manual
+                fields below stay the source of truth for the order itself since
+                customer_addresses only stores a single free-text address field
+                (no separate city/country/phone columns). */}
+            {savedAddresses.length > 0 && (
+              <View style={styles.savedAddressesSection}>
+                <Text style={[styles.sectionHint, { color: colors.mutedForeground }]}>Adresses enregistrées</Text>
+                {savedAddresses.map(sa => {
+                  const sel = selectedSavedAddressId === sa.id;
+                  return (
+                    <TouchableOpacity
+                      key={sa.id}
+                      style={[styles.savedAddressCard, { borderColor: sel ? colors.primary : colors.border, backgroundColor: sel ? colors.primary + '10' : colors.card }]}
+                      onPress={() => {
+                        setSelectedSavedAddressId(sa.id);
+                        setAddress(a => ({ ...a, street: sa.address }));
+                      }}
+                    >
+                      <Feather name="map-pin" size={16} color={sel ? colors.primary : colors.mutedForeground} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.savedAddressLabel, { color: colors.foreground }]}>{sa.label || 'Adresse'}</Text>
+                        <Text style={[styles.savedAddressText, { color: colors.mutedForeground }]} numberOfLines={2}>{sa.address}</Text>
+                      </View>
+                      {sel && <Feather name="check-circle" size={18} color={colors.primary} />}
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity onPress={() => setSelectedSavedAddressId(null)}>
+                  <Text style={[styles.newAddressLink, { color: colors.primary }]}>
+                    {selectedSavedAddressId ? '+ Utiliser une nouvelle adresse' : 'Adresse actuellement : nouvelle adresse manuelle'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {[
               { key: 'fullName', label: 'Nom complet *',  placeholder: 'Jean Dupont',       keyboard: 'default'    as const },
               { key: 'street',   label: 'Adresse *',       placeholder: '15 rue du Commerce', keyboard: 'default'    as const },
@@ -762,6 +837,15 @@ export default function CheckoutScreen() {
                 />
               </View>
             ))}
+
+            {!selectedSavedAddressId && (
+              <TouchableOpacity style={styles.saveAddressRow} onPress={() => setSaveNewAddress(v => !v)}>
+                <View style={[styles.addrCheckbox, { borderColor: saveNewAddress ? colors.primary : colors.border, backgroundColor: saveNewAddress ? colors.primary : 'transparent' }]}>
+                  {saveNewAddress && <Feather name="check" size={12} color="white" />}
+                </View>
+                <Text style={[styles.saveAddressLabel, { color: colors.foreground }]}>Enregistrer cette adresse pour la prochaine fois</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
@@ -831,42 +915,43 @@ export default function CheckoutScreen() {
               </View>
             )}
 
-            {/* Relay point sub-options */}
+            {/* Relay point sub-options — real relay_points rows (active only) */}
             {delivery.type === 'relay_point' && (
               <View style={[styles.subSection, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Text style={[styles.subSectionTitle, { color: colors.foreground }]}>Points relais proches ({RELAY_POINTS.length} disponibles)</Text>
-                {RELAY_POINTS.map(rp => {
+                <Text style={[styles.subSectionTitle, { color: colors.foreground }]}>
+                  Points relais disponibles ({relayPoints.length})
+                </Text>
+                {loadingRelayPoints && <ActivityIndicator color="#0EA5E9" style={{ marginVertical: 12 }} />}
+                {!loadingRelayPoints && relayPoints.length === 0 && (
+                  <Text style={[styles.relayEmptyText, { color: colors.mutedForeground }]}>
+                    Aucun point relais disponible pour le moment. Choisis un autre mode de livraison.
+                  </Text>
+                )}
+                {relayPoints.map(rp => {
                   const sel = delivery.relayPoint?.id === rp.id;
                   return (
                     <TouchableOpacity
                       key={rp.id}
                       style={[styles.relayCard, { borderColor: sel ? '#0EA5E9' : colors.border, backgroundColor: sel ? '#0EA5E912' : colors.background }]}
-                      onPress={() => setDelivery(d => ({ ...d, relayPoint: rp, storePickup: null }))}
+                      onPress={() => setDelivery(d => ({ ...d, relayPoint: { id: rp.id, name: rp.name, address: rp.address }, storePickup: null }))}
                     >
                       <View style={[styles.relayIconBox, { backgroundColor: sel ? '#0EA5E920' : colors.muted }]}>
                         <Feather name="map-pin" size={16} color={sel ? '#0EA5E9' : colors.mutedForeground} />
                       </View>
                       <View style={{ flex: 1, gap: 2 }}>
-                        <View style={styles.relayNameRow}>
-                          <Text style={[styles.relayName, { color: colors.foreground }]}>{rp.name}</Text>
-                          <View style={[styles.distanceBadge, { backgroundColor: colors.muted }]}>
-                            <Text style={[styles.distanceText, { color: colors.mutedForeground }]}>{rp.distance}</Text>
-                          </View>
-                        </View>
+                        <Text style={[styles.relayName, { color: colors.foreground }]}>{rp.name}</Text>
                         <Text style={[styles.relayAddress, { color: colors.mutedForeground }]}>{rp.address}</Text>
-                        <View style={styles.relayHoursRow}>
-                          <Feather name="clock" size={11} color={colors.mutedForeground} />
-                          <Text style={[styles.relayHours, { color: colors.mutedForeground }]}>{rp.hours}</Text>
-                        </View>
                       </View>
                       {sel && <Feather name="check-circle" size={20} color="#0EA5E9" />}
                     </TouchableOpacity>
                   );
                 })}
-                <View style={[styles.relayPriceNote, { backgroundColor: '#DCFCE7', borderColor: '#22C55E' }]}>
-                  <Feather name="tag" size={13} color="#22C55E" />
-                  <Text style={styles.relayPriceNoteText}>Retrait en point relais — Livraison gratuite</Text>
-                </View>
+                {relayPoints.length > 0 && (
+                  <View style={[styles.relayPriceNote, { backgroundColor: '#DCFCE7', borderColor: '#22C55E' }]}>
+                    <Feather name="tag" size={13} color="#22C55E" />
+                    <Text style={styles.relayPriceNoteText}>Retrait en point relais — Livraison gratuite</Text>
+                  </View>
+                )}
               </View>
             )}
 
@@ -1257,6 +1342,17 @@ const styles = StyleSheet.create({
   distanceText:      { fontSize: 11, fontWeight: '600' },
   relayPriceNote:    { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10, borderWidth: 1 },
   relayPriceNoteText:{ fontSize: 13, color: '#166534', fontWeight: '600' },
+  relayEmptyText:    { fontSize: 13, textAlign: 'center', paddingVertical: 16 },
+
+  // Saved addresses (customer_addresses)
+  savedAddressesSection: { gap: 8, marginBottom: 4 },
+  savedAddressCard:  { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 12, borderWidth: 1.5, padding: 12 },
+  savedAddressLabel: { fontSize: 14, fontWeight: '700' },
+  savedAddressText:  { fontSize: 12, marginTop: 1 },
+  newAddressLink:    { fontSize: 13, fontWeight: '600', paddingVertical: 4 },
+  saveAddressRow:    { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
+  addrCheckbox:      { width: 20, height: 20, borderRadius: 5, borderWidth: 2, justifyContent: 'center', alignItems: 'center' },
+  saveAddressLabel:  { fontSize: 13, flex: 1 },
 
   // Payment method cards
   payGroupHeader:    { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, marginBottom: -4 },

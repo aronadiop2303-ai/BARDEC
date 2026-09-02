@@ -514,6 +514,7 @@ export default function ProfileScreen() {
         <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground }]}>{t('account')}</Text>
 
         <MenuItem icon="user" label="Informations personnelles" colors={colors} onPress={handleOpenEditName} />
+        <MenuItem icon="map-pin" label="Mes adresses" colors={colors} onPress={() => router.push('/addresses' as any)} />
         {/* No wishlist table and no RLS-readable `reviews` table yet (RLS enabled,
             zero policies — blocks even ADMIN) — honest "coming soon" rather than
             a silent dead tap, until that backend work is scoped. */}

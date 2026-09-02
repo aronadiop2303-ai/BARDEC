@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  ActivityIndicator, Dimensions, Image, Linking, ScrollView, StyleSheet, Text,
+  ActivityIndicator, Dimensions, Image, Linking, ScrollView, StyleSheet, Switch, Text,
   TouchableOpacity, View, Alert, TextInput,
 } from 'react-native';
+import * as Location from 'expo-location';
 import { Feather } from '@/components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColors } from '@/hooks/useColors';
@@ -18,7 +19,7 @@ import { loadCurrencyRates } from '@/lib/currency';
 import { useShopCategories } from '@/hooks/useShopCategories';
 
 const { width } = Dimensions.get('window');
-type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'reports' | 'orders' | 'disputes' | 'payments' | 'currencies' | 'notifications' | 'support' | 'settings' | 'apikeys';
+type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'reports' | 'orders' | 'disputes' | 'payments' | 'currencies' | 'logistics' | 'notifications' | 'support' | 'settings' | 'apikeys';
 
 // ── API keys — matches what mcp-server actually enforces (validateApiKey):
 // hasWrite = perms.includes('write') || perms.includes('*');
@@ -163,7 +164,7 @@ function AdminScreenInner() {
   }
   interface RealPayment {
     id: string; order_number: string; payment_method: string | null;
-    payment_proof_url: string | null; payment_amount_xof: number | null; total: number;
+    payment_proof_url: string | null; total: number;
     payment_status: string; payment_notes: string | null; created_at: string;
     customer: { display_name: string | null; email: string } | null;
   }
@@ -492,6 +493,119 @@ function AdminScreenInner() {
   useEffect(() => { fetchCurrencyRates(); }, [fetchCurrencyRates]);
   useFocusEffect(useCallback(() => { fetchCurrencyRates(); }, [fetchCurrencyRates]));
 
+  // ── Logistics: relay_points / drone_zones (localisation de livraison) —
+  // relay_points_admin_manage / drone_zones_admin_manage RLS policies already
+  // give ADMIN a full ALL policy on both tables, no backend change needed.
+  interface RelayPointRow { id: string; name: string; address: string; latitude: number | null; longitude: number | null; active: boolean; created_at: string }
+  interface DroneZoneRow { id: string; name: string; center_latitude: number; center_longitude: number; radius_km: number; active: boolean; created_at: string }
+  const [relayPoints, setRelayPoints] = useState<RelayPointRow[]>([]);
+  const [loadingRelayPoints, setLoadingRelayPoints] = useState(isSupabaseConfigured);
+  const [showRelayForm, setShowRelayForm] = useState(false);
+  const [newRelay, setNewRelay] = useState({ name: '', address: '', latitude: '', longitude: '' });
+  const [creatingRelay, setCreatingRelay] = useState(false);
+  const [relayActingId, setRelayActingId] = useState<string | null>(null);
+
+  const [droneZones, setDroneZones] = useState<DroneZoneRow[]>([]);
+  const [loadingDroneZones, setLoadingDroneZones] = useState(isSupabaseConfigured);
+  const [showDroneForm, setShowDroneForm] = useState(false);
+  const [newDrone, setNewDrone] = useState({ name: '', latitude: '', longitude: '', radius: '5' });
+  const [creatingDrone, setCreatingDrone] = useState(false);
+  const [droneActingId, setDroneActingId] = useState<string | null>(null);
+
+  const fetchRelayPoints = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingRelayPoints(false); return; }
+    setLoadingRelayPoints(true);
+    const { data, error } = await supabase.from('relay_points').select('*').order('created_at', { ascending: false });
+    if (error) { console.warn('Admin relay points fetch error:', error.message); setLoadingRelayPoints(false); return; }
+    setRelayPoints((data ?? []) as RelayPointRow[]);
+    setLoadingRelayPoints(false);
+  }, []);
+  useEffect(() => { fetchRelayPoints(); }, [fetchRelayPoints]);
+  useFocusEffect(useCallback(() => { fetchRelayPoints(); }, [fetchRelayPoints]));
+
+  const fetchDroneZones = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingDroneZones(false); return; }
+    setLoadingDroneZones(true);
+    const { data, error } = await supabase.from('drone_zones').select('*').order('created_at', { ascending: false });
+    if (error) { console.warn('Admin drone zones fetch error:', error.message); setLoadingDroneZones(false); return; }
+    setDroneZones((data ?? []) as DroneZoneRow[]);
+    setLoadingDroneZones(false);
+  }, []);
+  useEffect(() => { fetchDroneZones(); }, [fetchDroneZones]);
+  useFocusEffect(useCallback(() => { fetchDroneZones(); }, [fetchDroneZones]));
+
+  async function useCurrentLocationFor(setter: (lat: string, lng: string) => void) {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') { Alert.alert('Permission refusée'); return; }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setter(String(loc.coords.latitude), String(loc.coords.longitude));
+    } catch {
+      Alert.alert('Erreur', 'Impossible d\'obtenir la position.');
+    }
+  }
+
+  async function handleCreateRelayPoint() {
+    if (!supabase) return;
+    if (!newRelay.name.trim() || !newRelay.address.trim()) {
+      Alert.alert('Champs requis', 'Le nom et l\'adresse sont obligatoires.'); return;
+    }
+    const lat = newRelay.latitude.trim() ? parseFloat(newRelay.latitude.replace(',', '.')) : null;
+    const lng = newRelay.longitude.trim() ? parseFloat(newRelay.longitude.replace(',', '.')) : null;
+    if ((lat !== null && isNaN(lat)) || (lng !== null && isNaN(lng))) {
+      Alert.alert('Coordonnées invalides', 'Latitude et longitude doivent être des nombres.'); return;
+    }
+    setCreatingRelay(true);
+    const { error } = await supabase.from('relay_points').insert({
+      name: newRelay.name.trim(), address: newRelay.address.trim(), latitude: lat, longitude: lng, active: true,
+    });
+    setCreatingRelay(false);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:createRelayPoint', error, 'Impossible de créer ce point relais. Réessaie dans un instant.')); return; }
+    setShowRelayForm(false);
+    setNewRelay({ name: '', address: '', latitude: '', longitude: '' });
+    fetchRelayPoints();
+  }
+
+  async function handleToggleRelayActive(rp: RelayPointRow) {
+    if (!supabase) return;
+    setRelayActingId(rp.id);
+    const { error } = await supabase.from('relay_points').update({ active: !rp.active }).eq('id', rp.id);
+    setRelayActingId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:toggleRelayPoint', error, 'Impossible de modifier ce point relais. Réessaie dans un instant.')); return; }
+    setRelayPoints(prev => prev.map(r => r.id === rp.id ? { ...r, active: !rp.active } : r));
+  }
+
+  async function handleCreateDroneZone() {
+    if (!supabase) return;
+    if (!newDrone.name.trim() || !newDrone.latitude.trim() || !newDrone.longitude.trim()) {
+      Alert.alert('Champs requis', 'Le nom et les coordonnées du centre sont obligatoires.'); return;
+    }
+    const lat = parseFloat(newDrone.latitude.replace(',', '.'));
+    const lng = parseFloat(newDrone.longitude.replace(',', '.'));
+    const radius = parseFloat((newDrone.radius.trim() || '5').replace(',', '.'));
+    if (isNaN(lat) || isNaN(lng) || isNaN(radius) || radius <= 0) {
+      Alert.alert('Valeurs invalides', 'Latitude, longitude et rayon doivent être des nombres valides (rayon > 0).'); return;
+    }
+    setCreatingDrone(true);
+    const { error } = await supabase.from('drone_zones').insert({
+      name: newDrone.name.trim(), center_latitude: lat, center_longitude: lng, radius_km: radius, active: true,
+    });
+    setCreatingDrone(false);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:createDroneZone', error, 'Impossible de créer cette zone drone. Réessaie dans un instant.')); return; }
+    setShowDroneForm(false);
+    setNewDrone({ name: '', latitude: '', longitude: '', radius: '5' });
+    fetchDroneZones();
+  }
+
+  async function handleToggleDroneActive(dz: DroneZoneRow) {
+    if (!supabase) return;
+    setDroneActingId(dz.id);
+    const { error } = await supabase.from('drone_zones').update({ active: !dz.active }).eq('id', dz.id);
+    setDroneActingId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:toggleDroneZone', error, 'Impossible de modifier cette zone drone. Réessaie dans un instant.')); return; }
+    setDroneZones(prev => prev.map(d => d.id === dz.id ? { ...d, active: !dz.active } : d));
+  }
+
   async function handleSaveCurrencyRate(code: string) {
     if (!supabase) return;
     const raw = currencyEdits[code];
@@ -542,7 +656,7 @@ function AdminScreenInner() {
         .select('id, status, reason, refund_amount, created_at, orders!order_id(order_number), opener:users!opened_by(display_name, email)')
         .order('created_at', { ascending: false }),
       supabase.from('orders')
-        .select('id, order_number, payment_method, payment_proof_url, payment_amount_xof, total, payment_status, payment_notes, created_at, customer:users!customer_id(display_name, email)')
+        .select('id, order_number, payment_method, payment_proof_url, total, payment_status, payment_notes, created_at, customer:users!customer_id(display_name, email)')
         .in('payment_status', ['awaiting_verification', 'paid', 'failed'])
         .order('created_at', { ascending: false }).limit(100),
     ]);
@@ -790,7 +904,7 @@ function AdminScreenInner() {
         method: PAYMENT_METHOD_LABELS[p.payment_method ?? '']?.label ?? p.payment_method ?? '—',
         methodIcon: PAYMENT_METHOD_LABELS[p.payment_method ?? '']?.icon ?? 'credit-card',
         methodColor: PAYMENT_METHOD_LABELS[p.payment_method ?? '']?.color ?? '#64748B',
-        amountUSD: (p.payment_amount_xof ?? p.total) / XOF_RATE, // formatXOF converts back to XOF below
+        amountUSD: p.total / XOF_RATE, // formatXOF converts back to XOF below (total is already FCFA in real mode)
         proofUrl: p.payment_proof_url,
         submittedAt: new Date(p.created_at).toLocaleString('fr-FR'),
         status: p.payment_status as PmtStatus,
@@ -959,6 +1073,7 @@ function AdminScreenInner() {
     { id: 'disputes',  label: t('disputes'),  icon: 'alert-triangle'},
     { id: 'payments',  label: 'Paiements',     icon: 'credit-card',  badge: pendingCount },
     { id: 'currencies', label: 'Devises',      icon: 'dollar-sign'  },
+    { id: 'logistics', label: 'Logistique',    icon: 'truck'        },
     { id: 'notifications', label: 'Notifications', icon: 'bell'    },
     { id: 'support',   label: 'Chat support',  icon: 'headphones',   badge: openSupportCount },
     { id: 'apikeys',   label: 'Clés API / MCP', icon: 'key'         },
@@ -1820,6 +1935,221 @@ function AdminScreenInner() {
               </View>
             );
           })}
+        </View>
+      )}
+
+      {/* LOGISTICS — relay_points / drone_zones (localisation de livraison) */}
+      {activeTab === 'logistics' && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Points relais</Text>
+          <Text style={{ color: colors.mutedForeground, fontSize: 13, marginBottom: 8 }}>
+            Visibles au checkout uniquement quand actifs.
+          </Text>
+
+          {!showRelayForm ? (
+            <TouchableOpacity style={[styles.createKeyBtn, { backgroundColor: colors.primary }]} onPress={() => setShowRelayForm(true)}>
+              <Feather name="plus" size={16} color="white" />
+              <Text style={styles.createKeyBtnText}>Ajouter un point relais</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.createKeyForm, { backgroundColor: colors.card, borderColor: colors.primary }]}>
+              <Text style={[styles.formTitle, { color: colors.foreground }]}>Nouveau point relais</Text>
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Nom *</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="Ex: Relais Marché Central"
+                placeholderTextColor={colors.mutedForeground}
+                value={newRelay.name}
+                onChangeText={v => setNewRelay(f => ({ ...f, name: v }))}
+              />
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Adresse *</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="12 Rue du Marché, Dakar"
+                placeholderTextColor={colors.mutedForeground}
+                value={newRelay.address}
+                onChangeText={v => setNewRelay(f => ({ ...f, address: v }))}
+              />
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Coordonnées (optionnel)</Text>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+                <TextInput
+                  style={[styles.formInput, { flex: 1, marginBottom: 0, backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                  placeholder="Latitude" placeholderTextColor={colors.mutedForeground}
+                  keyboardType="numbers-and-punctuation"
+                  value={newRelay.latitude}
+                  onChangeText={v => setNewRelay(f => ({ ...f, latitude: v }))}
+                />
+                <TextInput
+                  style={[styles.formInput, { flex: 1, marginBottom: 0, backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                  placeholder="Longitude" placeholderTextColor={colors.mutedForeground}
+                  keyboardType="numbers-and-punctuation"
+                  value={newRelay.longitude}
+                  onChangeText={v => setNewRelay(f => ({ ...f, longitude: v }))}
+                />
+              </View>
+              <TouchableOpacity
+                onPress={() => useCurrentLocationFor((lat, lng) => setNewRelay(f => ({ ...f, latitude: lat, longitude: lng })))}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}
+              >
+                <Feather name="navigation" size={14} color={colors.primary} />
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>Utiliser ma position actuelle</Text>
+              </TouchableOpacity>
+
+              <View style={styles.formActions}>
+                <TouchableOpacity
+                  style={[styles.formCancelBtn, { borderColor: colors.border }]}
+                  onPress={() => { setShowRelayForm(false); setNewRelay({ name: '', address: '', latitude: '', longitude: '' }); }}
+                >
+                  <Text style={[styles.formCancelText, { color: colors.mutedForeground }]}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.formConfirmBtn, { backgroundColor: colors.primary, opacity: creatingRelay ? 0.7 : 1 }]}
+                  onPress={handleCreateRelayPoint}
+                  disabled={creatingRelay}
+                >
+                  {creatingRelay
+                    ? <ActivityIndicator size="small" color="white" />
+                    : <><Feather name="map-pin" size={14} color="white" /><Text style={styles.formConfirmText}>Créer</Text></>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {loadingRelayPoints && <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 12 }} />}
+          {relayPoints.map(rp => (
+            <View key={rp.id} style={[styles.keyCard, { backgroundColor: colors.card, borderColor: rp.active ? colors.border : '#FEE2E2', opacity: rp.active ? 1 : 0.75 }]}>
+              <View style={styles.keyCardHeader}>
+                <View style={[styles.keyIconBox, { backgroundColor: rp.active ? colors.primary + '18' : '#FEE2E2' }]}>
+                  <Feather name="map-pin" size={16} color={rp.active ? colors.primary : '#DC2626'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.keyName, { color: colors.foreground }]}>{rp.name}</Text>
+                  <Text style={[styles.keyPreview, { color: colors.mutedForeground }]} numberOfLines={1}>{rp.address}</Text>
+                </View>
+                <Switch
+                  value={rp.active}
+                  onValueChange={() => handleToggleRelayActive(rp)}
+                  disabled={relayActingId === rp.id}
+                  trackColor={{ false: colors.muted, true: '#22C55E' }}
+                  thumbColor="white"
+                />
+              </View>
+            </View>
+          ))}
+          {!loadingRelayPoints && relayPoints.length === 0 && (
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: 'center', paddingVertical: 12 }}>
+              Aucun point relais pour l'instant.
+            </Text>
+          )}
+
+          <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 28 }]}>Zones drone</Text>
+          <Text style={{ color: colors.mutedForeground, fontSize: 13, marginBottom: 8 }}>
+            Rayon en kilomètres autour du centre. Visibles au checkout uniquement quand actives.
+          </Text>
+
+          {!showDroneForm ? (
+            <TouchableOpacity style={[styles.createKeyBtn, { backgroundColor: colors.primary }]} onPress={() => setShowDroneForm(true)}>
+              <Feather name="plus" size={16} color="white" />
+              <Text style={styles.createKeyBtnText}>Ajouter une zone drone</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.createKeyForm, { backgroundColor: colors.card, borderColor: colors.primary }]}>
+              <Text style={[styles.formTitle, { color: colors.foreground }]}>Nouvelle zone drone</Text>
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Nom *</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="Ex: Zone Dakar Plateau"
+                placeholderTextColor={colors.mutedForeground}
+                value={newDrone.name}
+                onChangeText={v => setNewDrone(f => ({ ...f, name: v }))}
+              />
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Centre (latitude/longitude) *</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TextInput
+                  style={[styles.formInput, { flex: 1, marginBottom: 0, backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                  placeholder="Latitude" placeholderTextColor={colors.mutedForeground}
+                  keyboardType="numbers-and-punctuation"
+                  value={newDrone.latitude}
+                  onChangeText={v => setNewDrone(f => ({ ...f, latitude: v }))}
+                />
+                <TextInput
+                  style={[styles.formInput, { flex: 1, marginBottom: 0, backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                  placeholder="Longitude" placeholderTextColor={colors.mutedForeground}
+                  keyboardType="numbers-and-punctuation"
+                  value={newDrone.longitude}
+                  onChangeText={v => setNewDrone(f => ({ ...f, longitude: v }))}
+                />
+              </View>
+              <TouchableOpacity
+                onPress={() => useCurrentLocationFor((lat, lng) => setNewDrone(f => ({ ...f, latitude: lat, longitude: lng })))}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, marginBottom: 10 }}
+              >
+                <Feather name="navigation" size={14} color={colors.primary} />
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>Utiliser ma position actuelle</Text>
+              </TouchableOpacity>
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Rayon (km) *</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="5" placeholderTextColor={colors.mutedForeground}
+                keyboardType="numeric"
+                value={newDrone.radius}
+                onChangeText={v => setNewDrone(f => ({ ...f, radius: v }))}
+              />
+
+              <View style={styles.formActions}>
+                <TouchableOpacity
+                  style={[styles.formCancelBtn, { borderColor: colors.border }]}
+                  onPress={() => { setShowDroneForm(false); setNewDrone({ name: '', latitude: '', longitude: '', radius: '5' }); }}
+                >
+                  <Text style={[styles.formCancelText, { color: colors.mutedForeground }]}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.formConfirmBtn, { backgroundColor: colors.primary, opacity: creatingDrone ? 0.7 : 1 }]}
+                  onPress={handleCreateDroneZone}
+                  disabled={creatingDrone}
+                >
+                  {creatingDrone
+                    ? <ActivityIndicator size="small" color="white" />
+                    : <><Feather name="wind" size={14} color="white" /><Text style={styles.formConfirmText}>Créer</Text></>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {loadingDroneZones && <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 12 }} />}
+          {droneZones.map(dz => (
+            <View key={dz.id} style={[styles.keyCard, { backgroundColor: colors.card, borderColor: dz.active ? colors.border : '#FEE2E2', opacity: dz.active ? 1 : 0.75 }]}>
+              <View style={styles.keyCardHeader}>
+                <View style={[styles.keyIconBox, { backgroundColor: dz.active ? colors.primary + '18' : '#FEE2E2' }]}>
+                  <Feather name="wind" size={16} color={dz.active ? colors.primary : '#DC2626'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.keyName, { color: colors.foreground }]}>{dz.name}</Text>
+                  <Text style={[styles.keyPreview, { color: colors.mutedForeground }]}>
+                    Rayon {dz.radius_km} km · {dz.center_latitude.toFixed(4)}, {dz.center_longitude.toFixed(4)}
+                  </Text>
+                </View>
+                <Switch
+                  value={dz.active}
+                  onValueChange={() => handleToggleDroneActive(dz)}
+                  disabled={droneActingId === dz.id}
+                  trackColor={{ false: colors.muted, true: '#22C55E' }}
+                  thumbColor="white"
+                />
+              </View>
+            </View>
+          ))}
+          {!loadingDroneZones && droneZones.length === 0 && (
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: 'center', paddingVertical: 12 }}>
+              Aucune zone drone pour l'instant.
+            </Text>
+          )}
         </View>
       )}
 

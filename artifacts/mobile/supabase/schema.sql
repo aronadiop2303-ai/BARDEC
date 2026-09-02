@@ -87,6 +87,56 @@ CREATE TABLE products (
 );
 
 -- ─────────────────────────────────────────────
+-- DELIVERY LOCALISATION (relay_points / drone_zones / customer_addresses)
+-- Ajouté le 2 sept — ces 3 tables existaient déjà en production (RLS incluse)
+-- mais n'apparaissaient nulle part dans ce fichier local ; structure et
+-- policies ci-dessous copiées depuis la réalité vérifiée en base
+-- (information_schema.columns + pg_policies), pas inventées.
+-- ─────────────────────────────────────────────
+CREATE TABLE relay_points (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        TEXT NOT NULL,
+  address     TEXT NOT NULL,
+  latitude    DOUBLE PRECISION,
+  longitude   DOUBLE PRECISION,
+  active      BOOLEAN NOT NULL DEFAULT true,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE relay_points ENABLE ROW LEVEL SECURITY;
+CREATE POLICY relay_points_public_read  ON relay_points FOR SELECT USING (active = true);
+CREATE POLICY relay_points_admin_manage ON relay_points FOR ALL    USING (current_user_role() = 'ADMIN');
+
+CREATE TABLE drone_zones (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name              TEXT NOT NULL,
+  center_latitude   DOUBLE PRECISION NOT NULL,
+  center_longitude  DOUBLE PRECISION NOT NULL,
+  radius_km         NUMERIC NOT NULL DEFAULT 5,
+  active            BOOLEAN NOT NULL DEFAULT true,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE drone_zones ENABLE ROW LEVEL SECURITY;
+CREATE POLICY drone_zones_public_read  ON drone_zones FOR SELECT USING (active = true);
+CREATE POLICY drone_zones_admin_manage ON drone_zones FOR ALL    USING (current_user_role() = 'ADMIN');
+
+-- Carnet d'adresses client — un seul champ `address` en texte libre (pas de
+-- street/city/country/zip séparés). Pas de trigger DB pour l'unicité de
+-- is_default=true : gérée côté client (deux updates), voir
+-- hooks/useCustomerAddresses.ts.
+CREATE TABLE customer_addresses (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id),
+  label       TEXT,
+  address     TEXT NOT NULL,
+  latitude    DOUBLE PRECISION,
+  longitude   DOUBLE PRECISION,
+  is_default  BOOLEAN NOT NULL DEFAULT false,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE customer_addresses ENABLE ROW LEVEL SECURITY;
+CREATE POLICY customer_addresses_own ON customer_addresses FOR ALL USING (user_id = auth.uid());
+
+-- ─────────────────────────────────────────────
 -- ORDERS
 -- ─────────────────────────────────────────────
 CREATE TABLE orders (
@@ -112,13 +162,22 @@ CREATE TABLE orders (
   signature_url         TEXT,
   notes                 TEXT,
   delivery_type         delivery_type DEFAULT 'home',
-  delivery_relay_point  JSONB,        -- { id, name, address, hours } si relay_point
-  delivery_store        JSONB,        -- { id, name, address, hours, contact } si store_pickup
+  -- ── Delivery localisation ───────────────────────────────────────────────────
+  -- CORRIGÉ (2 sept) : ce fichier décrivait delivery_relay_point/delivery_store
+  -- en JSONB — ça n'a jamais existé en production. Vérifié via
+  -- information_schema.columns avant de coder le chantier "Localisations de
+  -- livraison" : les vraies colonnes sont des FK + deux champs texte
+  -- génériques, remplies pour relay_point ET store_pickup.
+  relay_point_id        UUID REFERENCES relay_points(id),
+  drone_zone_id         UUID REFERENCES drone_zones(id),
+  delivery_point_name   TEXT,         -- nom du point relais/magasin choisi
+  delivery_point_address TEXT,        -- adresse du point relais/magasin choisi
+  proximity_shop_id     UUID REFERENCES proximity_shops(id), -- commandes "boutique de quartier" (voir proximity_schema.sql)
+  delivery_partner_id   UUID, -- livreur assigné — FK vers delivery_partners, table réelle en prod mais pas encore documentée dans un .sql local (chantier "Livraison interne", pas encore construit)
   -- ── Payment tracking ────────────────────────────────────────────────────────
   payment_status        payment_status DEFAULT 'pending',
   payment_proof_url     TEXT,         -- URL Supabase Storage de la preuve mobile money
-  payment_currency      TEXT DEFAULT 'XOF',
-  payment_amount_xof    NUMERIC(14, 0), -- montant exact en FCFA
+  currency              TEXT DEFAULT 'XOF', -- CORRIGÉ : la vraie colonne s'appelle `currency`, pas `payment_currency`
   verified_by           UUID REFERENCES users(id),  -- admin qui a validé
   verified_at           TIMESTAMPTZ,
   payment_notes         TEXT,         -- motif rejet ou commentaire admin
@@ -207,7 +266,12 @@ CREATE TABLE vendors (
   shop_active     BOOLEAN DEFAULT true,
   total_sales     NUMERIC(14, 2) DEFAULT 0,
   avg_rating      NUMERIC(3, 2) DEFAULT 0,
-  created_at      TIMESTAMPTZ DEFAULT NOW()
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  -- Pour delivery_type = 'store_pickup' (retrait chez le vendeur) — colonnes
+  -- confirmées en prod via information_schema, absentes de ce fichier avant.
+  store_address     TEXT,
+  store_latitude    DOUBLE PRECISION,
+  store_longitude   DOUBLE PRECISION
 );
 
 -- ─────────────────────────────────────────────

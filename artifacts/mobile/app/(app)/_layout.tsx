@@ -13,6 +13,7 @@ export default function AppGroupLayout() {
       <Stack.Screen name="checkout" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="chat" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="support" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="addresses" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="language" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="unlimited-benefits" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="proximity/cart" options={{ headerShown: false, presentation: 'card' }} />

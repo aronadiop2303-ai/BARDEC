@@ -81,6 +81,7 @@ Edge Function `omni-agent` (JWT Supabase standard, pas de clé API custom) — a
 - 🔄 En cours : mise à jour de statut de commande côté vendeur, onglet "Approbation" côté Approver, upload photo de profil, badges de navigation
 - ⏳ À faire : version iOS (compte Apple Developer requis), version desktop installable, publication Play Store
 - ⏳ Sauvegardes automatiques : workflow `.github/workflows/backup-db.yml` créé (pg_dump quotidien chiffré → artifact GitHub Actions) mais **inactif tant que les secrets `SUPABASE_DB_URL`/`BACKUP_ENCRYPTION_PASSPHRASE` ne sont pas ajoutés manuellement** (Settings → Secrets and variables → Actions) — voir BUGS.md pour le détail complet et la procédure.
+- ✅ Localisations de livraison : points relais + zones drone (admin) et carnet d'adresses (client) branchés sur `relay_points`/`drone_zones`/`customer_addresses` réels. Retrait en magasin et zones drone au checkout restent sur des données fictives (questions produit ouvertes, voir BUGS.md).
 
 ## 9. Infrastructure / liens utiles
 
