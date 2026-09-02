@@ -142,6 +142,31 @@ ALTER TABLE delivery_partners ENABLE ROW LEVEL SECURITY;
 CREATE POLICY delivery_partners_admin_manage ON delivery_partners FOR ALL    USING (current_user_role() = 'ADMIN');
 CREATE POLICY delivery_partners_vendor_read  ON delivery_partners FOR SELECT USING (active = true AND current_user_role() = ANY (ARRAY['VENDOR', 'ADMIN']::user_role[]));
 
+-- Registre générique de fournisseurs de paiement (chantier "Préparer le
+-- paiement réel", 2 sept) — même patron que delivery_partners. `config`
+-- JSONB ne contient jamais de secret réel (numéros de réception mobile
+-- money déjà publics, affichés dans checkout.tsx) ; api_key_secret_name est
+-- le futur NOM d'un secret, jamais la clé. Toutes les lignes real_api
+-- (card/paypal) sont inactives par construction — aucune n'a de vraie
+-- intégration branchée. wave/orange_money/mtn_momo actives car déjà
+-- fonctionnelles en mode manual_proof (preuve + vérification admin), qui ne
+-- passe pas par cette table ni par l'Edge Function payment-gateway.
+CREATE TABLE payment_providers (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code                  TEXT UNIQUE NOT NULL,
+  name                  TEXT NOT NULL,
+  type                  TEXT NOT NULL CHECK (type IN ('mobile_money', 'card', 'bank_transfer')),
+  config                JSONB NOT NULL DEFAULT '{}',
+  api_key_secret_name   TEXT,
+  active                BOOLEAN NOT NULL DEFAULT false,
+  notes                 TEXT,
+  added_by              UUID REFERENCES users(id),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE payment_providers ENABLE ROW LEVEL SECURITY;
+CREATE POLICY payment_providers_read          ON payment_providers FOR SELECT USING (active = true);
+CREATE POLICY payment_providers_admin_manage  ON payment_providers FOR ALL    USING (current_user_role() = 'ADMIN');
+
 -- Carnet d'adresses client — un seul champ `address` en texte libre (pas de
 -- street/city/country/zip séparés). Pas de trigger DB pour l'unicité de
 -- is_default=true : gérée côté client (deux updates), voir
