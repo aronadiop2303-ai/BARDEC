@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '@/context/AuthContext';
 
 export interface ProximityCartItem {
   productId: string;
@@ -46,20 +47,48 @@ const ProximityCartContext = createContext<ProximityCartContextType>({
   subtotal: 0,
 });
 
-const STORAGE_KEY = 'bardec_proximity_cart';
+const LEGACY_STORAGE_KEY = 'bardec_proximity_cart';
+const storageKey = (userId: string) => `bardec_proximity_cart:${userId}`;
 
 export function ProximityCartProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
   const [items, setItems] = useState<ProximityCartItem[]>([]);
 
+  // Re-load whenever the signed-in account changes (login/logout/account
+  // switch on a shared device) so one account's cart never leaks into another's.
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then(stored => {
-      if (stored) setItems(JSON.parse(stored));
-    });
-  }, []);
+    let cancelled = false;
+    (async () => {
+      if (!userId) {
+        if (!cancelled) setItems([]);
+        return;
+      }
+      const key = storageKey(userId);
+      const stored = await AsyncStorage.getItem(key);
+      if (stored) {
+        if (!cancelled) setItems(JSON.parse(stored));
+        return;
+      }
+      // One-time migration: the cart used to live under one global key shared
+      // by every account on the device. Attach whatever is sitting there to
+      // the first account that logs in after this deploy, then delete the
+      // global key so a second account can never inherit it.
+      const legacy = await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
+      if (legacy) {
+        if (!cancelled) setItems(JSON.parse(legacy));
+        await AsyncStorage.setItem(key, legacy);
+        await AsyncStorage.removeItem(LEGACY_STORAGE_KEY);
+      } else if (!cancelled) {
+        setItems([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
 
   function persist(next: ProximityCartItem[]) {
     setItems(next);
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    if (userId) AsyncStorage.setItem(storageKey(userId), JSON.stringify(next));
   }
 
   async function addItem(item: ProximityCartItem): Promise<{ switched: boolean }> {
@@ -69,7 +98,7 @@ export function ProximityCartProvider({ children }: { children: React.ReactNode 
       if (prev.length > 0 && prev[0].shopId !== item.shopId) {
         switched = true;
         const next = [{ ...item }];
-        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        if (userId) AsyncStorage.setItem(storageKey(userId), JSON.stringify(next));
         return next;
       }
       const existing = prev.find(i => i.productId === item.productId);
@@ -83,7 +112,7 @@ export function ProximityCartProvider({ children }: { children: React.ReactNode 
       } else {
         next = [...prev, { ...item }];
       }
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      if (userId) AsyncStorage.setItem(storageKey(userId), JSON.stringify(next));
       return next;
     });
     return { switched };

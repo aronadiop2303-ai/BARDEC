@@ -1,6 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CartItem } from '@/constants/mockData';
+import { useAuth } from '@/context/AuthContext';
+
+const LEGACY_STORAGE_KEY = 'bardec_cart';
+const storageKey = (userId: string) => `bardec_cart:${userId}`;
 
 interface CartContextType {
   items: CartItem[];
@@ -23,17 +27,44 @@ const CartContext = createContext<CartContextType>({
 });
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
   const [items, setItems] = useState<CartItem[]>([]);
 
+  // Re-load whenever the signed-in account changes (login/logout/account
+  // switch on a shared device) so one account's cart never leaks into another's.
   useEffect(() => {
-    AsyncStorage.getItem('bardec_cart').then(stored => {
-      if (stored) setItems(JSON.parse(stored));
-    });
-  }, []);
+    let cancelled = false;
+    (async () => {
+      if (!userId) {
+        if (!cancelled) setItems([]);
+        return;
+      }
+      const key = storageKey(userId);
+      const stored = await AsyncStorage.getItem(key);
+      if (stored) {
+        if (!cancelled) setItems(JSON.parse(stored));
+        return;
+      }
+      // One-time migration: the cart used to live under one global key shared
+      // by every account on the device. Attach whatever is sitting there to
+      // the first account that logs in after this deploy, then delete the
+      // global key so a second account can never inherit it.
+      const legacy = await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
+      if (legacy) {
+        if (!cancelled) setItems(JSON.parse(legacy));
+        await AsyncStorage.setItem(key, legacy);
+        await AsyncStorage.removeItem(LEGACY_STORAGE_KEY);
+      } else if (!cancelled) {
+        setItems([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
 
   function persist(next: CartItem[]) {
     setItems(next);
-    AsyncStorage.setItem('bardec_cart', JSON.stringify(next));
+    if (userId) AsyncStorage.setItem(storageKey(userId), JSON.stringify(next));
   }
 
   function addItem(item: CartItem) {
@@ -49,7 +80,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       } else {
         next = [...prev, item];
       }
-      AsyncStorage.setItem('bardec_cart', JSON.stringify(next));
+      if (userId) AsyncStorage.setItem(storageKey(userId), JSON.stringify(next));
       return next;
     });
   }
