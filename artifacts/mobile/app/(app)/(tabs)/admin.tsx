@@ -19,7 +19,7 @@ import { loadCurrencyRates } from '@/lib/currency';
 import { useShopCategories } from '@/hooks/useShopCategories';
 
 const { width } = Dimensions.get('window');
-type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'reports' | 'orders' | 'disputes' | 'payments' | 'currencies' | 'logistics' | 'alerts' | 'notifications' | 'support' | 'settings' | 'apikeys';
+type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'reports' | 'orders' | 'disputes' | 'payments' | 'currencies' | 'companies' | 'logistics' | 'alerts' | 'notifications' | 'support' | 'settings' | 'apikeys';
 
 // ── API keys — matches what mcp-server actually enforces (validateApiKey):
 // hasWrite = perms.includes('write') || perms.includes('*');
@@ -657,6 +657,58 @@ function AdminScreenInner() {
     setDeliveryPartnersAdmin(prev => prev.map(d => d.id === dp.id ? { ...d, active: !dp.active } : d));
   }
 
+  // ── Sociétés B2B (crédit Net30) — companies_admin RLS policy already
+  // gives ADMIN a full ALL policy, no backend change needed. Pas de
+  // formulaire "créer une société" ici : les sociétés existent uniquement
+  // via l'inscription B2B (AuthContext.register()) — l'admin approuve et
+  // fixe le crédit d'une société déjà créée, il n'en invente pas.
+  interface CompanyAdminRow {
+    id: string; name: string; tax_id: string | null; country: string;
+    credit_limit: number; net30_balance: number; payment_terms: string | null;
+    is_approved: boolean; created_at: string;
+  }
+  const [companiesAdmin, setCompaniesAdmin] = useState<CompanyAdminRow[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(isSupabaseConfigured);
+  const [companyActingId, setCompanyActingId] = useState<string | null>(null);
+  const [creditDrafts, setCreditDrafts] = useState<Record<string, string>>({});
+  const [savingCreditId, setSavingCreditId] = useState<string | null>(null);
+
+  const fetchCompanies = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingCompanies(false); return; }
+    setLoadingCompanies(true);
+    const { data, error } = await supabase.from('companies').select('*').order('created_at', { ascending: false });
+    if (error) { console.warn('Admin companies fetch error:', error.message); setLoadingCompanies(false); return; }
+    setCompaniesAdmin((data ?? []) as CompanyAdminRow[]);
+    setLoadingCompanies(false);
+  }, []);
+  useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
+  useFocusEffect(useCallback(() => { fetchCompanies(); }, [fetchCompanies]));
+
+  async function handleToggleCompanyApproved(c: CompanyAdminRow) {
+    if (!supabase) return;
+    setCompanyActingId(c.id);
+    const { error } = await supabase.from('companies').update({ is_approved: !c.is_approved }).eq('id', c.id);
+    setCompanyActingId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:toggleCompanyApproved', error, 'Impossible de modifier cette société. Réessaie dans un instant.')); return; }
+    setCompaniesAdmin(prev => prev.map(x => x.id === c.id ? { ...x, is_approved: !c.is_approved } : x));
+  }
+
+  async function handleSaveCreditLimit(c: CompanyAdminRow) {
+    if (!supabase) return;
+    const raw = creditDrafts[c.id];
+    if (raw === undefined) return;
+    const parsed = Number(raw.replace(',', '.'));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      Alert.alert('Valeur invalide', 'La limite de crédit doit être un nombre positif.'); return;
+    }
+    setSavingCreditId(c.id);
+    const { error } = await supabase.from('companies').update({ credit_limit: parsed }).eq('id', c.id);
+    setSavingCreditId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:setCreditLimit', error, 'Impossible d\'enregistrer cette limite de crédit. Réessaie dans un instant.')); return; }
+    setCompaniesAdmin(prev => prev.map(x => x.id === c.id ? { ...x, credit_limit: parsed } : x));
+    setCreditDrafts(prev => { const next = { ...prev }; delete next[c.id]; return next; });
+  }
+
   // ── System alerts (monitoring) — alerts_admin_only RLS policy already
   // gives ADMIN a full ALL policy, no backend change needed. Outil interne,
   // pas encore alimenté avant ce chantier — voir omni-agent/index.ts pour le
@@ -986,10 +1038,12 @@ function AdminScreenInner() {
       }))
     : mockDisputes;
 
+  // "Crédit max Net30" retiré : c'était une valeur globale statique fictive
+  // ("$500 000") — le vrai crédit est par société, géré dans l'onglet
+  // "Sociétés B2B" (companies.credit_limit, réel, éditable).
   const platformSettings = [
     { key: 'commission_b2c', label: 'Commission B2C', value: '3.5%' },
     { key: 'commission_b2b', label: 'Commission B2B', value: '2.0%' },
-    { key: 'max_credit_limit', label: 'Crédit max Net30', value: '$500 000' },
     { key: 'kyc_required', label: 'KYC obligatoire vendeur', value: 'Oui' },
     { key: 'min_order_b2b', label: 'Commande min B2B', value: '$500' },
   ];
@@ -1175,6 +1229,7 @@ function AdminScreenInner() {
     { id: 'disputes',  label: t('disputes'),  icon: 'alert-triangle'},
     { id: 'payments',  label: 'Paiements',     icon: 'credit-card',  badge: pendingCount },
     { id: 'currencies', label: 'Devises',      icon: 'dollar-sign'  },
+    { id: 'companies', label: 'Sociétés B2B',  icon: 'home'         },
     { id: 'logistics', label: 'Logistique',    icon: 'truck'        },
     { id: 'alerts',    label: 'Alertes',       icon: 'alert-triangle', badge: unresolvedAlertsCount },
     { id: 'notifications', label: 'Notifications', icon: 'bell'    },
@@ -2342,6 +2397,78 @@ function AdminScreenInner() {
           {!loadingDeliveryPartners && deliveryPartnersAdmin.length === 0 && (
             <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: 'center', paddingVertical: 12 }}>
               Aucun livreur pour l'instant.
+            </Text>
+          )}
+        </View>
+      )}
+
+      {/* COMPANIES — sociétés B2B, approbation + crédit Net30 */}
+      {activeTab === 'companies' && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Sociétés B2B</Text>
+          <Text style={{ color: colors.mutedForeground, fontSize: 13, marginBottom: 8 }}>
+            Une société est créée automatiquement à l'inscription d'un compte Acheteur/Approbateur/Vendeur B2B.
+            Approuve-la et fixe sa limite de crédit Net30 ici — sans les deux, Net30 reste masqué au checkout pour ses comptes.
+          </Text>
+
+          {loadingCompanies && <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 12 }} />}
+
+          {companiesAdmin.map(c => {
+            const draft = creditDrafts[c.id] ?? String(c.credit_limit ?? 0);
+            const dirty = creditDrafts[c.id] !== undefined && creditDrafts[c.id] !== String(c.credit_limit ?? 0);
+            const overLimit = (c.net30_balance ?? 0) > (c.credit_limit ?? 0);
+            return (
+              <View key={c.id} style={[styles.keyCard, { backgroundColor: colors.card, borderColor: c.is_approved ? colors.border : '#FEE2E2' }]}>
+                <View style={styles.keyCardHeader}>
+                  <View style={[styles.keyIconBox, { backgroundColor: c.is_approved ? colors.primary + '18' : '#FEE2E2' }]}>
+                    <Feather name="home" size={16} color={c.is_approved ? colors.primary : '#DC2626'} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.keyName, { color: colors.foreground }]}>{c.name}</Text>
+                    <Text style={[styles.keyPreview, { color: colors.mutedForeground, fontFamily: undefined }]} numberOfLines={1}>
+                      {[c.tax_id, c.country].filter(Boolean).join(' · ') || '—'}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={c.is_approved}
+                    onValueChange={() => handleToggleCompanyApproved(c)}
+                    disabled={companyActingId === c.id}
+                    trackColor={{ false: colors.muted, true: '#22C55E' }}
+                    thumbColor="white"
+                  />
+                </View>
+
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.formLabel, { color: colors.foreground, marginBottom: 4 }]}>Limite de crédit Net30 (FCFA)</Text>
+                    <TextInput
+                      style={[styles.formInput, { marginBottom: 0, backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                      keyboardType="numeric"
+                      value={draft}
+                      onChangeText={v => setCreditDrafts(prev => ({ ...prev, [c.id]: v }))}
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.formConfirmBtn, { backgroundColor: colors.primary, opacity: dirty && savingCreditId !== c.id ? 1 : 0.5 }]}
+                    onPress={() => handleSaveCreditLimit(c)}
+                    disabled={!dirty || savingCreditId === c.id}
+                  >
+                    {savingCreditId === c.id
+                      ? <ActivityIndicator size="small" color="white" />
+                      : <Text style={styles.formConfirmText}>Enregistrer</Text>}
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={{ color: overLimit ? '#DC2626' : colors.mutedForeground, fontSize: 12, fontWeight: overLimit ? '700' : '400' }}>
+                  Solde Net30 actuel : {(c.net30_balance ?? 0).toLocaleString('fr-FR')} FCFA
+                  {overLimit ? ' — dépasse la limite accordée' : ''}
+                </Text>
+              </View>
+            );
+          })}
+          {!loadingCompanies && companiesAdmin.length === 0 && (
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: 'center', paddingVertical: 12 }}>
+              Aucune société B2B pour l'instant.
             </Text>
           )}
         </View>
