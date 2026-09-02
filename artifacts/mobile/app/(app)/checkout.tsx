@@ -77,11 +77,15 @@ const PAYMENT_METHODS: {
   { id: 'orange_money',     label: 'Orange Money',           sublabel: 'Mobile Money',                icon: 'smartphone',       color: '#F97316', available: true,  b2c: true,  b2b: false },
   { id: 'mtn_momo',         label: 'MTN MoMo',               sublabel: 'Mobile Money Afrique',        icon: 'phone',            color: '#EAB308', available: true,  b2c: true,  b2b: false },
   { id: 'cash_on_delivery', label: 'Paiement à la livraison',sublabel: 'Cash · Aucune vérification',  icon: 'package',          color: '#22C55E', available: true,  b2c: true,  b2b: true  },
+  // Net30 : disponible=true depuis que le backend crédit est branché
+  // (companies.credit_limit/net30_balance + triggers, voir BUGS.md), mais
+  // gardé hors de la liste "disponibles" plus bas tant que la société de
+  // l'acheteur n'a pas de crédit approuvé — voir `netEligible`.
+  { id: 'net30',            label: 'Facture Net30',          sublabel: 'Paiement différé · 30 jours', icon: 'file-text',        color: '#7C3AED', available: true,  b2c: false, b2b: true  },
   // ─ Coming soon — pas de vraie intégration de paiement branchée : confirmait
   // les commandes en payment_status "paid" sans jamais appeler de vrai
-  // fournisseur. Désactivés le temps que Wave/carte/Net30/virement soient
-  // réellement intégrés (voir BUGS.md, section Sécurité avant lancement).
-  { id: 'net30',            label: 'Facture Net30',          sublabel: 'Bientôt disponible',          icon: 'file-text',        color: '#7C3AED', available: false, b2c: false, b2b: true  },
+  // fournisseur. Désactivés le temps que carte/virement soient réellement
+  // intégrés (voir BUGS.md, section Sécurité avant lancement).
   { id: 'bank_transfer',    label: 'Virement bancaire',      sublabel: 'Wire transfer · Bientôt',     icon: 'arrow-right-circle',color: '#0EA5E9',available: false, b2c: false, b2b: true  },
   { id: 'paypal',           label: 'PayPal',                 sublabel: 'Bientôt disponible',          icon: 'globe',            color: '#003087', available: false, b2c: true,  b2b: false },
   { id: 'card',             label: 'Carte bancaire',         sublabel: 'Visa · Mastercard · Bientôt', icon: 'credit-card',      color: '#6B7280', available: false, b2c: true,  b2b: true  },
@@ -165,6 +169,12 @@ export default function CheckoutScreen() {
   const [saveNewAddress, setSaveNewAddress] = useState(false);
 
   const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
+  // Net30 n'est offert que si la société de l'acheteur est approuvée ET a
+  // une limite de crédit accordée par un admin (0 par défaut) — sinon la
+  // carte de paiement Net30 reste masquée (ni "disponible" ni "bientôt",
+  // c'est spécifique au compte, pas une fonctionnalité globale à venir).
+  const netEligible = isB2B && !!user?.companyApproved && (user?.creditLimit ?? 0) > 0;
+  const availableCredit = Math.max((user?.creditLimit ?? 0) - (user?.creditBalance ?? 0), 0);
   const defaultMethod: PaymentMethod = isB2B ? 'cash_on_delivery' : 'wave';
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(defaultMethod);
   const [proofUri, setProofUri]     = useState<string | null>(null);
@@ -290,7 +300,9 @@ export default function CheckoutScreen() {
       // indisponible, mais ne protège pas contre une valeur par défaut
       // devenue invalide (ex. l'ancien défaut B2B "net30" avant ce fix) —
       // on bloque aussi la soumission elle-même par sécurité.
-      if (!PAYMENT_METHODS.find(p => p.id === paymentMethod)?.available) {
+      const methodDef = PAYMENT_METHODS.find(p => p.id === paymentMethod);
+      const methodUsable = !!methodDef?.available && (paymentMethod !== 'net30' || netEligible);
+      if (!methodUsable) {
         Alert.alert('Méthode indisponible', 'Ce moyen de paiement n\'est pas encore disponible. Choisissez-en un autre.');
         return;
       }
@@ -302,10 +314,16 @@ export default function CheckoutScreen() {
         return;
       }
 
-      // Determine payment status (local variable — state update is async)
+      // Determine payment status (local variable — state update is async).
+      // net30 stays 'pending' like cash_on_delivery — it's genuinely unpaid
+      // until an admin settles the invoice later (which is what actually
+      // decrements companies.net30_balance via the settlement trigger).
+      // apply_net30_charge() itself increments the balance on INSERT
+      // regardless of this value, so the balance is correct either way —
+      // but 'paid' here would have skipped the admin settlement step entirely.
       const newPayStatus: PaymentStatus = isMobileMoney
         ? 'awaiting_verification'
-        : paymentMethod === 'cash_on_delivery' ? 'pending' : 'paid';
+        : (paymentMethod === 'cash_on_delivery' || paymentMethod === 'net30') ? 'pending' : 'paid';
       setPaymentStatus(newPayStatus);
 
       // ── INSERT ORDER TO SUPABASE ─────────────────────────────────────────
@@ -1016,11 +1034,16 @@ export default function CheckoutScreen() {
             {/* B2B available methods */}
             {isB2B && (
               <>
-                {PAYMENT_METHODS.filter(p => p.b2b && p.available).map(pm => (
+                {PAYMENT_METHODS.filter(p => p.b2b && p.available && (p.id !== 'net30' || netEligible)).map(pm => (
                   <PaymentCard key={pm.id} pm={pm} />
                 ))}
+                {isB2B && !netEligible && (
+                  <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: -4, marginBottom: 8 }}>
+                    Facture Net30 non activée pour votre société — contactez un administrateur BARDEC.
+                  </Text>
+                )}
                 {/* Net30 credit info */}
-                {paymentMethod === 'net30' && (
+                {paymentMethod === 'net30' && netEligible && (
                   <View style={[styles.mmPanel, { backgroundColor: '#7C3AED08', borderColor: '#7C3AED40' }]}>
                     <View style={styles.mmHeader}>
                       <View style={[styles.mmIconCircle, { backgroundColor: '#7C3AED' }]}>
@@ -1035,11 +1058,16 @@ export default function CheckoutScreen() {
                       <View style={{ flex: 1, gap: 4 }}>
                         <Text style={[styles.mmRecipientLabel, { color: colors.mutedForeground }]}>Crédit disponible</Text>
                         <Text style={[styles.mmAmountValue, { color: '#7C3AED', fontSize: 18 }]}>
-                          {formatXOF((user?.creditBalance ?? 0))}
+                          {formatXOF(availableCredit)}
                         </Text>
                         <Text style={[styles.mmRecipientName, { color: colors.mutedForeground }]}>
                           Commande : {formatXOF(total)} · Délai 30 jours
                         </Text>
+                        {total > availableCredit && (
+                          <Text style={[styles.mmRecipientName, { color: '#DC2626', fontWeight: '600' }]}>
+                            ⚠ Dépasse le crédit disponible — la commande sera quand même soumise à approbation, signalée à votre approbateur.
+                          </Text>
+                        )}
                       </View>
                     </View>
                     <View style={styles.inputGroup}>

@@ -25,5 +25,7 @@ export function mapDbOrder(row: any): Order {
     trackingNumber:      row.tracking_number ?? undefined,
     purchaseOrderNumber: row.purchase_order_number ?? undefined,
     estimatedDelivery:   row.estimated_delivery ?? undefined,
+    paymentMethod:       row.payment_method ?? undefined,
+    companyId:           row.company_id ?? undefined,
   };
 }

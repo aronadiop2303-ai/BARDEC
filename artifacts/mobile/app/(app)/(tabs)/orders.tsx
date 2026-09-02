@@ -55,6 +55,13 @@ export default function OrdersScreen() {
   const [approving,    setApproving]    = useState<string | null>(null);
 
   const isApprover = user?.role === 'APPROVER';
+  // Credit Net30 : dépassement volontairement non bloquant (décision produit
+  // validée) — juste signalé ici pour que l'approbateur voie le contexte
+  // avant de décider. user.creditLimit/creditBalance viennent de la société
+  // de CET approbateur (AuthContext), donc valables seulement pour ses
+  // propres commandes en attente — cohérent avec orders_approver (RLS
+  // scopée par company_id de l'utilisateur connecté).
+  const companyOverLimit = (user?.creditBalance ?? 0) > (user?.creditLimit ?? 0);
 
   // ── Review modal state ──────────────────────────────────────────────────────
   const [reviewOrder,      setReviewOrder]      = useState<Order | null>(null);
@@ -306,6 +313,14 @@ export default function OrdersScreen() {
           filtered.map(order => (
             <View key={order.id}>
               <OrderCard order={order} />
+              {isApprover && order.status === 'pending_approval' && order.paymentMethod === 'net30' && companyOverLimit && (
+                <View style={styles.creditWarning}>
+                  <Feather name="alert-triangle" size={14} color="#DC2626" />
+                  <Text style={styles.creditWarningText}>
+                    Solde Net30 de la société au-delà de la limite de crédit accordée.
+                  </Text>
+                </View>
+              )}
               {/* Confirm receipt CTA — only on "shipped" orders */}
               {order.status === 'shipped' && (
                 <TouchableOpacity
@@ -434,6 +449,12 @@ const styles = StyleSheet.create({
     marginTop: -4, marginBottom: 4, backgroundColor: '#22C55E',
   },
   confirmBtnText: { color: 'white', fontSize: 14, fontWeight: '700' },
+  creditWarning: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+    marginTop: -4, marginBottom: 4, backgroundColor: '#FEE2E2',
+  },
+  creditWarningText: { color: '#991B1B', fontSize: 12, fontWeight: '600', flex: 1 },
   approveRow: {
     flexDirection: 'row', gap: 8,
     marginTop: -4, marginBottom: 4,

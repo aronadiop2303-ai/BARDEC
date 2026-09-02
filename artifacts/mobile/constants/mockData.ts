@@ -7,6 +7,7 @@ export interface User {
   role: UserRole;
   avatar?: string;
   company?: string;
+  companyApproved?: boolean;
   creditLimit?: number;
   creditBalance?: number;
   pendingApprovals?: number;
@@ -51,6 +52,8 @@ export interface Order {
   trackingNumber?: string;
   purchaseOrderNumber?: string;
   estimatedDelivery?: string;
+  paymentMethod?: string;
+  companyId?: string;
 }
 
 export interface CartItem {

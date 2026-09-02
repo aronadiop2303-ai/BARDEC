@@ -121,16 +121,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       email:         data.email,
       role:          data.role as UserRole,
       company:       data.company_id ?? undefined,
-      creditLimit:   data.credit_limit ?? undefined,
-      creditBalance: data.net30_balance ?? undefined,
       avatar:        data.avatar_url ?? undefined,
+    };
+  }
+
+  // credit_limit/net30_balance live on `companies`, not `users` — B2B credit
+  // is shared by the whole company, not tracked per account (see BUGS.md,
+  // chantier Crédit Net30). Reads the caller's own company via the
+  // `companies_own` RLS policy (id IN users.company_id for auth.uid()).
+  async function enrichWithCompany(user: User): Promise<User> {
+    if (!user.company || !supabase) return user;
+    const { data: company } = await supabase
+      .from('companies')
+      .select('credit_limit, net30_balance, is_approved')
+      .eq('id', user.company)
+      .maybeSingle();
+    if (!company) return user;
+    return {
+      ...user,
+      creditLimit:     company.credit_limit ?? undefined,
+      creditBalance:   company.net30_balance ?? undefined,
+      companyApproved: company.is_approved ?? false,
     };
   }
 
   async function fetchUserProfile(userId: string): Promise<User | null> {
     if (!supabase) return null;
     const { data } = await supabase.from('users').select('*').eq('id', userId).single();
-    if (data) return mapUserRow(data);
+    if (data) return enrichWithCompany(mapUserRow(data));
 
     // Self-heal: an authenticated session exists (auth.users row is real and
     // confirmed) but its public.users profile row is missing — e.g. register()
@@ -160,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('[fetchUserProfile] self-heal insert failed:', healErr);
       return null;
     }
-    return mapUserRow(healed);
+    return enrichWithCompany(mapUserRow(healed));
   }
 
   async function updateUserAvatar(url: string): Promise<void> {
