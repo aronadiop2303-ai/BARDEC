@@ -83,6 +83,7 @@ Edge Function `omni-agent` (JWT Supabase standard, pas de clé API custom) — a
 - ⏳ Sauvegardes automatiques : workflow `.github/workflows/backup-db.yml` créé (pg_dump quotidien chiffré → artifact GitHub Actions) mais **inactif tant que les secrets `SUPABASE_DB_URL`/`BACKUP_ENCRYPTION_PASSPHRASE` ne sont pas ajoutés manuellement** (Settings → Secrets and variables → Actions) — voir BUGS.md pour le détail complet et la procédure.
 - ✅ Localisations de livraison : points relais + zones drone (admin) et carnet d'adresses (client) branchés sur `relay_points`/`drone_zones`/`customer_addresses` réels. Retrait en magasin et zones drone au checkout restent sur des données fictives (questions produit ouvertes, voir BUGS.md).
 - ✅ Livraison interne : gestion des livreurs internes (admin) + sélection d'un livreur à l'expédition (vendor-dashboard). Type `external_api` volontairement non construit. Pas encore branché sur le flux de commandes "boutique de quartier".
+- ✅ Monitoring/alertes : écran admin "Alertes" (liste/filtre/résolution) branché sur `system_alerts`. Premier point d'écriture réel déployé dans l'Edge Function `omni-agent` (v14) — alerte sur échec critique interne uniquement.
 
 ## 9. Infrastructure / liens utiles
 

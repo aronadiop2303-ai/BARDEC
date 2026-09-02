@@ -19,7 +19,7 @@ import { loadCurrencyRates } from '@/lib/currency';
 import { useShopCategories } from '@/hooks/useShopCategories';
 
 const { width } = Dimensions.get('window');
-type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'reports' | 'orders' | 'disputes' | 'payments' | 'currencies' | 'logistics' | 'notifications' | 'support' | 'settings' | 'apikeys';
+type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'reports' | 'orders' | 'disputes' | 'payments' | 'currencies' | 'logistics' | 'alerts' | 'notifications' | 'support' | 'settings' | 'apikeys';
 
 // ── API keys — matches what mcp-server actually enforces (validateApiKey):
 // hasWrite = perms.includes('write') || perms.includes('*');
@@ -657,6 +657,57 @@ function AdminScreenInner() {
     setDeliveryPartnersAdmin(prev => prev.map(d => d.id === dp.id ? { ...d, active: !dp.active } : d));
   }
 
+  // ── System alerts (monitoring) — alerts_admin_only RLS policy already
+  // gives ADMIN a full ALL policy, no backend change needed. Outil interne,
+  // pas encore alimenté avant ce chantier — voir omni-agent/index.ts pour le
+  // premier vrai point d'écriture (échec interne critique).
+  interface SystemAlertRow {
+    id: string; source: string; severity: 'info' | 'warning' | 'critical';
+    message: string; metadata: Record<string, unknown> | null;
+    resolved: boolean; resolved_by: string | null; resolved_at: string | null; created_at: string;
+  }
+  const [systemAlerts, setSystemAlerts] = useState<SystemAlertRow[]>([]);
+  const [loadingAlerts, setLoadingAlerts] = useState(isSupabaseConfigured);
+  const [alertSeverityFilter, setAlertSeverityFilter] = useState<'all' | 'info' | 'warning' | 'critical'>('all');
+  const [alertResolvedFilter, setAlertResolvedFilter] = useState<'unresolved' | 'resolved' | 'all'>('unresolved');
+  const [resolvingAlertId, setResolvingAlertId] = useState<string | null>(null);
+
+  const fetchSystemAlerts = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingAlerts(false); return; }
+    setLoadingAlerts(true);
+    const { data, error } = await supabase.from('system_alerts').select('*').order('created_at', { ascending: false }).limit(200);
+    if (error) { console.warn('Admin system_alerts fetch error:', error.message); setLoadingAlerts(false); return; }
+    setSystemAlerts((data ?? []) as SystemAlertRow[]);
+    setLoadingAlerts(false);
+  }, []);
+  useEffect(() => { fetchSystemAlerts(); }, [fetchSystemAlerts]);
+  useFocusEffect(useCallback(() => { fetchSystemAlerts(); }, [fetchSystemAlerts]));
+
+  async function handleResolveAlert(alert: SystemAlertRow) {
+    if (!supabase) return;
+    setResolvingAlertId(alert.id);
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('system_alerts').update({
+      resolved: true, resolved_by: authUser?.id ?? null, resolved_at: new Date().toISOString(),
+    }).eq('id', alert.id);
+    setResolvingAlertId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:resolveAlert', error, 'Impossible de résoudre cette alerte. Réessaie dans un instant.')); return; }
+    setSystemAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, resolved: true, resolved_at: new Date().toISOString() } : a));
+  }
+
+  const filteredAlerts = systemAlerts.filter(a => {
+    if (alertSeverityFilter !== 'all' && a.severity !== alertSeverityFilter) return false;
+    if (alertResolvedFilter === 'unresolved' && a.resolved) return false;
+    if (alertResolvedFilter === 'resolved' && !a.resolved) return false;
+    return true;
+  });
+  const unresolvedAlertsCount = systemAlerts.filter(a => !a.resolved).length;
+  const ALERT_SEVERITY_BADGE: Record<string, [string, string]> = {
+    info:     ['#E0F2FE', '#0369A1'],
+    warning:  ['#FEF3C7', '#D97706'],
+    critical: ['#FEE2E2', '#DC2626'],
+  };
+
   async function handleSaveCurrencyRate(code: string) {
     if (!supabase) return;
     const raw = currencyEdits[code];
@@ -1125,6 +1176,7 @@ function AdminScreenInner() {
     { id: 'payments',  label: 'Paiements',     icon: 'credit-card',  badge: pendingCount },
     { id: 'currencies', label: 'Devises',      icon: 'dollar-sign'  },
     { id: 'logistics', label: 'Logistique',    icon: 'truck'        },
+    { id: 'alerts',    label: 'Alertes',       icon: 'alert-triangle', badge: unresolvedAlertsCount },
     { id: 'notifications', label: 'Notifications', icon: 'bell'    },
     { id: 'support',   label: 'Chat support',  icon: 'headphones',   badge: openSupportCount },
     { id: 'apikeys',   label: 'Clés API / MCP', icon: 'key'         },
@@ -2295,6 +2347,83 @@ function AdminScreenInner() {
         </View>
       )}
 
+      {/* ALERTS — system_alerts (monitoring interne) */}
+      {activeTab === 'alerts' && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Alertes système</Text>
+          <Text style={{ color: colors.mutedForeground, fontSize: 13, marginBottom: 10 }}>
+            Outil interne — écrites par les Edge Functions (ex. échec critique d'OMNI) quand quelque chose tourne mal côté serveur.
+          </Text>
+
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            {(['unresolved', 'resolved', 'all'] as const).map(f => (
+              <TouchableOpacity
+                key={f}
+                style={[styles.tabChip, { backgroundColor: alertResolvedFilter === f ? colors.primary : colors.card, borderColor: colors.border, marginBottom: 0 }]}
+                onPress={() => setAlertResolvedFilter(f)}
+              >
+                <Text style={[styles.tabChipText, { color: alertResolvedFilter === f ? 'white' : colors.foreground }]}>
+                  {f === 'unresolved' ? 'Non résolues' : f === 'resolved' ? 'Résolues' : 'Toutes'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            {(['all', 'critical', 'warning', 'info'] as const).map(f => (
+              <TouchableOpacity
+                key={f}
+                style={[styles.tabChip, { backgroundColor: alertSeverityFilter === f ? colors.primary : colors.card, borderColor: colors.border, marginBottom: 0 }]}
+                onPress={() => setAlertSeverityFilter(f)}
+              >
+                <Text style={[styles.tabChipText, { color: alertSeverityFilter === f ? 'white' : colors.foreground }]}>
+                  {f === 'all' ? 'Toute sévérité' : f === 'critical' ? 'Critique' : f === 'warning' ? 'Avertissement' : 'Info'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {loadingAlerts && <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />}
+          {!loadingAlerts && filteredAlerts.length === 0 && (
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: 'center', paddingVertical: 20 }}>
+              Aucune alerte {alertResolvedFilter === 'unresolved' ? 'non résolue' : ''} pour l'instant.
+            </Text>
+          )}
+          {filteredAlerts.map(a => {
+            const [bg, fg] = ALERT_SEVERITY_BADGE[a.severity] ?? ALERT_SEVERITY_BADGE.info;
+            return (
+              <View key={a.id} style={[styles.keyCard, { backgroundColor: colors.card, borderColor: colors.border, opacity: a.resolved ? 0.7 : 1 }]}>
+                <View style={styles.keyCardHeader}>
+                  <View style={[styles.badgePill, { backgroundColor: bg }]}>
+                    <Text style={[styles.badgePillText, { color: fg }]}>{a.severity.toUpperCase()}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.keyName, { color: colors.foreground }]} numberOfLines={2}>{a.message}</Text>
+                    <Text style={[styles.keyPreview, { color: colors.mutedForeground }]}>
+                      {a.source} · {new Date(a.created_at).toLocaleString('fr-FR')}
+                    </Text>
+                  </View>
+                </View>
+                {!a.resolved ? (
+                  <TouchableOpacity
+                    style={[styles.formConfirmBtn, { backgroundColor: colors.primary, marginTop: 10, opacity: resolvingAlertId === a.id ? 0.7 : 1 }]}
+                    onPress={() => handleResolveAlert(a)}
+                    disabled={resolvingAlertId === a.id}
+                  >
+                    {resolvingAlertId === a.id
+                      ? <ActivityIndicator size="small" color="white" />
+                      : <><Feather name="check" size={14} color="white" /><Text style={styles.formConfirmText}>Marquer résolue</Text></>}
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={{ color: '#059669', fontSize: 12, fontWeight: '700', marginTop: 8 }}>
+                    ✓ Résolue {a.resolved_at ? `le ${new Date(a.resolved_at).toLocaleDateString('fr-FR')}` : ''}
+                  </Text>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      )}
+
       {/* NOTIFICATIONS (admin broadcast via send-push Edge Function) */}
       {activeTab === 'notifications' && (
         <View style={styles.section}>
@@ -2793,6 +2922,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   tabChipText: { fontSize: 12, fontWeight: '600' },
+  badgePill: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, alignSelf: 'flex-start' },
+  badgePillText: { fontSize: 10, fontWeight: '800' },
   section: { paddingHorizontal: 16, gap: 12, paddingBottom: 8 },
   sectionTitle: { fontSize: 16, fontWeight: '700' },
   kpiGrid: {

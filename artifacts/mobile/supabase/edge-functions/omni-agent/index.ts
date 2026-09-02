@@ -28,6 +28,29 @@ function jsonResponse(body: unknown, status: number, cors: HeadersInit) {
   });
 }
 
+// Best-effort admin alert for a real internal OMNI failure (all model
+// providers down, a DB write failing mid-conversation, etc.) — never
+// allowed to affect the response already being sent to the user, even if
+// this insert itself fails. Uses the service-role client because the
+// alerts_admin_only RLS policy on system_alerts blocks the requesting
+// user's own client (almost never an ADMIN).
+async function reportSystemAlert(message: string, metadata: Record<string, unknown>) {
+  try {
+    const admin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+    await admin.from('system_alerts').insert({
+      source: 'omni-agent',
+      severity: 'critical',
+      message: message.slice(0, 500),
+      metadata,
+    });
+  } catch (alertErr) {
+    console.warn('omni-agent: failed to write system_alerts row:', alertErr);
+  }
+}
+
 const MAX_TOOL_ITERATIONS = 4;
 const MAX_HISTORY_MESSAGES = 20;
 
@@ -201,12 +224,19 @@ Deno.serve(async (req: Request) => {
     // Supabase function logs only — never to the client. The client always
     // gets a fixed, generic message; real users must never see provider
     // names, API error codes, or raw upstream response bodies.
+    const errMessage = err instanceof Error ? err.message : String(err);
     console.error('omni-agent error:', {
-      message: err instanceof Error ? err.message : String(err),
+      message: errMessage,
       stack: err instanceof Error ? err.stack : undefined,
       user_id: user.id,
       conversation_id: body.conversation_id ?? null,
     });
+
+    await reportSystemAlert(errMessage, {
+      user_id: user.id,
+      conversation_id: body.conversation_id ?? null,
+    });
+
     return jsonResponse(
       { error: "Une erreur s'est produite. Réessaie dans un instant." },
       500,

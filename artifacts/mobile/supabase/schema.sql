@@ -368,6 +368,28 @@ CREATE TABLE push_tokens (
 );
 
 -- ─────────────────────────────────────────────
+-- SYSTEM ALERTS (monitoring interne, chantier 2 sept)
+-- Outil admin uniquement — écrit depuis les Edge Functions (service-role,
+-- contourne la RLS ci-dessous) quand quelque chose tourne mal côté serveur.
+-- Premier point d'écriture réel : supabase/edge-functions/omni-agent
+-- (échec critique — tous les fournisseurs de modèle indisponibles, etc.).
+-- ─────────────────────────────────────────────
+CREATE TYPE alert_severity AS ENUM ('info', 'warning', 'critical');
+CREATE TABLE system_alerts (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  source        TEXT NOT NULL,
+  severity      alert_severity NOT NULL DEFAULT 'warning',
+  message       TEXT NOT NULL,
+  metadata      JSONB,
+  resolved      BOOLEAN NOT NULL DEFAULT false,
+  resolved_by   UUID REFERENCES users(id),
+  resolved_at   TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE system_alerts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY alerts_admin_only ON system_alerts FOR ALL USING (current_user_role() = 'ADMIN');
+
+-- ─────────────────────────────────────────────
 -- INDEXES
 -- ─────────────────────────────────────────────
 CREATE INDEX idx_products_vendor    ON products(vendor_id);
