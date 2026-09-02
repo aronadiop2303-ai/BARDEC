@@ -235,6 +235,66 @@ CREATE TABLE orders (
 
 CREATE SEQUENCE order_seq START 1000;
 
+-- Crédit Net30 B2B (chantier "Crédit Net30", 2 sept) — conception validée
+-- par Arona avant écriture (voir BUGS.md) : le crédit est porté par
+-- companies.net30_balance/credit_limit (déjà existants), pas par users.
+-- orders_insert n'impose PAS que orders.company_id corresponde à la vraie
+-- société du client (with_check ne vérifie que customer_id = auth.uid()) —
+-- donc apply_net30_charge() ne fait jamais confiance à orders.company_id
+-- tel quel : elle relit users.company_id pour le vrai propriétaire et ne
+-- débite que si les deux coïncident. Testé en transaction annulée avant
+-- application : charge OK, règlement OK, société non correspondante non
+-- débitée. Dépassement de crédit : volontairement non bloqué ici (décision
+-- validée) — laissé passer, à signaler côté UI approbateur (pending_approval
+-- existant). Pas d'échéance/pénalité en V1 (décision validée).
+CREATE OR REPLACE FUNCTION apply_net30_charge()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_company_id UUID;
+BEGIN
+  IF NEW.payment_method = 'net30' THEN
+    SELECT company_id INTO v_company_id FROM users WHERE id = NEW.customer_id;
+    IF v_company_id IS NOT NULL AND v_company_id = NEW.company_id THEN
+      UPDATE companies SET net30_balance = net30_balance + NEW.total WHERE id = v_company_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER orders_net30_charge
+  AFTER INSERT ON orders
+  FOR EACH ROW
+  EXECUTE FUNCTION apply_net30_charge();
+
+-- Connu et accepté pour la V1 : un aller-retour paid → failed → paid sur la
+-- même commande décrémenterait deux fois (pas gardé, jugé assez rare).
+CREATE OR REPLACE FUNCTION apply_net30_settlement()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.payment_method = 'net30'
+     AND NEW.company_id IS NOT NULL
+     AND NEW.payment_status = 'paid'
+     AND OLD.payment_status IS DISTINCT FROM 'paid' THEN
+    UPDATE companies SET net30_balance = GREATEST(net30_balance - NEW.total, 0) WHERE id = NEW.company_id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER orders_net30_settlement
+  AFTER UPDATE ON orders
+  FOR EACH ROW
+  EXECUTE FUNCTION apply_net30_settlement();
+
 -- ─────────────────────────────────────────────
 -- REVIEWS
 -- ─────────────────────────────────────────────
