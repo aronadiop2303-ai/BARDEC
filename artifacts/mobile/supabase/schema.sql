@@ -119,6 +119,29 @@ ALTER TABLE drone_zones ENABLE ROW LEVEL SECURITY;
 CREATE POLICY drone_zones_public_read  ON drone_zones FOR SELECT USING (active = true);
 CREATE POLICY drone_zones_admin_manage ON drone_zones FOR ALL    USING (current_user_role() = 'ADMIN');
 
+-- Livreurs (chantier "Livraison interne", 2 sept) — type internal géré côté
+-- app (admin.tsx, onglet Logistique) ; external_api existe dans l'enum mais
+-- reste bloqué en attendant les détails d'intégration du partenaire externe.
+-- api_key_secret_name est un NOM de secret (ex. nom de variable d'env dans
+-- l'Edge Function qui l'appellera), jamais la clé elle-même en clair.
+CREATE TYPE delivery_partner_type AS ENUM ('internal', 'external_api');
+CREATE TABLE delivery_partners (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name                  TEXT NOT NULL,
+  phone                 TEXT NOT NULL,
+  zone                  TEXT,
+  type                  delivery_partner_type NOT NULL DEFAULT 'internal',
+  api_endpoint          TEXT,
+  api_key_secret_name   TEXT,
+  notes                 TEXT,
+  active                BOOLEAN NOT NULL DEFAULT true,
+  added_by              UUID REFERENCES users(id),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE delivery_partners ENABLE ROW LEVEL SECURITY;
+CREATE POLICY delivery_partners_admin_manage ON delivery_partners FOR ALL    USING (current_user_role() = 'ADMIN');
+CREATE POLICY delivery_partners_vendor_read  ON delivery_partners FOR SELECT USING (active = true AND current_user_role() = ANY (ARRAY['VENDOR', 'ADMIN']::user_role[]));
+
 -- Carnet d'adresses client — un seul champ `address` en texte libre (pas de
 -- street/city/country/zip séparés). Pas de trigger DB pour l'unicité de
 -- is_default=true : gérée côté client (deux updates), voir
@@ -173,7 +196,7 @@ CREATE TABLE orders (
   delivery_point_name   TEXT,         -- nom du point relais/magasin choisi
   delivery_point_address TEXT,        -- adresse du point relais/magasin choisi
   proximity_shop_id     UUID REFERENCES proximity_shops(id), -- commandes "boutique de quartier" (voir proximity_schema.sql)
-  delivery_partner_id   UUID, -- livreur assigné — FK vers delivery_partners, table réelle en prod mais pas encore documentée dans un .sql local (chantier "Livraison interne", pas encore construit)
+  delivery_partner_id   UUID REFERENCES delivery_partners(id), -- livreur assigné (chantier "Livraison interne")
   -- ── Payment tracking ────────────────────────────────────────────────────────
   payment_status        payment_status DEFAULT 'pending',
   payment_proof_url     TEXT,         -- URL Supabase Storage de la preuve mobile money

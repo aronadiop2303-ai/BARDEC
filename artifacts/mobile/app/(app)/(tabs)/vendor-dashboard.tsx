@@ -23,6 +23,7 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { readLocalImageBytes } from '@/lib/imageUpload';
 import { toUserMessage } from '@/lib/errors';
 import { notifyOrderEvent } from '@/lib/notifications';
+import { useDeliveryPartners } from '@/hooks/useDeliveryPartners';
 
 // ─── KYC status display (vendors.kyc_status) ────────────────────────────────
 const KYC_STATUS_STYLES: Record<string, { bg: string; color: string; icon: string; label: string; desc: string }> = {
@@ -258,7 +259,9 @@ export default function VendorDashboardScreen() {
   const [statusOrder,     setStatusOrder]     = useState<any | null>(null);
   const [newStatus,       setNewStatus]       = useState('');
   const [trackingNumber,  setTrackingNumber]  = useState('');
+  const [deliveryPartnerId, setDeliveryPartnerId] = useState<string | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const { data: deliveryPartners = [] } = useDeliveryPartners();
 
   // ─── KYC (vendors.kyc_status / documents / verified) — also backs the
   // Overview tab's response-rate/rating KPIs, since both live on the same row.
@@ -741,7 +744,7 @@ export default function VendorDashboardScreen() {
       // is empty, the RLS vendor-update policy is missing (0 rows affected).
       const { data: updated, error } = await supabase
         .from('orders')
-        .update({ status: newStatus, tracking_number: trackingNumber || null })
+        .update({ status: newStatus, tracking_number: trackingNumber || null, delivery_partner_id: deliveryPartnerId })
         .eq('id', statusOrder.id)
         .select('id');
       setIsUpdatingStatus(false);
@@ -767,7 +770,7 @@ export default function VendorDashboardScreen() {
       // Optimistic local update
       setVendorOrders(prev =>
         prev.map(o => o.id === statusOrder.id
-          ? { ...o, status: newStatus, tracking_number: trackingNumber || o.tracking_number }
+          ? { ...o, status: newStatus, tracking_number: trackingNumber || o.tracking_number, delivery_partner_id: deliveryPartnerId }
           : o
         )
       );
@@ -784,6 +787,7 @@ export default function VendorDashboardScreen() {
     setStatusOrder(null);
     setNewStatus('');
     setTrackingNumber('');
+    setDeliveryPartnerId(null);
   }
 
   // ─── Pick product images ───────────────────────────────────────────────────
@@ -1412,7 +1416,7 @@ export default function VendorDashboardScreen() {
                 {/* Vendor action: update status */}
                 <TouchableOpacity
                   style={[styles.orderAction, { borderColor: colors.primary }]}
-                  onPress={() => { setStatusOrder(order); setNewStatus(orderStatus); setTrackingNumber(order.tracking_number ?? ''); }}
+                  onPress={() => { setStatusOrder(order); setNewStatus(orderStatus); setTrackingNumber(order.tracking_number ?? ''); setDeliveryPartnerId(order.delivery_partner_id ?? null); }}
                 >
                   <Feather name="edit-2" size={14} color={colors.primary} />
                 </TouchableOpacity>
@@ -1792,6 +1796,41 @@ export default function VendorDashboardScreen() {
                 </TouchableOpacity>
               ))}
             </View>
+
+            {deliveryPartners.length > 0 && (
+              <>
+                <Text style={[styles.modalLabel, { color: colors.foreground }]}>Livreur (optionnel)</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                  <TouchableOpacity
+                    style={[
+                      styles.statusChoice,
+                      { flexDirection: 'row', width: undefined, paddingHorizontal: 12,
+                        backgroundColor: deliveryPartnerId === null ? colors.primary + '20' : colors.background,
+                        borderColor:     deliveryPartnerId === null ? colors.primary : colors.border },
+                    ]}
+                    onPress={() => setDeliveryPartnerId(null)}
+                  >
+                    <Text style={{ color: colors.foreground, fontWeight: '600', fontSize: 13 }}>Aucun</Text>
+                  </TouchableOpacity>
+                  {deliveryPartners.map(dp => (
+                    <TouchableOpacity
+                      key={dp.id}
+                      style={[
+                        styles.statusChoice,
+                        { flexDirection: 'row', width: undefined, paddingHorizontal: 12,
+                          backgroundColor: deliveryPartnerId === dp.id ? colors.primary + '20' : colors.background,
+                          borderColor:     deliveryPartnerId === dp.id ? colors.primary : colors.border },
+                      ]}
+                      onPress={() => setDeliveryPartnerId(dp.id)}
+                    >
+                      <Text style={{ color: colors.foreground, fontWeight: '600', fontSize: 13 }}>
+                        {dp.name}{dp.zone ? ` · ${dp.zone}` : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
 
             <Text style={[styles.modalLabel, { color: colors.foreground }]}>Numéro de suivi (optionnel)</Text>
             <TextInput

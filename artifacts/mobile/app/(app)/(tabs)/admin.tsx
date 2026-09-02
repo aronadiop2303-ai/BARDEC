@@ -606,6 +606,57 @@ function AdminScreenInner() {
     setDroneZones(prev => prev.map(d => d.id === dz.id ? { ...d, active: !dz.active } : d));
   }
 
+  // ── Delivery partners (livreurs) — this chantier only builds the
+  // 'internal' flow (delivery_partners_admin_manage RLS policy already
+  // gives ADMIN a full ALL policy, no backend change needed); external_api
+  // stays blocked pending the external partner's API details, so the
+  // creation form below never lets an admin pick that type.
+  interface DeliveryPartnerAdminRow { id: string; name: string; phone: string; zone: string | null; active: boolean; type: 'internal' | 'external_api'; created_at: string }
+  const [deliveryPartnersAdmin, setDeliveryPartnersAdmin] = useState<DeliveryPartnerAdminRow[]>([]);
+  const [loadingDeliveryPartners, setLoadingDeliveryPartners] = useState(isSupabaseConfigured);
+  const [showPartnerForm, setShowPartnerForm] = useState(false);
+  const [newPartner, setNewPartner] = useState({ name: '', phone: '', zone: '' });
+  const [creatingPartner, setCreatingPartner] = useState(false);
+  const [partnerActingId, setPartnerActingId] = useState<string | null>(null);
+
+  const fetchDeliveryPartners = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingDeliveryPartners(false); return; }
+    setLoadingDeliveryPartners(true);
+    const { data, error } = await supabase.from('delivery_partners').select('*').order('created_at', { ascending: false });
+    if (error) { console.warn('Admin delivery partners fetch error:', error.message); setLoadingDeliveryPartners(false); return; }
+    setDeliveryPartnersAdmin((data ?? []) as DeliveryPartnerAdminRow[]);
+    setLoadingDeliveryPartners(false);
+  }, []);
+  useEffect(() => { fetchDeliveryPartners(); }, [fetchDeliveryPartners]);
+  useFocusEffect(useCallback(() => { fetchDeliveryPartners(); }, [fetchDeliveryPartners]));
+
+  async function handleCreateDeliveryPartner() {
+    if (!supabase) return;
+    if (!newPartner.name.trim() || !newPartner.phone.trim()) {
+      Alert.alert('Champs requis', 'Le nom et le téléphone sont obligatoires.'); return;
+    }
+    setCreatingPartner(true);
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('delivery_partners').insert({
+      name: newPartner.name.trim(), phone: newPartner.phone.trim(), zone: newPartner.zone.trim() || null,
+      type: 'internal', active: true, added_by: authUser?.id ?? null,
+    });
+    setCreatingPartner(false);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:createDeliveryPartner', error, 'Impossible de créer ce livreur. Réessaie dans un instant.')); return; }
+    setShowPartnerForm(false);
+    setNewPartner({ name: '', phone: '', zone: '' });
+    fetchDeliveryPartners();
+  }
+
+  async function handleTogglePartnerActive(dp: DeliveryPartnerAdminRow) {
+    if (!supabase) return;
+    setPartnerActingId(dp.id);
+    const { error } = await supabase.from('delivery_partners').update({ active: !dp.active }).eq('id', dp.id);
+    setPartnerActingId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:toggleDeliveryPartner', error, 'Impossible de modifier ce livreur. Réessaie dans un instant.')); return; }
+    setDeliveryPartnersAdmin(prev => prev.map(d => d.id === dp.id ? { ...d, active: !dp.active } : d));
+  }
+
   async function handleSaveCurrencyRate(code: string) {
     if (!supabase) return;
     const raw = currencyEdits[code];
@@ -2148,6 +2199,97 @@ function AdminScreenInner() {
           {!loadingDroneZones && droneZones.length === 0 && (
             <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: 'center', paddingVertical: 12 }}>
               Aucune zone drone pour l'instant.
+            </Text>
+          )}
+
+          <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 28 }]}>Livreurs internes</Text>
+          <Text style={{ color: colors.mutedForeground, fontSize: 13, marginBottom: 8 }}>
+            Sélectionnables par les vendeurs à l'expédition d'une commande. Les livreurs externes (API) ne sont pas encore gérés ici.
+          </Text>
+
+          {!showPartnerForm ? (
+            <TouchableOpacity style={[styles.createKeyBtn, { backgroundColor: colors.primary }]} onPress={() => setShowPartnerForm(true)}>
+              <Feather name="plus" size={16} color="white" />
+              <Text style={styles.createKeyBtnText}>Ajouter un livreur interne</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.createKeyForm, { backgroundColor: colors.card, borderColor: colors.primary }]}>
+              <Text style={[styles.formTitle, { color: colors.foreground }]}>Nouveau livreur interne</Text>
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Nom *</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="Ex: Moussa Diagne"
+                placeholderTextColor={colors.mutedForeground}
+                value={newPartner.name}
+                onChangeText={v => setNewPartner(f => ({ ...f, name: v }))}
+              />
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Téléphone *</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="+221 77 000 0000"
+                placeholderTextColor={colors.mutedForeground}
+                keyboardType="phone-pad"
+                value={newPartner.phone}
+                onChangeText={v => setNewPartner(f => ({ ...f, phone: v }))}
+              />
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Zone (optionnel)</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="Ex: Dakar Plateau"
+                placeholderTextColor={colors.mutedForeground}
+                value={newPartner.zone}
+                onChangeText={v => setNewPartner(f => ({ ...f, zone: v }))}
+              />
+
+              <View style={styles.formActions}>
+                <TouchableOpacity
+                  style={[styles.formCancelBtn, { borderColor: colors.border }]}
+                  onPress={() => { setShowPartnerForm(false); setNewPartner({ name: '', phone: '', zone: '' }); }}
+                >
+                  <Text style={[styles.formCancelText, { color: colors.mutedForeground }]}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.formConfirmBtn, { backgroundColor: colors.primary, opacity: creatingPartner ? 0.7 : 1 }]}
+                  onPress={handleCreateDeliveryPartner}
+                  disabled={creatingPartner}
+                >
+                  {creatingPartner
+                    ? <ActivityIndicator size="small" color="white" />
+                    : <><Feather name="truck" size={14} color="white" /><Text style={styles.formConfirmText}>Créer</Text></>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {loadingDeliveryPartners && <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 12 }} />}
+          {deliveryPartnersAdmin.map(dp => (
+            <View key={dp.id} style={[styles.keyCard, { backgroundColor: colors.card, borderColor: dp.active ? colors.border : '#FEE2E2', opacity: dp.active ? 1 : 0.75 }]}>
+              <View style={styles.keyCardHeader}>
+                <View style={[styles.keyIconBox, { backgroundColor: dp.active ? colors.primary + '18' : '#FEE2E2' }]}>
+                  <Feather name="truck" size={16} color={dp.active ? colors.primary : '#DC2626'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.keyName, { color: colors.foreground }]}>{dp.name}</Text>
+                  <Text style={[styles.keyPreview, { color: colors.mutedForeground }]}>
+                    {dp.phone}{dp.zone ? ` · ${dp.zone}` : ''} · {dp.type === 'internal' ? 'Interne' : 'API externe'}
+                  </Text>
+                </View>
+                <Switch
+                  value={dp.active}
+                  onValueChange={() => handleTogglePartnerActive(dp)}
+                  disabled={partnerActingId === dp.id}
+                  trackColor={{ false: colors.muted, true: '#22C55E' }}
+                  thumbColor="white"
+                />
+              </View>
+            </View>
+          ))}
+          {!loadingDeliveryPartners && deliveryPartnersAdmin.length === 0 && (
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: 'center', paddingVertical: 12 }}>
+              Aucun livreur pour l'instant.
             </Text>
           )}
         </View>
