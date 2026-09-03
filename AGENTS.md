@@ -6,7 +6,7 @@ Ce fichier est destiné à tout agent IA (Replit, Cursor, Claude Code, Codex...)
 
 ## 1. Le projet en une phrase
 
-BARDEC est une marketplace mobile B2B/B2C pour l'Afrique de l'Ouest (Expo/React Native + Supabase), avec 6 rôles utilisateurs, paiement mobile money, commerces de proximité géolocalisés, et un assistant IA intégré (ABFINI/OMNI).
+BARDEC est une marketplace mobile B2B/B2C pour l'Afrique de l'Ouest (Expo/React Native + Supabase), avec 5 rôles utilisateurs (CUSTOMER, BUYER, APPROVER, VENDOR, ADMIN), paiement mobile money en préparation (pas encore branché), commerces de proximité géolocalisés, et un assistant IA intégré (OMNI).
 
 ## 2. Stack technique
 
@@ -14,7 +14,7 @@ BARDEC est une marketplace mobile B2B/B2C pour l'Afrique de l'Ouest (Expo/React 
 - **Backend** : Supabase — PostgreSQL + Auth (JWT) + Storage + Realtime + Edge Functions (Deno/TypeScript)
 - **Web** : export Expo Web, déployé sur Vercel sous `/app` (landing page séparée à la racine `/`)
 - **CI/CD** : GitHub Actions (`.github/workflows/build-apk.yml`) → build EAS automatique à chaque push sur `main`, déclenchable aussi manuellement (`workflow_dispatch`)
-- **IA intégrée** : ABFINI/OMNI — Edge Function `omni-agent`, appelle Claude (Anthropic API) avec function calling vers le serveur MCP
+- **IA intégrée** : OMNI — Edge Function `omni-agent`, appelle Claude (Anthropic API) avec function calling vers le serveur MCP
 
 ## 3. Projets Supabase
 
