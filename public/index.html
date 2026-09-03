@@ -3,8 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BARDEC ∞ — Le marché sans limites</title>
-<meta name="description" content="BARDEC connecte particuliers, entreprises et vendeurs d'Afrique de l'Ouest sur une seule marketplace B2B/B2C, avec paiement mobile money et livraison flexible.">
+<title>BARDEC — Le commerce qui rapproche les personnes, les entreprises et les opportunités</title>
+<meta name="description" content="BARDEC connecte particuliers et entreprises d'Afrique de l'Ouest sur une seule marketplace B2C/B2B : achat, vente, gros négocié, livraison par point relais ou livreur interne, assistant IA OMNI. Disponible au Sénégal.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://bardec-ard27.vercel.app/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="BARDEC — Le commerce qui rapproche les personnes, les entreprises et les opportunités">
+<meta property="og:description" content="Une seule marketplace pour acheter, vendre et faire du commerce B2B/B2C en Afrique de l'Ouest.">
+<meta property="og:image" content="https://bardec-ard27.vercel.app/images/icon.png">
+<meta property="og:url" content="https://bardec-ard27.vercel.app/">
+<meta property="og:locale" content="fr_FR">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="BARDEC — Le commerce qui rapproche">
+<meta name="twitter:description" content="Achetez, vendez et commercez en gros sur une seule marketplace B2B/B2C en Afrique de l'Ouest.">
+<meta name="twitter:image" content="https://bardec-ard27.vercel.app/images/icon.png">
+<link rel="icon" href="/images/icon.png" type="image/png">
+<link rel="apple-touch-icon" href="/images/icon.png">
+<meta name="theme-color" content="#1A56DB">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -15,62 +30,101 @@
   body{background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;line-height:1.5;overflow-x:hidden;}
   h1,h2,h3,.display{font-family:'Space Grotesk',sans-serif;font-weight:700;letter-spacing:-0.02em;}
   a{color:inherit;text-decoration:none;}
+  img{max-width:100%;}
   .wrap{max-width:1160px;margin:0 auto;padding:0 28px;}
   nav{position:sticky;top:0;z-index:50;background:rgba(248,250,254,0.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
   nav .wrap{display:flex;align-items:center;justify-content:space-between;height:76px;}
   .brand{display:flex;align-items:center;gap:10px;font-family:'Space Grotesk';font-weight:700;font-size:20px;}
-  .brand .badge{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--primary),var(--secondary));display:flex;align-items:center;justify-content:center;color:white;font-size:18px;overflow:hidden;}
-  .brand .badge img{width:100%;height:100%;object-fit:cover;}
-  .hero-logo{display:block;width:120px;height:120px;margin:0 auto 20px;border-radius:28px;box-shadow:0 20px 50px -16px #1a56db55;}
-  nav ul{display:flex;gap:32px;list-style:none;}
+  .brand .badge{width:34px;height:34px;border-radius:10px;overflow:hidden;flex-shrink:0;}
+  .brand .badge img{width:100%;height:100%;object-fit:cover;display:block;}
+  nav ul{display:flex;gap:28px;list-style:none;}
   nav ul a{font-size:14px;font-weight:500;color:var(--ink-soft);}
+  .nav-ctas{display:flex;align-items:center;gap:10px;}
   .nav-cta{background:var(--primary);color:white;padding:10px 20px;border-radius:100px;font-size:14px;font-weight:600;}
+  .nav-cta-ghost{border:1px solid var(--line);padding:10px 18px;border-radius:100px;font-size:14px;font-weight:600;color:var(--ink);}
   @media (max-width:760px){nav ul{display:none;}}
-  .hero{padding:88px 0 60px;}
+  .hero{padding:72px 0 56px;}
   .hero-grid{display:grid;grid-template-columns:1.1fr 0.9fr;gap:56px;align-items:center;}
   @media (max-width:900px){.hero-grid{grid-template-columns:1fr;}}
   .eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:'IBM Plex Mono';font-size:12.5px;color:var(--primary);background:#EAF1FF;border:1px solid #D3E1FC;padding:6px 14px;border-radius:100px;margin-bottom:24px;}
   .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--green);}
-  .hero h1{font-size:clamp(36px,5vw,58px);line-height:1.04;margin-bottom:22px;}
+  .hero h1{font-size:clamp(32px,4.6vw,52px);line-height:1.08;margin-bottom:20px;}
   .hero h1 .accent{color:var(--primary);}
-  .hero p.lead{font-size:18px;color:var(--ink-soft);max-width:480px;margin-bottom:34px;}
+  .hero p.lead{font-size:17px;color:var(--ink-soft);max-width:500px;margin-bottom:30px;}
   .cta-row{display:flex;gap:14px;flex-wrap:wrap;}
-  .btn{padding:15px 26px;border-radius:100px;font-weight:600;font-size:15px;display:inline-flex;align-items:center;gap:10px;border:none;cursor:pointer;}
+  .btn{padding:15px 26px;border-radius:100px;font-weight:600;font-size:15px;display:inline-flex;align-items:center;gap:10px;border:none;cursor:pointer;font-family:inherit;}
   .btn-primary{background:var(--primary);color:white;}
   .btn-ghost{background:white;color:var(--ink);border:1px solid var(--line);}
-  .stat-row{display:flex;gap:36px;margin-top:48px;flex-wrap:wrap;}
+  .stat-row{display:flex;gap:32px;margin-top:44px;flex-wrap:wrap;}
   .stat b{display:block;font-family:'Space Grotesk';font-size:26px;}
   .stat span{font-size:13px;color:var(--ink-soft);}
-  .infinity-wrap{display:flex;align-items:center;justify-content:center;min-height:380px;flex-direction:column;}
-  .section{padding:96px 0;}
-  .section-head{max-width:600px;margin-bottom:56px;}
-  .section-head h2{font-size:clamp(28px,3.4vw,38px);margin-bottom:14px;}
+  .hero-visual{display:flex;align-items:center;justify-content:center;min-height:340px;}
+  .hero-visual img{width:220px;height:220px;border-radius:44px;box-shadow:0 30px 70px -20px #1a56db4d;}
+  .section{padding:88px 0;}
+  .section-head{max-width:620px;margin-bottom:52px;}
+  .section-head h2{font-size:clamp(26px,3.2vw,36px);margin-bottom:14px;}
   .section-head p{color:var(--ink-soft);font-size:16px;}
-  .roles-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;}
-  @media (max-width:1080px){.roles-grid{grid-template-columns:repeat(3,1fr);}}
-  @media (max-width:980px){.roles-grid{grid-template-columns:repeat(2,1fr);}}
-  @media (max-width:520px){.roles-grid{grid-template-columns:1fr;}}
+  .why-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;}
+  @media (max-width:1080px){.why-grid{grid-template-columns:repeat(3,1fr);}}
+  @media (max-width:640px){.why-grid{grid-template-columns:1fr;}}
+  .why-card{background:white;border:1px solid var(--line);border-radius:var(--radius);padding:24px 20px;}
+  .why-card .glyph{font-size:24px;margin-bottom:14px;display:block;}
+  .why-card h3{font-size:15.5px;margin-bottom:6px;}
+  .why-card p{font-size:13px;color:var(--ink-soft);}
+  .roles-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;}
+  @media (max-width:980px){.roles-grid{grid-template-columns:repeat(3,1fr);}}
+  @media (max-width:640px){.roles-grid{grid-template-columns:1fr;}}
   .role-card{background:white;border:1px solid var(--line);border-radius:var(--radius);padding:26px 20px;}
   .role-num{font-family:'IBM Plex Mono';font-size:12px;color:var(--secondary);margin-bottom:14px;display:block;}
   .role-card h3{font-size:16px;margin-bottom:8px;}
   .role-card p{font-size:13.5px;color:var(--ink-soft);}
-  .pay-section{background:var(--ink);color:white;border-radius:32px;margin:0 28px;padding:64px 48px;}
+  .steps{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;counter-reset:step;}
+  @media (max-width:980px){.steps{grid-template-columns:repeat(2,1fr);}}
+  @media (max-width:560px){.steps{grid-template-columns:1fr;}}
+  .step{background:white;border:1px solid var(--line);border-radius:var(--radius);padding:22px 18px;}
+  .step .num{width:30px;height:30px;border-radius:9px;background:#EAF1FF;color:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700;font-family:'Space Grotesk';font-size:14px;margin-bottom:14px;}
+  .step h3{font-size:14.5px;margin-bottom:6px;}
+  .step p{font-size:12.5px;color:var(--ink-soft);}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:24px;}
+  @media (max-width:820px){.split{grid-template-columns:1fr;}}
+  .split-card{background:white;border:1px solid var(--line);border-radius:24px;padding:34px;}
+  .split-card .tag{font-family:'IBM Plex Mono';font-size:11px;color:var(--primary);background:#EAF1FF;border:1px solid #D3E1FC;padding:4px 12px;border-radius:100px;display:inline-block;margin-bottom:16px;}
+  .split-card h3{font-size:20px;margin-bottom:10px;}
+  .split-card ul{list-style:none;display:flex;flex-direction:column;gap:10px;margin-top:16px;}
+  .split-card li{font-size:13.5px;color:var(--ink-soft);display:flex;gap:10px;align-items:flex-start;}
+  .split-card li b{color:var(--ink);font-weight:600;}
+  .pay-section{background:var(--ink);color:white;border-radius:32px;margin:0 28px;padding:56px 44px;}
   .pay-section .section-head p{color:#AAB6D6;}
   .pay-section .section-head h2{color:white;}
-  .pay-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+  .pay-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
   @media (max-width:900px){.pay-grid{grid-template-columns:repeat(2,1fr);}}
+  @media (max-width:560px){.pay-grid{grid-template-columns:1fr;}}
   .pay-chip{background:#141F38;border:1px solid #263255;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:10px;}
   .pay-chip .icon{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--secondary),var(--primary));display:flex;align-items:center;justify-content:center;font-weight:700;}
   .pay-chip b{font-size:14.5px;}
   .pay-chip span{font-size:12px;color:#8492B8;}
   .tag-soon{font-family:'IBM Plex Mono';font-size:10px;color:var(--amber);border:1px solid #4A3A1E;background:#2A2110;padding:2px 8px;border-radius:100px;width:fit-content;}
   .tag-live{font-family:'IBM Plex Mono';font-size:10px;color:var(--green);border:1px solid #1E4A2E;background:#0F2A18;padding:2px 8px;border-radius:100px;width:fit-content;}
-  .delivery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
-  @media (max-width:900px){.delivery-grid{grid-template-columns:repeat(2,1fr);}}
-  .delivery-card{background:white;border:1px solid var(--line);border-radius:var(--radius);padding:24px;}
-  .delivery-card .glyph{font-size:26px;margin-bottom:16px;display:block;}
-  .delivery-card h3{font-size:15.5px;margin-bottom:6px;}
-  .delivery-card p{font-size:13px;color:var(--ink-soft);}
+  .subhead{font-family:'Space Grotesk';font-size:15px;color:white;margin:40px 0 16px;font-weight:600;}
+  .ai-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;}
+  @media (max-width:860px){.ai-grid{grid-template-columns:1fr;}}
+  .ai-list{list-style:none;display:flex;flex-direction:column;gap:22px;}
+  .ai-list li{display:flex;gap:16px;align-items:flex-start;}
+  .ai-list .mark{width:30px;height:30px;border-radius:9px;background:#EAF1FF;color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;font-weight:700;}
+  .ai-list h4{font-size:15px;margin-bottom:4px;}
+  .ai-list p{font-size:13.5px;color:var(--ink-soft);}
+  .ai-visual{background:linear-gradient(160deg,#EAF1FF,#F8FAFE);border:1px solid var(--line);border-radius:24px;padding:36px;text-align:center;}
+  .ai-visual .big{font-size:56px;}
+  .ai-visual p{color:var(--ink-soft);font-size:13.5px;margin-top:10px;}
+  .demo-wrap{display:flex;gap:20px;overflow-x:auto;padding-bottom:8px;}
+  .demo-phone{flex:0 0 220px;background:var(--ink);border-radius:28px;padding:10px;}
+  .demo-phone .screen{background:var(--bg);border-radius:20px;height:380px;padding:16px;display:flex;flex-direction:column;gap:10px;}
+  .demo-phone .screen .bar{height:8px;border-radius:4px;background:var(--line);}
+  .demo-phone .screen .bar.w60{width:60%;}
+  .demo-phone .screen .bar.w40{width:40%;}
+  .demo-phone .screen .card{background:white;border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:8px;}
+  .demo-caption{font-size:12px;color:var(--ink-soft);text-align:center;margin-top:10px;font-family:'IBM Plex Mono';}
+  .mockup-flag{font-family:'IBM Plex Mono';font-size:11px;color:var(--amber);text-align:center;margin-bottom:20px;background:#FFF6E8;border:1px solid #F2E0B8;padding:8px 14px;border-radius:100px;display:inline-block;}
   .trust-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;}
   @media (max-width:860px){.trust-grid{grid-template-columns:1fr;}}
   .trust-list{list-style:none;display:flex;flex-direction:column;gap:22px;}
@@ -79,138 +133,259 @@
   .trust-list h4{font-size:15px;margin-bottom:4px;}
   .trust-list p{font-size:13.5px;color:var(--ink-soft);}
   .trust-visual{background:linear-gradient(160deg,#EAF1FF,#F8FAFE);border:1px solid var(--line);border-radius:24px;padding:36px;text-align:center;}
-  .trust-visual .big-inf{font-size:64px;color:var(--primary);line-height:1;}
-  .trust-visual p{color:var(--ink-soft);font-size:13.5px;margin-top:10px;}
+  .trust-visual img{width:80px;height:80px;border-radius:20px;}
+  .trust-visual p{color:var(--ink-soft);font-size:13.5px;margin-top:14px;}
+  .social-proof{background:white;border:1px dashed var(--line);border-radius:var(--radius);padding:40px;text-align:center;}
+  .social-proof p{color:var(--ink-soft);font-size:14px;max-width:440px;margin:8px auto 0;}
   .lang-cloud{display:flex;flex-wrap:wrap;gap:10px;}
   .lang-chip{background:white;border:1px solid var(--line);border-radius:100px;padding:9px 16px;font-size:13px;font-weight:500;color:var(--ink-soft);}
-  .download{background:linear-gradient(135deg,var(--primary),#123f9e);border-radius:32px;margin:0 28px;padding:72px 48px;text-align:center;color:white;}
-  .download h2{font-size:clamp(28px,4vw,42px);margin-bottom:16px;}
-  .download p{color:#CFE0FF;max-width:520px;margin:0 auto 34px;font-size:16px;}
+  .faq-item{border-bottom:1px solid var(--line);padding:22px 0;}
+  .faq-item summary{cursor:pointer;font-weight:600;font-size:15.5px;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:16px;}
+  .faq-item summary::-webkit-details-marker{display:none;}
+  .faq-item summary::after{content:'+';font-size:20px;color:var(--primary);flex-shrink:0;}
+  .faq-item[open] summary::after{content:'–';}
+  .faq-item p{font-size:14px;color:var(--ink-soft);margin-top:12px;max-width:760px;}
+  .download{background:linear-gradient(135deg,var(--primary),#123f9e);border-radius:32px;margin:0 28px;padding:64px 44px;text-align:center;color:white;}
+  .download h2{font-size:clamp(26px,3.6vw,38px);margin-bottom:16px;}
+  .download p{color:#CFE0FF;max-width:520px;margin:0 auto 30px;font-size:16px;}
   .download .btn-primary{background:white;color:var(--primary);}
   .download .btn-soon{background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.75);border:1px dashed rgba(255,255,255,0.35);cursor:not-allowed;}
-  .download .btn-soon:hover{background:rgba(255,255,255,0.14);}
   .soon-badge{font-family:'IBM Plex Mono';font-size:10px;color:var(--amber);background:rgba(242,166,58,0.15);border:1px solid rgba(242,166,58,0.4);padding:2px 8px;border-radius:100px;}
   .download .version-tag{font-family:'IBM Plex Mono';font-size:12px;color:#CFE0FF;margin-top:22px;display:block;}
-  .changelog{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:16px;padding:20px 24px;margin:28px auto 0;max-width:480px;text-align:left;}
-  .changelog b{display:block;margin-bottom:10px;font-size:13px;color:white;}
-  .changelog ul{list-style:none;display:flex;flex-direction:column;gap:6px;}
-  .changelog li{font-size:12.5px;color:#CFE0FF;}
-  footer{padding:56px 0 40px;border-top:1px solid var(--line);margin-top:40px;}
+  .community{background:white;border-top:1px solid var(--line);padding:56px 0;}
+  .community-links{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;}
+  .community-links a{display:inline-flex;align-items:center;gap:8px;background:#EAF1FF;color:var(--primary);border:1px solid #D3E1FC;border-radius:100px;padding:10px 20px;font-size:13.5px;font-weight:600;}
+  .community-links a:hover{background:#D3E1FC;}
+  .capture{background:#EAF1FF;border-radius:32px;margin:0 28px 88px;padding:56px 44px;text-align:center;}
+  .capture h2{font-size:clamp(22px,3vw,30px);margin-bottom:12px;}
+  .capture p{color:var(--ink-soft);font-size:14.5px;max-width:440px;margin:0 auto 26px;}
+  .capture-form{display:flex;gap:10px;max-width:420px;margin:0 auto;flex-wrap:wrap;justify-content:center;}
+  .capture-form input[type=email]{flex:1;min-width:220px;padding:14px 18px;border-radius:100px;border:1px solid var(--line);font-family:inherit;font-size:14px;}
+  .capture-form button{flex-shrink:0;}
+  .capture-note{font-size:11.5px;color:var(--ink-soft);margin-top:14px;font-family:'IBM Plex Mono';}
+  .capture-msg{font-size:13.5px;margin-top:14px;font-weight:600;display:none;}
+  .capture-msg.show{display:block;}
+  /* Honeypot field: hidden from real users, visible to naive bots that fill every field */
+  .hp-field{position:absolute;left:-9999px;top:-9999px;opacity:0;height:0;width:0;overflow:hidden;}
+  footer{padding:56px 0 40px;border-top:1px solid var(--line);}
   .footer-grid{display:flex;justify-content:space-between;flex-wrap:wrap;gap:24px;align-items:center;}
   footer .foot-links{display:flex;gap:26px;list-style:none;flex-wrap:wrap;}
   footer .foot-links a{font-size:13.5px;color:var(--ink-soft);}
   footer .copy{font-size:12.5px;color:#9AA6C2;}
-  .cf-teaser{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;background:white;border:1px solid var(--line);border-radius:var(--radius);padding:22px 28px;margin-top:8px;}
+  .cf-teaser{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;background:white;border:1px solid var(--line);border-radius:var(--radius);padding:22px 28px;margin-top:28px;}
   .cf-teaser img{width:44px;height:44px;border-radius:12px;flex-shrink:0;}
   .cf-teaser .cf-text b{display:block;font-size:15px;}
   .cf-teaser .cf-text p{font-size:13px;color:var(--ink-soft);margin-top:2px;}
-  .community{background:white;border-top:1px solid var(--line);padding:56px 0 0;}
-  .community-links{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;}
-  .community-links a{display:inline-flex;align-items:center;gap:8px;background:#EAF1FF;color:var(--primary);border:1px solid #D3E1FC;border-radius:100px;padding:10px 20px;font-size:13.5px;font-weight:600;}
-  .community-links a:hover{background:#D3E1FC;}
 </style>
 </head>
 <body>
 <nav><div class="wrap">
-  <div class="brand"><span class="badge">∞</span> BARDEC</div>
-  <ul><li><a href="#roles">Rôles</a></li><li><a href="#ia">ABFINI</a></li><li><a href="#paiements">Paiements</a></li><li><a href="#livraison">Livraison</a></li><li><a href="#confiance">Confiance</a></li><li><a href="#langues">Langues</a></li></ul>
-  <a href="#telecharger" class="nav-cta">Télécharger l'app</a>
+  <div class="brand"><span class="badge"><img src="/images/icon.png" alt="BARDEC"></span> BARDEC</div>
+  <ul>
+    <li><a href="#profils">Profils</a></li>
+    <li><a href="#comment">Comment ça marche</a></li>
+    <li><a href="#paiements">Paiements &amp; livraison</a></li>
+    <li><a href="#omni">OMNI</a></li>
+    <li><a href="#confiance">Confiance</a></li>
+    <li><a href="#faq">FAQ</a></li>
+  </ul>
+  <div class="nav-ctas">
+    <a href="/app" class="nav-cta-ghost">Essayer sur le Web</a>
+    <a href="#telecharger" class="nav-cta">Télécharger</a>
+  </div>
 </div></nav>
+
 <section class="hero"><div class="wrap hero-grid">
   <div>
     <div class="eyebrow"><span class="dot"></span> VERSION 1 DISPONIBLE — SÉNÉGAL</div>
-    <h1>Le commerce d'Afrique de l'Ouest,<br><span class="accent">sans limites.</span></h1>
-    <p class="lead">BARDEC relie particuliers, entreprises et vendeurs sur une seule marketplace — prix de gros négociés, paiement par mobile money, livraison jusqu'à votre porte ou au drone près.</p>
+    <h1>Le commerce qui rapproche <span class="accent">les personnes, les entreprises et les opportunités.</span></h1>
+    <p class="lead">BARDEC réunit particuliers et entreprises sur une seule marketplace : achat simple, vente en gros négocié pour les pros, livraison par point relais ou livreur BARDEC, et un assistant IA pour vous guider.</p>
     <div class="cta-row">
       <a href="#telecharger" class="btn btn-primary">↓ Télécharger l'APK v1</a>
       <a href="/app" class="btn btn-ghost">🌐 Essayer sur le web</a>
     </div>
-    <div class="stat-row"><div class="stat"><b>5</b><span>rôles connectés</span></div><div class="stat"><b>20</b><span>langues disponibles</span></div><div class="stat"><b>4</b><span>modes de livraison</span></div></div>
+    <div class="stat-row">
+      <div class="stat"><b>5</b><span>profils connectés</span></div>
+      <div class="stat"><b>20</b><span>langues disponibles</span></div>
+      <div class="stat"><b>1</b><span>pays couvert — Sénégal</span></div>
+    </div>
   </div>
-  <div class="infinity-wrap"><div style="font-size:120px;">∞</div></div>
+  <div class="hero-visual"><img src="/images/icon.png" alt="Icône de l'application BARDEC"></div>
 </div></section>
-<section class="section" id="roles"><div class="wrap">
-  <div class="section-head"><div class="eyebrow">01 — ÉCOSYSTÈME</div><h2>Une app, six façons de faire du commerce</h2><p>Chaque rôle a son propre parcours.</p></div>
+
+<section class="section" id="pourquoi"><div class="wrap">
+  <div class="section-head"><div class="eyebrow">01 — POURQUOI BARDEC</div><h2>Une app, plusieurs façons de faire du commerce</h2><p>Que vous achetiez pour vous-même ou pour votre entreprise, tout se passe au même endroit.</p></div>
+  <div class="why-grid">
+    <div class="why-card"><span class="glyph">🛒</span><h3>Acheter</h3><p>Catalogue de produits, prix public, paiement suivi.</p></div>
+    <div class="why-card"><span class="glyph">🏪</span><h3>Vendre</h3><p>Gérez vos produits, votre stock et vos commandes.</p></div>
+    <div class="why-card"><span class="glyph">📦</span><h3>Acheter en gros</h3><p>Prix négociés pour les entreprises, avec circuit d'approbation interne.</p></div>
+    <div class="why-card"><span class="glyph">🚚</span><h3>Se faire livrer</h3><p>Point relais ou livreur géré par BARDEC.</p></div>
+    <div class="why-card"><span class="glyph">💳</span><h3>Payer</h3><p>Preuve de paiement vérifiée par un administrateur, ou crédit d'entreprise.</p></div>
+  </div>
+</div></section>
+
+<section class="section" id="profils"><div class="wrap">
+  <div class="section-head"><div class="eyebrow">02 — ÉCOSYSTÈME</div><h2>5 profils, chacun son parcours</h2><p>Un seul compte, un rôle adapté à votre usage réel de la plateforme.</p></div>
   <div class="roles-grid">
     <div class="role-card"><span class="role-num">01</span><h3>Customer</h3><p>Achat simple, prix public, paiement immédiat.</p></div>
-    <div class="role-card"><span class="role-num">02</span><h3>Buyer (B2B)</h3><p>Prix de gros négociés, commandes soumises à approbation.</p></div>
-    <div class="role-card"><span class="role-num">03</span><h3>Approver</h3><p>Valide ou rejette les commandes de son entreprise.</p></div>
-    <div class="role-card"><span class="role-num">04</span><h3>Vendor</h3><p>Gère produits, stock et commandes.</p></div>
-    <div class="role-card"><span class="role-num">05</span><h3>Admin</h3><p>Supervise toute la plateforme.</p></div>
-    <div class="role-card"><span class="role-num">06</span><h3>Commerçant de quartier</h3><p>Ouvre sa boutique de proximité et vend aux clients proches.</p></div>
+    <div class="role-card"><span class="role-num">02</span><h3>Buyer (B2B)</h3><p>Prix de gros négociés, commandes soumises à approbation interne.</p></div>
+    <div class="role-card"><span class="role-num">03</span><h3>Approver</h3><p>Valide ou rejette les commandes passées par les acheteurs de son entreprise.</p></div>
+    <div class="role-card"><span class="role-num">04</span><h3>Vendor</h3><p>Gère produits, stock, commandes et sa fiche vendeur vérifiée.</p></div>
+    <div class="role-card"><span class="role-num">05</span><h3>Admin</h3><p>Supervise la plateforme : vendeurs, livraisons, alertes, crédit B2B.</p></div>
   </div>
 </div></section>
-<section class="section" id="ia"><div class="wrap"><div class="trust-grid">
-  <div class="trust-visual" style="order:2;"><div class="big-inf">🤖</div><p style="font-weight:600;color:var(--ink);font-size:16px;margin-top:6px;">ABFINI</p><p>Votre assistant de commerce intelligent, disponible 24/7.</p></div>
-  <ul class="trust-list">
-    <li><div class="mark">💬</div><div><h4>Support 24/7</h4><p>Répond à vos questions à tout moment.</p></div></li>
-    <li><div class="mark">📦</div><div><h4>Suivi intelligent</h4><p>Prédit les délais de livraison.</p></div></li>
-    <li><div class="mark">🔎</div><div><h4>Sourcing B2B</h4><p>Trouve les meilleurs fournisseurs.</p></div></li>
-    <li><div class="mark">🔗</div><div><h4>Connecté à vos données</h4><p>Analyse en temps réel votre activité.</p></div></li>
+
+<section class="section" id="comment"><div class="wrap">
+  <div class="section-head"><div class="eyebrow">03 — PARCOURS</div><h2>Comment ça fonctionne</h2><p>Cinq étapes, du compte à la livraison.</p></div>
+  <div class="steps">
+    <div class="step"><span class="num">1</span><h3>Créer un compte</h3><p>Choisissez votre profil : particulier ou entreprise.</p></div>
+    <div class="step"><span class="num">2</span><h3>Trouver un produit</h3><p>Catalogue, boutiques de proximité, ou recherche assistée par OMNI.</p></div>
+    <div class="step"><span class="num">3</span><h3>Commander</h3><p>Achat direct, ou soumission à approbation pour les commandes B2B.</p></div>
+    <div class="step"><span class="num">4</span><h3>Payer</h3><p>Preuve de paiement vérifiée par un administrateur, ou crédit Net30 pour les sociétés éligibles.</p></div>
+    <div class="step"><span class="num">5</span><h3>Être livré</h3><p>Point relais partenaire ou livreur BARDEC, avec suivi de commande.</p></div>
+  </div>
+</div></section>
+
+<section class="section" id="b2b-b2c"><div class="wrap">
+  <div class="section-head"><div class="eyebrow">04 — B2B &amp; B2C</div><h2>Une plateforme, deux façons de commercer</h2><p>Le même catalogue, deux parcours adaptés à qui achète.</p></div>
+  <div class="split">
+    <div class="split-card">
+      <span class="tag">PARTICULIERS</span>
+      <h3>Achat B2C</h3>
+      <p style="color:var(--ink-soft);font-size:14px;">Pour le client final : parcours simple, prix public, paiement immédiat.</p>
+      <ul>
+        <li>✓ <span><b>Catalogue public</b> avec prix affichés</span></li>
+        <li>✓ <span><b>Boutiques de proximité</b> autour de vous</span></li>
+        <li>✓ <span><b>Paiement vérifié</b> par preuve de paiement</span></li>
+      </ul>
+    </div>
+    <div class="split-card">
+      <span class="tag">ENTREPRISES</span>
+      <h3>Achat B2B</h3>
+      <p style="color:var(--ink-soft);font-size:14px;">Pour les acheteurs professionnels : prix de gros et contrôle interne.</p>
+      <ul>
+        <li>✓ <span><b>Prix négociés</b> pour les comptes Buyer</span></li>
+        <li>✓ <span><b>Circuit d'approbation</b> — un Approver valide chaque commande</span></li>
+        <li>✓ <span><b>Crédit Net30</b> pour les sociétés approuvées <span class="soon-badge" style="margin-left:6px;">en vérification</span></span></li>
+      </ul>
+    </div>
+  </div>
+</div></section>
+
+<section class="section" id="paiements"><div class="wrap"><div class="pay-section">
+  <div class="section-head"><div class="eyebrow" style="color:var(--secondary);background:#0EA5E922;border-color:#0EA5E944;">05 — PAIEMENTS &amp; LIVRAISON</div><h2>Ce qui est réellement disponible aujourd'hui</h2><p>Nous préférons vous dire clairement ce qui fonctionne plutôt que de tout promettre.</p></div>
+  <div class="pay-grid">
+    <div class="pay-chip"><div class="icon">✓</div><b>Preuve de paiement</b><span>Vérification par un administrateur</span><div class="tag-live">ACTIF</div></div>
+    <div class="pay-chip"><div class="icon">₣</div><b>À la livraison</b><span>Espèces, selon le vendeur</span><div class="tag-live">ACTIF</div></div>
+    <div class="pay-chip"><div class="icon">B</div><b>Crédit Net30</b><span>Comptes B2B approuvés</span><div class="tag-soon">EN VÉRIFICATION</div></div>
+    <div class="pay-chip"><div class="icon">W</div><b>Wave, Orange Money, MTN MoMo</b><span>Paiement mobile money</span><div class="tag-soon">EN PRÉPARATION</div></div>
+    <div class="pay-chip"><div class="icon">C</div><b>Carte bancaire</b><span>Visa / Mastercard</span><div class="tag-soon">BIENTÔT</div></div>
+  </div>
+  <div class="subhead">Livraison</div>
+  <div class="pay-grid">
+    <div class="pay-chip"><div class="icon">📍</div><b>Point relais</b><span>Dépôt chez un partenaire</span><div class="tag-live">ACTIF</div></div>
+    <div class="pay-chip"><div class="icon">🚚</div><b>Livreur BARDEC</b><span>Livraison gérée en interne</span><div class="tag-live">ACTIF</div></div>
+    <div class="pay-chip"><div class="icon">🏬</div><b>Retrait en magasin</b><span>Chez le vendeur</span><div class="tag-soon">EN TEST</div></div>
+    <div class="pay-chip"><div class="icon">🚁</div><b>Livraison drone</b><span>Zones éligibles</span><div class="tag-soon">EN TEST</div></div>
+  </div>
+</div></div></section>
+
+<section class="section" id="omni"><div class="wrap"><div class="ai-grid">
+  <div class="ai-visual"><div class="big">🤖</div><p style="font-weight:600;color:var(--ink);font-size:16px;margin-top:6px;">OMNI</p><p>Votre assistant BARDEC, intégré à l'application.</p></div>
+  <ul class="ai-list">
+    <li><div class="mark">🔎</div><div><h4>Recherche produits</h4><p>Trouvez un article ou une boutique en langage naturel.</p></div></li>
+    <li><div class="mark">📦</div><div><h4>Infos commande</h4><p>Statut, historique et suivi de vos achats.</p></div></li>
+    <li><div class="mark">🏬</div><div><h4>Stocks &amp; disponibilité</h4><p>Sait ce qui est en stock chez les vendeurs.</p></div></li>
+    <li><div class="mark">📍</div><div><h4>Commerces proches</h4><p>Repère les boutiques de proximité autour de vous.</p></div></li>
   </ul>
 </div></div></section>
-<section class="section" id="paiements"><div class="wrap"><div class="pay-section">
-  <div class="section-head"><div class="eyebrow" style="color:var(--secondary);background:#0EA5E922;border-color:#0EA5E944;">02 — PAIEMENTS</div><h2>Payez comme vous le faites déjà</h2></div>
-  <div class="pay-grid">
-    <div class="pay-chip"><div class="icon">W</div><b>Wave</b><span>Mobile money</span><div class="tag-live">DISPONIBLE</div></div>
-    <div class="pay-chip"><div class="icon">O</div><b>Orange Money</b><span>Mobile money</span><div class="tag-live">DISPONIBLE</div></div>
-    <div class="pay-chip"><div class="icon">M</div><b>MTN MoMo</b><span>Mobile money</span><div class="tag-live">DISPONIBLE</div></div>
-    <div class="pay-chip"><div class="icon">₣</div><b>À la livraison</b><span>Espèces</span><div class="tag-live">DISPONIBLE</div></div>
-    <div class="pay-chip"><div class="icon">B</div><b>Net30</b><span>Comptes B2B</span><div class="tag-live">DISPONIBLE</div></div>
-    <div class="pay-chip"><div class="icon">C</div><b>Carte bancaire</b><span>Visa/Mastercard</span><div class="tag-soon">BIENTÔT</div></div>
-    <div class="pay-chip"><div class="icon">P</div><b>PayPal</b><span>International</span><div class="tag-soon">BIENTÔT</div></div>
-    <div class="pay-chip"><div class="icon">✓</div><b>Vérification manuelle</b><span>Preuve + validation</span><div class="tag-live">ACTIF</div></div>
-  </div>
-</div></div></section>
-<section class="section" id="livraison"><div class="wrap">
-  <div class="section-head"><div class="eyebrow">03 — LIVRAISON</div><h2>Choisissez comment ça arrive</h2></div>
-  <div class="delivery-grid">
-    <div class="delivery-card"><span class="glyph">🏠</span><h3>À domicile</h3><p>Standard, Express ou Nuit.</p></div>
-    <div class="delivery-card"><span class="glyph">🚁</span><h3>Par drone</h3><p>Zones éligibles.</p></div>
-    <div class="delivery-card"><span class="glyph">📍</span><h3>Point relais</h3><p>Point de dépôt partenaire.</p></div>
-    <div class="delivery-card"><span class="glyph">🏬</span><h3>Retrait magasin</h3><p>Chez le vendeur.</p></div>
+
+<section class="section" id="demo"><div class="wrap">
+  <div class="section-head" style="margin:0 auto 24px;text-align:center;"><div class="eyebrow" style="margin:0 auto 14px;">06 — APERÇU</div><h2>À quoi ça ressemble</h2></div>
+  <div style="text-align:center;"><span class="mockup-flag">⚠ Aperçu illustratif — pas des captures d'écran réelles de l'app</span></div>
+  <div class="demo-wrap">
+    <div><div class="demo-phone"><div class="screen">
+      <div class="bar w60"></div><div class="bar w40"></div>
+      <div class="card"><div class="bar w60"></div><div class="bar w40" style="margin-top:6px;"></div></div>
+      <div class="card"><div class="bar w60"></div><div class="bar w40" style="margin-top:6px;"></div></div>
+    </div></div><p class="demo-caption">Accueil / Catalogue</p></div>
+    <div><div class="demo-phone"><div class="screen">
+      <div class="bar w40"></div>
+      <div class="card" style="height:100px;"></div>
+      <div class="bar w60"></div><div class="bar w40"></div>
+    </div></div><p class="demo-caption">Fiche produit</p></div>
+    <div><div class="demo-phone"><div class="screen">
+      <div class="bar w60"></div>
+      <div class="card"><div class="bar w40"></div></div>
+      <div class="card"><div class="bar w40"></div></div>
+      <div class="card"><div class="bar w40"></div></div>
+    </div></div><p class="demo-caption">Suivi de commande</p></div>
+    <div><div class="demo-phone"><div class="screen">
+      <div class="bar w40"></div>
+      <div class="card" style="height:60px;"></div>
+      <div class="bar w60"></div>
+    </div></div><p class="demo-caption">Assistant OMNI</p></div>
   </div>
 </div></section>
+
 <section class="section" id="confiance"><div class="wrap">
-  <div class="section-head"><div class="eyebrow">04 — CONFIANCE</div><h2>Chaque transaction est protégée</h2></div>
+  <div class="section-head"><div class="eyebrow">07 — CONFIANCE</div><h2>Ce qu'on fait réellement pour la sécurité</h2></div>
   <div class="trust-grid">
     <ul class="trust-list">
-      <li><div class="mark">✓</div><div><h4>Trade Assurance</h4><p>Fonds retenus jusqu'à confirmation.</p></div></li>
-      <li><div class="mark">🔒</div><div><h4>Vendeurs vérifiés (KYC)</h4><p>Validation de documents.</p></div></li>
-      <li><div class="mark">⚡</div><div><h4>Authentification biométrique</h4><p>Connexion sécurisée.</p></div></li>
-      <li><div class="mark">📋</div><div><h4>Audit complet</h4><p>Actions sensibles tracées.</p></div></li>
+      <li><div class="mark">🔒</div><div><h4>Vendeurs vérifiés (KYC)</h4><p>Documents examinés et validés par un administrateur avant activation.</p></div></li>
+      <li><div class="mark">📋</div><div><h4>Actions sensibles tracées</h4><p>Un journal d'audit enregistre les opérations administratives.</p></div></li>
+      <li><div class="mark">💾</div><div><h4>Sauvegarde quotidienne chiffrée</h4><p>La base de données de production est sauvegardée automatiquement chaque jour.</p></div></li>
+      <li><div class="mark">⚡</div><div><h4>Connexion biométrique</h4><p>Empreinte / Face ID <span class="soon-badge">Bientôt disponible</span></p></div></li>
     </ul>
-    <div class="trust-visual"><div class="big-inf" style="font-size:110px;">∞</div><p>Unlimited Benefits — avantages membres fidèles.</p></div>
+    <div class="trust-visual"><img src="/images/icon.png" alt="BARDEC"><p>Nous documentons ce qui est actif et ce qui ne l'est pas encore — sans promesse que nous ne pouvons pas tenir.</p></div>
   </div>
 </div></section>
+
+<section class="section" id="preuve"><div class="wrap">
+  <div class="section-head" style="text-align:center;margin:0 auto 32px;"><div class="eyebrow" style="margin:0 auto 14px;">08 — COMMUNAUTÉ</div><h2>Avis vérifiés — bientôt</h2></div>
+  <div class="social-proof">
+    <p style="font-weight:600;color:var(--ink);">Nous préférons ne pas publier de faux témoignages.</p>
+    <p>Les avis clients arriveront ici une fois que nous aurons de vrais retours vérifiés à partager.</p>
+  </div>
+</div></section>
+
 <section class="section" id="langues"><div class="wrap">
-  <div class="section-head"><div class="eyebrow">05 — LANGUES</div><h2>Votre langue, détectée automatiquement</h2></div>
+  <div class="section-head"><div class="eyebrow">09 — LANGUES</div><h2>Votre langue, détectée automatiquement</h2></div>
   <div class="lang-cloud">
     <span class="lang-chip"><b>Français</b></span><span class="lang-chip"><b>Wolof</b></span><span class="lang-chip"><b>Anglais</b></span><span class="lang-chip"><b>Arabe</b></span><span class="lang-chip"><b>Hausa</b></span><span class="lang-chip"><b>Swahili</b></span><span class="lang-chip"><b>Amharique</b></span><span class="lang-chip"><b>Yoruba</b></span><span class="lang-chip"><b>Igbo</b></span><span class="lang-chip"><b>Zoulou</b></span><span class="lang-chip">Espagnol</span><span class="lang-chip">Portugais</span><span class="lang-chip">Chinois</span><span class="lang-chip">Hindi</span><span class="lang-chip">Japonais</span><span class="lang-chip">Coréen</span><span class="lang-chip">Allemand</span><span class="lang-chip">Russe</span><span class="lang-chip">Italien</span><span class="lang-chip">Turc</span>
   </div>
 </div></section>
+
+<section class="section" id="faq"><div class="wrap">
+  <div class="section-head"><div class="eyebrow">10 — FAQ</div><h2>Questions fréquentes</h2></div>
+  <div>
+    <details class="faq-item"><summary>BARDEC est-il disponible dans mon pays ?</summary><p>La version 1 couvre le Sénégal. L'application détecte automatiquement votre langue parmi 20 langues disponibles.</p></details>
+    <details class="faq-item"><summary>Comment payer sur BARDEC ?</summary><p>Aujourd'hui, le paiement se fait par preuve de paiement envoyée puis vérifiée par un administrateur, ou en espèces à la livraison selon le vendeur. Le paiement mobile money (Wave, Orange Money, MTN MoMo) et par carte bancaire sont en préparation, pas encore actifs.</p></details>
+    <details class="faq-item"><summary>Qu'est-ce que le crédit Net30 ?</summary><p>Un mode de paiement différé réservé aux sociétés B2B approuvées par un administrateur, avec une limite de crédit fixée au cas par cas. La fonctionnalité est construite mais encore en phase de vérification.</p></details>
+    <details class="faq-item"><summary>Comment se passe la livraison ?</summary><p>Par point relais partenaire ou par un livreur géré directement par BARDEC. Le retrait en magasin et la livraison par drone existent en test mais ne sont pas encore ouverts à tous.</p></details>
+    <details class="faq-item"><summary>Qui est OMNI ?</summary><p>L'assistant intégré à l'application : il vous aide à trouver des produits, suivre vos commandes, connaître les stocks et repérer les commerces proches de vous.</p></details>
+    <details class="faq-item"><summary>Comment devenir vendeur ?</summary><p>Créez un compte Vendor depuis l'application, puis complétez la vérification (KYC) avant activation par un administrateur.</p></details>
+  </div>
+</div></section>
+
 <section class="section" id="telecharger"><div class="wrap"><div class="download">
   <h2>Prêt à rejoindre BARDEC ?</h2>
   <p>Téléchargez la version 1 de l'application Android, ou essayez-la directement dans votre navigateur.</p>
   <a class="btn btn-primary" href="/api/download">⬇ Télécharger l'APK v1 (Android)</a>
   <a class="btn btn-ghost" href="/app" style="margin-left:12px;background:rgba(255,255,255,0.15);color:white;border-color:rgba(255,255,255,0.3);">🌐 Ou essayer sur le web</a>
-  <button type="button" class="btn btn-soon" style="margin-left:12px;margin-top:12px" onclick="alert('Bientôt disponible')">🍎 Télécharger pour Apple (iOS) <span class="soon-badge">Bientôt</span></button>
-  <button type="button" class="btn btn-soon" style="margin-left:12px;margin-top:12px" onclick="alert('Bientôt disponible')">▶ Télécharger sur Google Play <span class="soon-badge">Bientôt</span></button>
-  <button type="button" class="btn btn-soon" style="margin-left:12px;margin-top:12px" onclick="alert('Bientôt disponible')">🖥 Télécharger pour Ordinateur (Windows/Mac) <span class="soon-badge">Bientôt</span></button>
+  <div>
+    <button type="button" class="btn btn-soon" style="margin-left:12px;margin-top:12px" onclick="alert('Bientôt disponible')">🍎 iOS <span class="soon-badge">Bientôt</span></button>
+    <button type="button" class="btn btn-soon" style="margin-left:12px;margin-top:12px" onclick="alert('Bientôt disponible')">▶ Google Play <span class="soon-badge">Bientôt</span></button>
+    <button type="button" class="btn btn-soon" style="margin-left:12px;margin-top:12px" onclick="alert('Bientôt disponible')">🖥 Windows / Mac <span class="soon-badge">Bientôt</span></button>
+  </div>
   <span class="version-tag">v1.0.0 · Android · dernier build disponible</span>
-  <div class="changelog"><b>Nouveautés de la v1 :</b><ul>
-    <li>Commerces de proximité avec carte et géolocalisation</li>
-    <li>Paiement Wave, Orange Money, MTN MoMo</li>
-    <li>4 modes de livraison</li>
-    <li>Correction du crash au changement de rôle</li>
-    <li>Icônes, session et navigation stabilisées</li>
-  </ul></div>
   <div class="cf-teaser">
     <img src="/images/cf-icon.png" alt="Chat Fini">
     <div class="cf-text"><b>Chat Fini <span class="soon-badge">Bientôt disponible</span></b><p>Discussion instantanée avec les commerçants, directement dans l'app.</p></div>
   </div>
 </div></div></section>
-<section class="community"><div class="wrap">
+
+<section class="community" id="communaute"><div class="wrap">
   <div class="section-head" style="margin:0 auto 28px;text-align:center;"><h2>Rejoindre la communauté BARDEC</h2><p>Actus, nouveautés et coulisses, sur vos réseaux préférés.</p></div>
   <div class="community-links">
     <a href="https://www.instagram.com/bar_dec_" target="_blank" rel="noopener">Instagram</a>
@@ -220,10 +395,47 @@
     <a href="https://t.me/B_ARDEC" target="_blank" rel="noopener">Telegram</a>
   </div>
 </div></section>
-<footer><div class="wrap footer-grid">
-  <div class="brand"><span class="badge">∞</span> BARDEC</div>
-  <ul class="foot-links"><li><a href="#roles">Rôles</a></li><li><a href="#paiements">Paiements</a></li><li><a href="#livraison">Livraison</a></li><li><a href="#confiance">Confiance</a></li></ul>
-  <span class="copy">© 2026 BARDEC — Marketplace B2B/B2C, Afrique de l'Ouest.</span>
+
+<section class="wrap"><div class="capture">
+  <h2>Soyez prévenu des nouveautés</h2>
+  <p>Laissez votre email pour être informé des prochaines fonctionnalités (mobile money, iOS, et plus).</p>
+  <form class="capture-form" id="emailCaptureForm" autocomplete="off">
+    <label for="companyWebsite" class="hp-field" aria-hidden="true">Ne pas remplir ce champ</label>
+    <input type="text" id="companyWebsite" name="companyWebsite" class="hp-field" tabindex="-1" autocomplete="off">
+    <input type="email" name="email" placeholder="vous@exemple.com" required aria-label="Votre email">
+    <button type="submit" class="btn btn-primary">Me prévenir</button>
+  </form>
+  <p class="capture-msg" id="captureMsg"></p>
+  <p class="capture-note">Formulaire non connecté à un service d'envoi pour le moment — aucune donnée n'est transmise à un serveur.</p>
+</div></section>
+
+<footer><div class="wrap">
+  <div class="footer-grid">
+    <div class="brand"><span class="badge"><img src="/images/icon.png" alt="BARDEC"></span> BARDEC</div>
+    <ul class="foot-links"><li><a href="#profils">Profils</a></li><li><a href="#paiements">Paiements</a></li><li><a href="#confiance">Confiance</a></li><li><a href="#faq">FAQ</a></li></ul>
+    <span class="copy">© 2026 BARDEC — Marketplace B2B/B2C, Sénégal.</span>
+  </div>
 </div></footer>
+
+<script>
+(function () {
+  var form = document.getElementById('emailCaptureForm');
+  var msg = document.getElementById('captureMsg');
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    // Honeypot: a real visitor never fills this hidden field.
+    var honeypot = document.getElementById('companyWebsite');
+    if (honeypot && honeypot.value) {
+      form.reset();
+      return;
+    }
+    msg.textContent = 'Merci ! (Formulaire de démonstration — non connecté à un envoi réel pour le moment.)';
+    msg.className = 'capture-msg show';
+    msg.style.color = 'var(--green)';
+    form.reset();
+  });
+})();
+</script>
 </body>
 </html>
