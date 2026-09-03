@@ -1,0 +1,38 @@
+# BARDEC — robots.txt
+# Autorise les crawlers de recherche légitimes, limite les scrapers connus
+# agressifs. Ne bloque jamais Googlebot / Bingbot.
+
+User-agent: Googlebot
+Allow: /
+Disallow: /app/
+Disallow: /api/
+
+User-agent: Bingbot
+Allow: /
+Disallow: /app/
+Disallow: /api/
+
+# Scrapers SEO/commerciaux agressifs connus — pas de valeur pour l'acquisition,
+# consomment de la bande passante pour peu de bénéfice.
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: DotBot
+Disallow: /
+
+User-agent: PetalBot
+Disallow: /
+
+# Par défaut : autorisé, mais jamais l'app authentifiée ni les endpoints internes.
+User-agent: *
+Allow: /
+Disallow: /app/
+Disallow: /api/
+
+Sitemap: https://bardec-ard27.vercel.app/sitemap.xml
