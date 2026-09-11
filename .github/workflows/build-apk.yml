@@ -17,10 +17,18 @@ jobs:
         with:
           node-version: 20
 
+      # pnpm/action-setup@v4 lit désormais automatiquement la version depuis
+      # le champ "packageManager" de package.json (ajouté par l'upgrade Expo
+      # SDK 57 du 11 sept) — spécifier `with: version:` en plus fait échouer
+      # l'action ("Multiple versions of pnpm specified"), même quand les deux
+      # valeurs sont identiques. C'est ce qui a cassé le build sur les deux
+      # derniers push (cd3ef74, 471b313) : "Setup pnpm" échouait avant même
+      # l'installation des dépendances, donc l'APK EAS le plus récent qui a
+      # réellement été généré date encore du commit 5db5cf6 (10 sept) — les
+      # 4 chantiers + les correctifs de bugs/sécurité de cette session n'ont
+      # jamais atteint un APK buildé.
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10.14.0
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
