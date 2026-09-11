@@ -10,7 +10,8 @@ import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
 import BardecLayout from '@/components/BardecLayout';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, Redirect } from 'expo-router';
+import { useAuth } from '@/context/AuthContext';
 import { ADMIN_STATS, DEMO_USERS, MOCK_ORDERS, UserRole } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toUserMessage } from '@/lib/errors';
@@ -140,6 +141,7 @@ export default function AdminScreen() {
 function AdminScreenInner() {
   const colors = useColors();
   const { t } = useLanguage();
+  const { user, isDemoMode } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [refreshing, setRefreshing] = useState(false);
   const { slugToLabel } = useShopCategories();
@@ -1343,6 +1345,20 @@ function AdminScreenInner() {
     { id: 'apikeys',   label: 'Clés API / MCP', icon: 'key'         },
     { id: 'settings',  label: t('settings'),  icon: 'settings'      },
   ];
+
+  // Garde d'accès route-level — la tab bar cache déjà cet onglet aux
+  // non-admins (href: null dans _layout.tsx) mais ça ne bloque pas une
+  // navigation directe (deep link / router.push manuel), qui monterait
+  // sinon tout l'écran admin (clés API, sociétés B2B, ce module Magasins…)
+  // pour n'importe quel compte connecté. Les écritures restaient déjà
+  // bloquées côté RLS (current_user_role() = 'ADMIN' sur chaque table),
+  // mais l'écran lui-même n'avait aucune vérification de rôle — trouvé
+  // lors de l'audit sécurité de ce jour. Placé après tous les hooks
+  // (règle des Hooks) ; ignoré en mode démo (pas de vrai backend, le
+  // sélecteur de rôle de test doit continuer à fonctionner).
+  if (!isDemoMode && user?.role !== 'ADMIN') {
+    return <Redirect href="/(app)/(tabs)" />;
+  }
 
   return (
     <BardecLayout onRefresh={onRefresh} refreshing={refreshing}>

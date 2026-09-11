@@ -17,7 +17,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useCurrency } from '@/context/CurrencyContext';
 import BardecLayout from '@/components/BardecLayout';
 import { SkeletonBox } from '@/components/SkeletonCard';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, Redirect } from 'expo-router';
 import { CATEGORIES, MOCK_ORDERS, MOCK_PRODUCTS, VENDOR_STATS } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { readLocalImageBytes } from '@/lib/imageUpload';
@@ -1202,6 +1202,18 @@ export default function VendorDashboardScreen() {
     },
   }), [user?.id, shopName]);
 
+  // Garde d'accès route-level — même trou que celui trouvé et corrigé sur
+  // admin.tsx (audit du 11 sept) : la tab bar cache déjà cet onglet aux
+  // non-vendeurs (href: null dans _layout.tsx) mais ça ne bloque pas une
+  // navigation directe. Les écritures restent de toute façon bloquées par
+  // RLS (orders_vendor*/products policies scopées à auth.uid()), mais
+  // l'écran lui-même n'avait aucune vérification de rôle. Placé après tous
+  // les hooks (règle des Hooks) ; ignoré en mode démo (sélecteur de rôle de
+  // test).
+  if (!isDemoMode && user?.role !== 'VENDOR') {
+    return <Redirect href="/(app)/(tabs)" />;
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <BardecLayout onRefresh={onRefresh} refreshing={refreshing} omniContext={omniContext}>
@@ -1651,7 +1663,7 @@ export default function VendorDashboardScreen() {
                     onPress={() => setAddForm(prev => ({ ...prev, category: cat.id }))}
                   >
                     <Feather
-                      name={cat.icon as keyof typeof Feather.glyphMap}
+                      name={cat.icon as any}
                       size={14}
                       color={addForm.category === cat.id ? 'white' : colors.mutedForeground}
                     />
