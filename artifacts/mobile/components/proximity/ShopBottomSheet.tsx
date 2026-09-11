@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Image,
   Linking,
   Modal,
   Platform,
@@ -13,6 +14,10 @@ import { router } from 'expo-router';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { CATEGORY_COLORS, ProximityShop } from '@/constants/proximityData';
+
+// Logo officiel OMNI (même asset que OmniButton.tsx/OmniChatModal.tsx) —
+// remplace l'ancien glyphe texte "∞" générique.
+const OMNI_ICON = require('../../assets/images/omni-logo.jpg') as number;
 import { useShopCategories } from '@/hooks/useShopCategories';
 import { OmniChatModal } from '@/components/OmniChatModal';
 import type { OmniContext } from '@/hooks/useOmniChat';
@@ -189,7 +194,7 @@ export default function ShopBottomSheet({ shop, visible, onClose }: ShopBottomSh
             style={[styles.omniBtn, { backgroundColor: colors.primary }]}
             onPress={() => setOmniVisible(true)}
           >
-            <Text style={styles.omniBtnIcon}>∞</Text>
+            <Image source={OMNI_ICON} style={styles.omniBtnIcon} resizeMode="cover" />
             <Text style={styles.omniBtnText}>Demander à OMNI</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -309,6 +314,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     marginTop: 10,
   },
-  omniBtnIcon: { color: 'white', fontSize: 18, fontWeight: '900', lineHeight: 20 },
+  omniBtnIcon: { width: 22, height: 22, borderRadius: 11 },
   omniBtnText: { color: 'white', fontSize: 15, fontWeight: '700' },
 });

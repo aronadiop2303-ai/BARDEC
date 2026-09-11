@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -22,6 +23,10 @@ import {
 } from '@/hooks/useProximityOrders';
 import { OmniChatModal } from '@/components/OmniChatModal';
 import { OmniContext } from '@/hooks/useOmniChat';
+
+// Logo officiel OMNI (même asset que OmniButton.tsx/OmniChatModal.tsx) —
+// remplace l'ancien glyphe texte "∞" générique.
+const OMNI_ICON = require('../../../../assets/images/omni-logo.jpg') as number;
 
 const GREEN = '#22C55E';
 
@@ -177,7 +182,7 @@ export default function MyShopOrdersScreen() {
           onPress={() => setOmniVisible(true)}
           accessibilityLabel="Ouvrir OMNI"
         >
-          <Text style={styles.omniBtnText}>∞</Text>
+          <Image source={OMNI_ICON} style={styles.omniBtnIcon} resizeMode="cover" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.refreshBtn} onPress={() => refetch()}>
           <Feather name="refresh-cw" size={18} color="white" />
@@ -544,7 +549,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: 'white',
   },
-  omniBtnText: { color: 'white', fontSize: 18, fontWeight: '900', lineHeight: 22 },
+  omniBtnIcon: { width: 26, height: 26, borderRadius: 13 },
   omniHint: {
     flexDirection: 'row',
     alignItems: 'center',

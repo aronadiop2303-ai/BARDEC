@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  ActivityIndicator, Alert, Dimensions, Image, ScrollView, StyleSheet, Text,
+  ActivityIndicator, Alert, Dimensions, Image, Modal, ScrollView, StyleSheet, Text,
   TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -20,8 +20,46 @@ import type { OmniContext } from '@/hooks/useOmniChat';
 import { ReportModal, ReportTargetType } from '@/components/ReportModal';
 import { useCurrency } from '@/context/CurrencyContext';
 
+// Logo officiel OMNI (même asset que OmniButton.tsx/OmniChatModal.tsx) —
+// remplace l'ancien glyphe texte "∞" générique qui prêtait à confusion avec
+// le bouton "BARDEC Unlimited" (composants/BardecLayout.tsx), sans rapport
+// avec OMNI.
+const OMNI_ICON = require('../../../assets/images/omni-logo.jpg') as number;
+
 const { width } = Dimensions.get('window');
 type ProductTab = 'description' | 'specifications' | 'reviews' | 'trade_assurance';
+
+const TRADE_ASSURANCE_ITEMS = [
+  {
+    icon: 'shield', title: 'Paiement sécurisé',
+    desc: 'Votre paiement est protégé jusqu\'à la livraison confirmée.',
+    details: 'BARDEC ne verse le paiement au vendeur qu\'une fois la livraison confirmée. ' +
+      'Tant que vous n\'avez pas reçu votre commande conforme à la description, votre argent reste ' +
+      'en sécurité et peut être remboursé via un litige Trade Assurance. Aucun paiement direct au ' +
+      'vendeur n\'est nécessaire en dehors du checkout BARDEC.',
+  },
+  {
+    icon: 'package', title: 'Garantie de qualité',
+    desc: 'Produit conforme à la description ou remboursement intégral.',
+    details: 'Si le produit reçu ne correspond pas à la description, aux photos ou aux spécifications ' +
+      'annoncées par le vendeur, vous pouvez ouvrir un litige depuis votre commande. Après vérification, ' +
+      'BARDEC procède à un remboursement intégral ou à un remplacement, selon votre préférence.',
+  },
+  {
+    icon: 'truck', title: 'Livraison garantie',
+    desc: 'Dédommagement en cas de retard ou de perte.',
+    details: 'Chaque commande est suivie de bout en bout. En cas de retard important, de colis perdu ' +
+      'ou endommagé pendant le transport, vous êtes dédommagé — remboursement total ou partiel selon ' +
+      'le préjudice, après ouverture d\'un litige depuis la page de la commande concernée.',
+  },
+  {
+    icon: 'refresh-cw', title: 'Politique de retour',
+    desc: 'Retour facile sous 30 jours pour produits défectueux.',
+    details: 'Vous disposez de 30 jours après réception pour signaler un défaut et demander un retour. ' +
+      'Les frais de retour pour un produit défectueux ou non conforme sont pris en charge par le vendeur. ' +
+      'Le remboursement est déclenché dès réception et vérification du produit retourné.',
+  },
+] as const;
 
 const PRODUCT_SPECS: Record<string, Record<string, string>> = {
   p1: {
@@ -71,6 +109,7 @@ export default function ProductDetailScreen() {
   const [wishlist, setWishlist] = useState(false);
   const [reportTarget, setReportTarget] = useState<{ type: ReportTargetType; id: string } | null>(null);
   const [omniVisible, setOmniVisible] = useState(false);
+  const [tradeDetail, setTradeDetail] = useState<typeof TRADE_ASSURANCE_ITEMS[number] | null>(null);
 
   // ── Real reviews from Supabase ──────────────────────────────────────────────
   // Was seeded with MOCK_REVIEWS and only ever overwritten `if data.length > 0`
@@ -185,7 +224,7 @@ export default function ProductDetailScreen() {
         </TouchableOpacity>
         <View style={styles.topBarRight}>
           <TouchableOpacity style={[styles.iconBtn, { backgroundColor: 'rgba(255,255,255,0.9)' }]} onPress={() => setOmniVisible(true)}>
-            <Text style={[styles.omniIcon, { color: colors.primary }]}>∞</Text>
+            <Image source={OMNI_ICON} style={styles.omniIcon} resizeMode="cover" />
           </TouchableOpacity>
           <TouchableOpacity style={[styles.iconBtn, { backgroundColor: 'rgba(255,255,255,0.9)' }]} onPress={() => setWishlist(!wishlist)}>
             <Feather name="heart" size={20} color={wishlist ? '#EF4444' : colors.foreground} />
@@ -420,13 +459,13 @@ export default function ProductDetailScreen() {
 
           {activeTab === 'trade_assurance' && (
             <View style={styles.tradeSection}>
-              {[
-                { icon: 'shield', title: 'Paiement sécurisé', desc: 'Votre paiement est protégé jusqu\'à la livraison confirmée.' },
-                { icon: 'package', title: 'Garantie de qualité', desc: 'Produit conforme à la description ou remboursement intégral.' },
-                { icon: 'truck', title: 'Livraison garantie', desc: 'Dédommagement en cas de retard ou de perte.' },
-                { icon: 'refresh-cw', title: 'Politique de retour', desc: 'Retour facile sous 30 jours pour produits défectueux.' },
-              ].map((item, i) => (
-                <View key={i} style={[styles.tradeItem, { borderColor: colors.border }]}>
+              {TRADE_ASSURANCE_ITEMS.map((item, i) => (
+                <TouchableOpacity
+                  key={i}
+                  style={[styles.tradeItem, { borderColor: colors.border }]}
+                  onPress={() => setTradeDetail(item)}
+                  activeOpacity={0.7}
+                >
                   <View style={[styles.tradeIcon, { backgroundColor: colors.accent }]}>
                     <Feather name={item.icon as any} size={20} color={colors.primary} />
                   </View>
@@ -434,7 +473,8 @@ export default function ProductDetailScreen() {
                     <Text style={[styles.tradeTitle, { color: colors.foreground }]}>{item.title}</Text>
                     <Text style={[styles.tradeDesc, { color: colors.mutedForeground }]}>{item.desc}</Text>
                   </View>
-                </View>
+                  <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
+                </TouchableOpacity>
               ))}
             </View>
           )}
@@ -486,6 +526,39 @@ export default function ProductDetailScreen() {
       </View>
 
       <OmniChatModal visible={omniVisible} onClose={() => setOmniVisible(false)} context={omniContext} />
+
+      {/* Trade Assurance — détail d'une garantie */}
+      <Modal
+        visible={!!tradeDetail}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setTradeDetail(null)}
+      >
+        <TouchableOpacity style={styles.tradeSheetOverlay} activeOpacity={1} onPress={() => setTradeDetail(null)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.tradeSheet, { backgroundColor: colors.card }]}>
+            <View style={[styles.tradeSheetGrabber, { backgroundColor: colors.border }]} />
+            {tradeDetail && (
+              <>
+                <View style={styles.tradeSheetHeader}>
+                  <View style={[styles.tradeIcon, { backgroundColor: colors.accent }]}>
+                    <Feather name={tradeDetail.icon as any} size={22} color={colors.primary} />
+                  </View>
+                  <Text style={[styles.tradeSheetTitle, { color: colors.foreground }]}>{tradeDetail.title}</Text>
+                </View>
+                <Text style={[styles.tradeSheetDetails, { color: colors.mutedForeground }]}>
+                  {tradeDetail.details}
+                </Text>
+              </>
+            )}
+            <TouchableOpacity
+              style={[styles.tradeSheetCloseBtn, { backgroundColor: colors.primary }]}
+              onPress={() => setTradeDetail(null)}
+            >
+              <Text style={styles.tradeSheetCloseBtnText}>Fermer</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -509,7 +582,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   topBarRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  omniIcon: { fontSize: 20, fontWeight: '900', lineHeight: 22 },
+  omniIcon: { width: 28, height: 28, borderRadius: 14 },
   iconBtn: {
     width: 40,
     height: 40,
@@ -663,6 +736,14 @@ const styles = StyleSheet.create({
   },
   tradeTitle: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
   tradeDesc: { fontSize: 13, lineHeight: 18 },
+  tradeSheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  tradeSheet: { borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 22, paddingBottom: 36, gap: 16 },
+  tradeSheetGrabber: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 2 },
+  tradeSheetHeader: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  tradeSheetTitle: { fontSize: 17, fontWeight: '800', flex: 1 },
+  tradeSheetDetails: { fontSize: 14, lineHeight: 21 },
+  tradeSheetCloseBtn: { paddingVertical: 13, borderRadius: 12, alignItems: 'center', marginTop: 4 },
+  tradeSheetCloseBtnText: { color: 'white', fontSize: 15, fontWeight: '700' },
   similarSection: { paddingTop: 20, gap: 12 },
   sectionTitle: { fontSize: 17, fontWeight: '700', paddingHorizontal: 16 },
   actionBar: {

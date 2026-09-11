@@ -73,6 +73,29 @@ export default function RegisterShopScreen() {
     opening_hours: { ...DEFAULT_HOURS }, photos: [],
   });
 
+  // Max 5 boutiques par compte (owner_id) — appliqué aussi côté serveur par
+  // le trigger enforce_proximity_shop_limit() (before insert sur
+  // proximity_shops), qui reste la vraie limite ; cette vérification côté
+  // client sert juste à éviter de faire remplir tout le formulaire en 4
+  // étapes à quelqu'un qui a déjà atteint le plafond.
+  const MAX_SHOPS = 5;
+  const [shopCount, setShopCount] = useState<number | null>(null);
+  const [checkingShopLimit, setCheckingShopLimit] = useState(isSupabaseConfigured);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) { setCheckingShopLimit(false); return; }
+    (async () => {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) { setCheckingShopLimit(false); return; }
+      const { count } = await supabase
+        .from('proximity_shops')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', authUser.id);
+      setShopCount(count ?? 0);
+      setCheckingShopLimit(false);
+    })();
+  }, []);
+
   useEffect(() => {
     // Pre-fill with user's current location if available
     Location.getForegroundPermissionsAsync().then(({ status }) => {
@@ -216,6 +239,14 @@ export default function RegisterShopScreen() {
         [{ text: 'Gérer ma boutique', onPress: () => router.replace('/proximity/my-shop' as any) }],
       );
     } catch (err: any) {
+      // Filet de sécurité serveur (trigger enforce_proximity_shop_limit) —
+      // couvre le cas où la limite a été atteinte entre la vérification au
+      // chargement de cet écran et la soumission (ex. deux appareils/onglets).
+      if (typeof err?.message === 'string' && err.message.includes('MAX_SHOPS_REACHED')) {
+        setShopCount(MAX_SHOPS);
+        Alert.alert('Limite atteinte', `Tu as déjà ${MAX_SHOPS} boutiques sur ton compte — le maximum autorisé est de ${MAX_SHOPS}.`);
+        return;
+      }
       Alert.alert('Erreur', toUserMessage('proximity:registerShop', err, 'Impossible de créer la boutique. Réessaie dans un instant.'));
     } finally {
       setSubmitting(false);
@@ -223,6 +254,35 @@ export default function RegisterShopScreen() {
   }
 
   const subcats = form.category ? PROXIMITY_SUBCATEGORIES[form.category as ProximityCategory] : [];
+
+  if (checkingShopLimit) {
+    return (
+      <View style={[styles.root, styles.limitCenter, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={GREEN} size="large" />
+      </View>
+    );
+  }
+
+  if (shopCount !== null && shopCount >= MAX_SHOPS) {
+    return (
+      <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top + 8 }]}>
+        <TouchableOpacity style={styles.limitBackRow} onPress={() => router.back()}>
+          <Feather name="arrow-left" size={20} color={colors.foreground} />
+          <Text style={[styles.title, { color: colors.foreground }]}>Ouvrir ma boutique</Text>
+        </TouchableOpacity>
+        <View style={styles.limitCenter}>
+          <View style={[styles.limitIcon, { backgroundColor: '#FEF3C7' }]}>
+            <Feather name="alert-circle" size={40} color="#D97706" />
+          </View>
+          <Text style={[styles.limitTitle, { color: colors.foreground }]}>Limite de boutiques atteinte</Text>
+          <Text style={[styles.limitDesc, { color: colors.mutedForeground }]}>
+            Tu as déjà {shopCount} boutiques sur ton compte — le maximum autorisé est de {MAX_SHOPS}.
+            Supprime ou désactive une boutique existante pour en créer une nouvelle.
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -535,6 +595,11 @@ const styles = StyleSheet.create({
   photoModalBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1 },
   title: { fontSize: 17, fontWeight: '800' },
+  limitBackRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingBottom: 16 },
+  limitCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 14 },
+  limitIcon: { width: 84, height: 84, borderRadius: 42, alignItems: 'center', justifyContent: 'center' },
+  limitTitle: { fontSize: 19, fontWeight: '800', textAlign: 'center' },
+  limitDesc: { fontSize: 14, textAlign: 'center', lineHeight: 21 },
   stepBar: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 14, borderBottomWidth: 1 },
   stepItem: { alignItems: 'center', gap: 4 },
   stepDot: { width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },

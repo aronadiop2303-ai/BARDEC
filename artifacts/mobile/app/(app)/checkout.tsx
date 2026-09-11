@@ -80,7 +80,7 @@ const PAYMENT_METHODS: {
   available: boolean; b2c: boolean; b2b: boolean; logo?: string;
 }[] = [
   // ─ Available now — B2C
-  { id: 'wave',             label: 'Wave',                   sublabel: 'Mobile Money',                icon: 'zap',              color: '#1A56DB', available: true,  b2c: true,  b2b: false },
+  { id: 'wave',             label: 'Wave',                   sublabel: 'Mobile Money',                icon: 'zap',              color: '#00C3E3', available: true,  b2c: true,  b2b: false },
   { id: 'orange_money',     label: 'Orange Money',           sublabel: 'Mobile Money',                icon: 'smartphone',       color: '#FF7900', available: true,  b2c: true,  b2b: false },
   { id: 'mtn_momo',         label: 'MTN MoMo',               sublabel: 'Mobile Money Afrique',        icon: 'phone',            color: '#EAB308', available: true,  b2c: true,  b2b: false },
   { id: 'cash_on_delivery', label: 'Paiement à la livraison',sublabel: 'Cash · Aucune vérification',  icon: 'package',          color: '#22C55E', available: true,  b2c: true,  b2b: true  },
@@ -707,7 +707,6 @@ export default function CheckoutScreen() {
           )}
           <View style={{ flex: 1 }}>
             <Text style={[styles.mmTitle, { color: pm.color }]}>Paiement — {pm.label}</Text>
-            <Text style={[styles.mmSubtitle, { color: colors.mutedForeground }]}>Via PayDunya · Environnement de test (sandbox)</Text>
           </View>
         </LinearGradient>
 
@@ -746,11 +745,15 @@ export default function CheckoutScreen() {
           </View>
         </View>
 
-        {/* Notice */}
-        <View style={[styles.mmWarning, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
-          <Feather name="shield" size={14} color="#D97706" />
-          <Text style={styles.mmWarningText}>
-            Le montant est vérifié côté serveur et le statut "payé" n'est confirmé qu'après validation par PayDunya — jamais depuis cet écran.
+        {/* Réassurance — remplace l'ancien avertissement jaune technique
+            ("le statut n'est confirmé que par PayDunya…") par un message
+            orienté client. Le contenu technique reste vrai (vérification
+            serveur côté webhook PayDunya, voir handleNext plus haut) — juste
+            plus rassurant à lire pour l'acheteur. */}
+        <View style={[styles.mmReassurance, { backgroundColor: pm.color + '12', borderColor: pm.color + '40' }]}>
+          <Feather name="shield" size={16} color={pm.color} />
+          <Text style={[styles.mmReassuranceText, { color: colors.foreground }]}>
+            Paiement 100% sécurisé. Votre commande est immédiatement enregistrée et confirmée dès la validation de votre paiement {pm.label}.
           </Text>
         </View>
       </View>
@@ -1358,7 +1361,15 @@ export default function CheckoutScreen() {
       {/* Bottom action bar */}
       <View style={[styles.actionBar, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: insets.bottom + 12 }]}>
         <TouchableOpacity
-          style={[styles.nextBtn, { backgroundColor: colors.primary, opacity: submitting ? 0.7 : 1 }]}
+          style={[
+            styles.nextBtn,
+            {
+              backgroundColor: step === 3 && isMobileMoney
+                ? PAYMENT_METHODS.find(p => p.id === paymentMethod)?.color ?? colors.primary
+                : colors.primary,
+              opacity: submitting ? 0.7 : 1,
+            },
+          ]}
           onPress={handleNext}
           disabled={submitting}
         >
@@ -1369,7 +1380,7 @@ export default function CheckoutScreen() {
             </>
           ) : step === 3 ? (
             <>
-              <Feather name={isMobileMoney ? 'external-link' : paymentMethod === 'cash_on_delivery' ? 'package' : 'lock'} size={18} color="white" />
+              <Feather name={isMobileMoney ? 'shield' : paymentMethod === 'cash_on_delivery' ? 'package' : 'lock'} size={18} color="white" />
               <Text style={styles.nextBtnText}>{ctaLabel()}</Text>
             </>
           ) : step === 4 ? (
@@ -1510,8 +1521,8 @@ const styles = StyleSheet.create({
   mmProofChangeText: { color: 'white', fontSize: 13, fontWeight: '600' },
   mmProofOk:         { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10, borderWidth: 1 },
   mmProofOkText:     { fontSize: 13, fontWeight: '600' },
-  mmWarning:         { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10, borderRadius: 10, borderWidth: 1 },
-  mmWarningText:     { flex: 1, fontSize: 12, color: '#92400E', lineHeight: 18 },
+  mmReassurance:     { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 12, borderRadius: 10, borderWidth: 1 },
+  mmReassuranceText: { flex: 1, fontSize: 13, fontWeight: '600', lineHeight: 18 },
 
   // Agreement
   agreeRow:          { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
