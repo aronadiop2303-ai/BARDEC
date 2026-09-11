@@ -4,6 +4,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  phone?: string;
   role: UserRole;
   avatar?: string;
   company?: string;
@@ -54,6 +55,11 @@ export interface Order {
   estimatedDelivery?: string;
   paymentMethod?: string;
   companyId?: string;
+  /** Motif de rejet approbateur B2B — réutilise la colonne orders.notes
+      (générique, jamais utilisée ailleurs dans l'app) plutôt que d'en
+      ajouter une nouvelle. */
+  notes?: string;
+  approverId?: string;
 }
 
 export interface CartItem {

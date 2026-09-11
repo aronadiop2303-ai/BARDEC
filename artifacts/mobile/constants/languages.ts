@@ -30,3 +30,35 @@ export const LANGUAGES: Language[] = [
 ];
 
 export const DEFAULT_LANGUAGE = 'fr';
+
+// Langues secondaires — pas encore traduites (constants/translations.ts n'a
+// aucune entrée pour ces codes). Volontairement séparées de LANGUAGES
+// (jamais fusionnées dedans) : LanguageContext.tsx utilise LANGUAGES comme
+// liste canonique des langues valides/sélectionnables (détection auto,
+// validation de la langue sauvegardée) — les y ajouter rendrait ces langues
+// sélectionnables alors qu'aucune traduction n'existe. Affichées sur l'écran
+// de sélection avec le badge "Bientôt disponible", lignes non cliquables.
+export const COMING_SOON_LANGUAGES: Language[] = [
+  // Africaines
+  { code: 'ff', name: 'Fula',       nativeName: 'Pulaar',          flag: '🇸🇳' },
+  { code: 'ln', name: 'Lingala',    nativeName: 'Lingála',         flag: '🇨🇩' },
+  { code: 'bm', name: 'Bambara',    nativeName: 'Bamanankan',      flag: '🇲🇱' },
+  { code: 'so', name: 'Somali',     nativeName: 'Soomaali',        flag: '🇸🇴' },
+  { code: 'om', name: 'Oromo',      nativeName: 'Afaan Oromoo',    flag: '🇪🇹' },
+  { code: 'mg', name: 'Malagasy',   nativeName: 'Malagasy',        flag: '🇲🇬' },
+  { code: 'sn', name: 'Shona',      nativeName: 'chiShona',        flag: '🇿🇼' },
+  { code: 'xh', name: 'Xhosa',      nativeName: 'isiXhosa',        flag: '🇿🇦' },
+  { code: 'rw', name: 'Kinyarwanda',nativeName: 'Ikinyarwanda',    flag: '🇷🇼' },
+  { code: 'ak', name: 'Akan/Twi',   nativeName: 'Akan',            flag: '🇬🇭' },
+  // Internationales
+  { code: 'nl', name: 'Dutch',      nativeName: 'Nederlands',      flag: '🇳🇱' },
+  { code: 'pl', name: 'Polish',     nativeName: 'Polski',          flag: '🇵🇱' },
+  { code: 'vi', name: 'Vietnamese', nativeName: 'Tiếng Việt',      flag: '🇻🇳' },
+  { code: 'th', name: 'Thai',       nativeName: 'ไทย',             flag: '🇹🇭' },
+  { code: 'id', name: 'Indonesian', nativeName: 'Bahasa Indonesia',flag: '🇮🇩' },
+  { code: 'fa', name: 'Persian',    nativeName: 'فارسی',           flag: '🇮🇷', rtl: true },
+  { code: 'ur', name: 'Urdu',       nativeName: 'اردو',            flag: '🇵🇰', rtl: true },
+  { code: 'bn', name: 'Bengali',    nativeName: 'বাংলা',           flag: '🇧🇩' },
+  { code: 'uk', name: 'Ukrainian',  nativeName: 'Українська',      flag: '🇺🇦' },
+  { code: 'el', name: 'Greek',      nativeName: 'Ελληνικά',        flag: '🇬🇷' },
+];

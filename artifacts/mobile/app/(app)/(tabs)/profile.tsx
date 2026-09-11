@@ -23,6 +23,20 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toUserMessage } from '@/lib/errors';
 import { readLocalImageBytes } from '@/lib/imageUpload';
 import { usePendingApprovalsCount } from '@/hooks/usePendingApprovalsCount';
+import { PhoneInput, PhoneInputValue } from '@/components/PhoneInput';
+
+// Masque l'e-mail affiché dans la bannière d'en-tête (Confidentialité) —
+// garde le premier et le dernier caractère de la partie locale, le domaine
+// reste lisible. Ex: "aronadiop2303@gmail.com" → "a***3@gmail.com".
+function maskEmail(email?: string | null): string {
+  if (!email) return '';
+  const at = email.indexOf('@');
+  if (at <= 0) return email;
+  const local = email.slice(0, at);
+  const domain = email.slice(at);
+  if (local.length <= 2) return `${local[0]}***${domain}`;
+  return `${local[0]}***${local[local.length - 1]}${domain}`;
+}
 
 // Role switcher is a UI-only preview (RLS still enforces the real DB role
 // regardless) but shouldn't be visible to real users in production — only
@@ -36,7 +50,7 @@ const TEST_ACCOUNT_EMAILS = [
 export default function ProfileScreen() {
   const colors = useColors();
   const { t, language } = useLanguage();
-  const { user, logout, switchDemoRole, isDemoMode, updateUserAvatar, updateUserName } = useAuth();
+  const { user, logout, switchDemoRole, isDemoMode, updateUserAvatar, updateUserName, updateUserPhone } = useAuth();
   const { currency, setCurrency } = useCurrency();
   const canSwitchRole = isDemoMode || TEST_ACCOUNT_EMAILS.includes(user?.email ?? '');
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -45,8 +59,17 @@ export default function ProfileScreen() {
   const [pendingAvatarUri,     setPendingAvatarUri]     = useState<string | null>(null);
 
   // ── Edit personal info modal ────────────────────────────────────────────────
+  // Chantier Profil & Confidentialité — étend cette modale (avant : nom
+  // seul) avec téléphone (même PhoneInput que checkout/inscription) et
+  // photo de profil (réutilise handleChangeAvatar/pendingAvatarUri déjà
+  // câblés plus bas). L'e-mail reste affiché mais non éditable ici : le
+  // changer correctement nécessite le flux de confirmation Supabase Auth
+  // (supabase.auth.updateUser({email}) + re-confirmation par e-mail), un
+  // chantier séparé — l'éditer directement dans public.users désynchroniserait
+  // l'adresse de connexion réelle (auth.users.email) sans avertissement.
   const [editNameVisible, setEditNameVisible] = useState(false);
   const [editNameValue,   setEditNameValue]   = useState('');
+  const [editPhoneValue,  setEditPhoneValue]  = useState<PhoneInputValue | null>(null);
   const [savingName,      setSavingName]      = useState(false);
 
   // ── Confidentialité: export / suppression de compte ─────────────────────────
@@ -57,18 +80,26 @@ export default function ProfileScreen() {
 
   function handleOpenEditName() {
     setEditNameValue(user?.name ?? '');
+    setEditPhoneValue(null);
     setEditNameVisible(true);
   }
 
-  async function handleSaveName() {
+  async function handleSavePersonalInfo() {
     const name = editNameValue.trim();
     if (!name) { Alert.alert('Erreur', 'Le nom ne peut pas être vide.'); return; }
+    if (editPhoneValue && editPhoneValue.nationalDigits.length > 0 && !editPhoneValue.isValid) {
+      Alert.alert('Téléphone invalide', 'Entre un numéro de téléphone valide pour le pays sélectionné (ou laisse le champ vide).');
+      return;
+    }
     setSavingName(true);
     try {
-      await updateUserName(name);
+      if (name !== user?.name) await updateUserName(name);
+      if (editPhoneValue?.isValid && editPhoneValue.e164 && editPhoneValue.e164 !== user?.phone) {
+        await updateUserPhone(editPhoneValue.e164);
+      }
       setEditNameVisible(false);
     } catch (err: any) {
-      Alert.alert('Erreur', toUserMessage('profile:updateName', err, 'Impossible de mettre à jour le nom. Réessaie dans un instant.'));
+      Alert.alert('Erreur', toUserMessage('profile:updatePersonalInfo', err, 'Impossible de mettre à jour tes informations. Réessaie dans un instant.'));
     } finally {
       setSavingName(false);
     }
@@ -325,7 +356,7 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-      {/* Edit name modal */}
+      {/* Edit personal info modal — nom, e-mail (lecture seule), téléphone, photo */}
       <Modal
         visible={editNameVisible}
         transparent
@@ -337,14 +368,53 @@ export default function ProfileScreen() {
             <Text style={[styles.avatarModalTitle, { color: colors.foreground }]}>
               Informations personnelles
             </Text>
+
+            {/* Photo de profil — réutilise le même flux que le tap sur l'avatar
+                de la bannière (sélection + modale de confirmation dédiée). */}
+            <TouchableOpacity
+              onPress={handleChangeAvatar}
+              style={styles.editAvatarRow}
+              disabled={isUploadingAvatar}
+            >
+              {user?.avatar ? (
+                <Image source={{ uri: user.avatar }} style={styles.editAvatarThumb} resizeMode="cover" />
+              ) : (
+                <View style={[styles.editAvatarThumb, styles.avatarInitials]}>
+                  <Text style={styles.avatarText}>{initials}</Text>
+                </View>
+              )}
+              <Text style={[styles.editAvatarLabel, { color: colors.primary }]}>
+                {isUploadingAvatar ? 'Envoi en cours…' : 'Changer la photo de profil'}
+              </Text>
+            </TouchableOpacity>
+
+            <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Nom complet</Text>
             <TextInput
               value={editNameValue}
               onChangeText={setEditNameValue}
               placeholder="Nom complet"
               placeholderTextColor={colors.mutedForeground}
-              style={[styles.editNameInput, { borderColor: colors.border, color: colors.foreground }]}
+              style={[styles.editNameInput, { borderColor: colors.border, color: colors.foreground, marginTop: 0 }]}
               autoFocus
             />
+
+            <Text style={[styles.fieldLabel, { color: colors.foreground }]}>E-mail</Text>
+            <View style={[styles.editNameInput, styles.readonlyField, { borderColor: colors.border, marginTop: 0 }]}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 15 }} numberOfLines={1}>{user?.email}</Text>
+            </View>
+            <Text style={[styles.fieldHint, { color: colors.mutedForeground }]}>
+              Contacte le support pour changer d'adresse e-mail (identifiant de connexion).
+            </Text>
+
+            <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Téléphone</Text>
+            <PhoneInput
+              defaultCountry="SN"
+              initialE164={user?.phone?.startsWith('+') ? user.phone : null}
+              onChangeValue={setEditPhoneValue}
+              colors={colors}
+              placeholder="77 123 45 67"
+            />
+
             <View style={styles.avatarModalActions}>
               <TouchableOpacity
                 style={[styles.avatarModalBtn, styles.avatarModalBtnCancel, { borderColor: colors.border }]}
@@ -355,7 +425,7 @@ export default function ProfileScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.avatarModalBtn, styles.avatarModalBtnConfirm, { backgroundColor: colors.primary }]}
-                onPress={handleSaveName}
+                onPress={handleSavePersonalInfo}
                 disabled={savingName}
               >
                 {savingName
@@ -439,7 +509,7 @@ export default function ProfileScreen() {
           </View>
         </TouchableOpacity>
         <Text style={styles.userName}>{user?.name ?? 'Utilisateur'}</Text>
-        <Text style={styles.userEmail}>{user?.email}</Text>
+        <Text style={styles.userEmail}>{maskEmail(user?.email)}</Text>
         {user?.role && <RoleBadge role={user.role} />}
       </View>
 
@@ -819,6 +889,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginTop: 12,
   },
+  readonlyField: { justifyContent: 'center' },
+  fieldLabel: { fontSize: 12, fontWeight: '700', marginTop: 14, alignSelf: 'flex-start' },
+  fieldHint: { fontSize: 11, marginTop: 4, alignSelf: 'flex-start' },
+  editAvatarRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    alignSelf: 'stretch', marginTop: 4,
+  },
+  editAvatarThumb: { width: 48, height: 48, borderRadius: 24 },
+  editAvatarLabel: { fontSize: 14, fontWeight: '700' },
   avatarModalPreview: {
     width: 180,
     height: 180,

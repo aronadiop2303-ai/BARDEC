@@ -709,6 +709,64 @@ function AdminScreenInner() {
     );
   }
 
+  // ── Tarification logistique dynamique — delivery_rates_admin_manage RLS
+  // policy already gives ADMIN a full ALL policy, no backend change needed.
+  // 6 lignes fixes (une par mode/vitesse de livraison — le code doit
+  // matcher exactement ce que checkout.tsx sait afficher), pas de
+  // création/suppression ici : seule l'édition cost/days a du sens.
+  interface DeliveryRateAdminRow {
+    id: string; code: string; delivery_type: string; label: string;
+    cost: number; days: string; active: boolean;
+  }
+  const [deliveryRatesAdmin,   setDeliveryRatesAdmin]   = useState<DeliveryRateAdminRow[]>([]);
+  const [loadingDeliveryRates, setLoadingDeliveryRates] = useState(isSupabaseConfigured);
+  const [rateDrafts,  setRateDrafts]  = useState<Record<string, { cost: string; days: string }>>({});
+  const [savingRateId, setSavingRateId] = useState<string | null>(null);
+
+  const fetchDeliveryRatesAdmin = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingDeliveryRates(false); return; }
+    setLoadingDeliveryRates(true);
+    const { data, error } = await supabase.from('delivery_rates').select('*').order('delivery_type', { ascending: true });
+    if (error) { console.warn('Admin delivery rates fetch error:', error.message); setLoadingDeliveryRates(false); return; }
+    setDeliveryRatesAdmin((data ?? []) as DeliveryRateAdminRow[]);
+    setLoadingDeliveryRates(false);
+  }, []);
+  useEffect(() => { fetchDeliveryRatesAdmin(); }, [fetchDeliveryRatesAdmin]);
+  useFocusEffect(useCallback(() => { fetchDeliveryRatesAdmin(); }, [fetchDeliveryRatesAdmin]));
+
+  function draftFor(rate: DeliveryRateAdminRow) {
+    return rateDrafts[rate.id] ?? { cost: String(rate.cost), days: rate.days };
+  }
+
+  async function handleSaveRate(rate: DeliveryRateAdminRow) {
+    if (!supabase) return;
+    const draft = draftFor(rate);
+    const cost = Number(draft.cost.replace(',', '.'));
+    if (!Number.isFinite(cost) || cost < 0) {
+      Alert.alert('Valeur invalide', 'Le tarif doit être un nombre positif ou nul.'); return;
+    }
+    if (!draft.days.trim()) {
+      Alert.alert('Champ requis', 'Le délai estimé ne peut pas être vide.'); return;
+    }
+    setSavingRateId(rate.id);
+    const { error } = await supabase.from('delivery_rates')
+      .update({ cost, days: draft.days.trim(), updated_at: new Date().toISOString() })
+      .eq('id', rate.id);
+    setSavingRateId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:saveDeliveryRate', error, 'Impossible d\'enregistrer ce tarif. Réessaie dans un instant.')); return; }
+    setDeliveryRatesAdmin(prev => prev.map(r => r.id === rate.id ? { ...r, cost, days: draft.days.trim() } : r));
+    setRateDrafts(prev => { const next = { ...prev }; delete next[rate.id]; return next; });
+  }
+
+  async function handleToggleRateActive(rate: DeliveryRateAdminRow) {
+    if (!supabase) return;
+    setSavingRateId(rate.id);
+    const { error } = await supabase.from('delivery_rates').update({ active: !rate.active }).eq('id', rate.id);
+    setSavingRateId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:toggleDeliveryRate', error, 'Impossible de modifier ce tarif. Réessaie dans un instant.')); return; }
+    setDeliveryRatesAdmin(prev => prev.map(r => r.id === rate.id ? { ...r, active: !rate.active } : r));
+  }
+
   // ── Delivery partners (livreurs) — this chantier only builds the
   // 'internal' flow (delivery_partners_admin_manage RLS policy already
   // gives ADMIN a full ALL policy, no backend change needed); external_api
@@ -2285,7 +2343,80 @@ function AdminScreenInner() {
       {/* LOGISTICS — relay_points / drone_zones (localisation de livraison) */}
       {activeTab === 'logistics' && (
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Points relais</Text>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Tarifs de livraison</Text>
+          <Text style={{ color: colors.mutedForeground, fontSize: 13, marginBottom: 8 }}>
+            Prix et délai affichés au checkout pour chaque mode/vitesse. Désactiver un tarif le masque du checkout
+            (le mode de livraison correspondant devient alors indisponible pour le client).
+          </Text>
+
+          {loadingDeliveryRates && <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 12 }} />}
+
+          {deliveryRatesAdmin.map(rate => {
+            const draft = draftFor(rate);
+            const dirty = draft.cost !== String(rate.cost) || draft.days !== rate.days;
+            const icon = rate.delivery_type === 'drone' ? 'wind'
+              : rate.delivery_type === 'relay_point' ? 'map-pin'
+              : rate.delivery_type === 'store_pickup' ? 'shopping-bag'
+              : 'home';
+            return (
+              <View key={rate.id} style={[styles.keyCard, { backgroundColor: colors.card, borderColor: rate.active ? colors.border : '#FEE2E2', opacity: rate.active ? 1 : 0.75 }]}>
+                <View style={styles.keyCardHeader}>
+                  <View style={[styles.keyIconBox, { backgroundColor: rate.active ? colors.primary + '18' : '#FEE2E2' }]}>
+                    <Feather name={icon as any} size={16} color={rate.active ? colors.primary : '#DC2626'} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.keyName, { color: colors.foreground }]}>{rate.label}</Text>
+                    <Text style={[styles.keyPreview, { color: colors.mutedForeground, fontFamily: undefined }]} numberOfLines={1}>
+                      {rate.code}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={rate.active}
+                    onValueChange={() => handleToggleRateActive(rate)}
+                    disabled={savingRateId === rate.id}
+                    trackColor={{ false: colors.muted, true: '#22C55E' }}
+                    thumbColor="white"
+                  />
+                </View>
+
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.formLabel, { color: colors.foreground, marginBottom: 4 }]}>Tarif (FCFA)</Text>
+                    <TextInput
+                      style={[styles.formInput, { marginBottom: 0, backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                      keyboardType="numeric"
+                      value={draft.cost}
+                      onChangeText={v => setRateDrafts(prev => ({ ...prev, [rate.id]: { cost: v, days: draftFor(rate).days } }))}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.formLabel, { color: colors.foreground, marginBottom: 4 }]}>Délai estimé</Text>
+                    <TextInput
+                      style={[styles.formInput, { marginBottom: 0, backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                      value={draft.days}
+                      onChangeText={v => setRateDrafts(prev => ({ ...prev, [rate.id]: { cost: draftFor(rate).cost, days: v } }))}
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.formConfirmBtn, { backgroundColor: colors.primary, opacity: dirty && savingRateId !== rate.id ? 1 : 0.5 }]}
+                    onPress={() => handleSaveRate(rate)}
+                    disabled={!dirty || savingRateId === rate.id}
+                  >
+                    {savingRateId === rate.id
+                      ? <ActivityIndicator size="small" color="white" />
+                      : <Feather name="check" size={16} color="white" />}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })}
+          {!loadingDeliveryRates && deliveryRatesAdmin.length === 0 && (
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: 'center', paddingVertical: 12 }}>
+              Aucun tarif de livraison configuré.
+            </Text>
+          )}
+
+          <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 28 }]}>Points relais</Text>
           <Text style={{ color: colors.mutedForeground, fontSize: 13, marginBottom: 8 }}>
             Visibles au checkout uniquement quand actifs.
           </Text>

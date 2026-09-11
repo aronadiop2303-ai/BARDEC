@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
-import { LANGUAGES } from '@/constants/languages';
+import { LANGUAGES, COMING_SOON_LANGUAGES } from '@/constants/languages';
 
 const LANGUAGE_GROUPS = [
   {
@@ -27,11 +27,13 @@ export default function LanguageScreen() {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(currentLang);
 
-  const filteredLanguages = LANGUAGES.filter(l =>
+  const matchesSearch = (l: { name: string; nativeName: string; code: string }) =>
     !search || l.name.toLowerCase().includes(search.toLowerCase()) ||
     l.nativeName.toLowerCase().includes(search.toLowerCase()) ||
-    l.code.toLowerCase().includes(search.toLowerCase())
-  );
+    l.code.toLowerCase().includes(search.toLowerCase());
+
+  const filteredLanguages = LANGUAGES.filter(matchesSearch);
+  const filteredComingSoon = COMING_SOON_LANGUAGES.filter(matchesSearch);
 
   function handleApply() {
     setLanguage(selected);
@@ -94,37 +96,53 @@ export default function LanguageScreen() {
         {search ? (
           <View style={styles.group}>
             <Text style={[styles.groupTitle, { color: colors.mutedForeground }]}>
-              {filteredLanguages.length} résultat{filteredLanguages.length !== 1 ? 's' : ''}
+              {filteredLanguages.length + filteredComingSoon.length} résultat{filteredLanguages.length + filteredComingSoon.length !== 1 ? 's' : ''}
             </Text>
             {filteredLanguages.map(lang => (
               <LanguageRow key={lang.code} lang={lang} selected={selected} onSelect={setSelected} colors={colors} />
             ))}
+            {filteredComingSoon.map(lang => (
+              <LanguageRow key={lang.code} lang={lang} selected={selected} onSelect={setSelected} colors={colors} comingSoon />
+            ))}
           </View>
         ) : (
-          LANGUAGE_GROUPS.map(group => {
-            const groupLangs = group.languages.map(code => LANGUAGES.find(l => l.code === code)).filter(Boolean) as typeof LANGUAGES;
-            return (
-              <View key={group.title} style={styles.group}>
-                <Text style={[styles.groupTitle, { color: colors.mutedForeground }]}>{group.title}</Text>
-                {groupLangs.map(lang => (
-                  <LanguageRow key={lang.code} lang={lang} selected={selected} onSelect={setSelected} colors={colors} />
-                ))}
-              </View>
-            );
-          })
+          <>
+            {LANGUAGE_GROUPS.map(group => {
+              const groupLangs = group.languages.map(code => LANGUAGES.find(l => l.code === code)).filter(Boolean) as typeof LANGUAGES;
+              return (
+                <View key={group.title} style={styles.group}>
+                  <Text style={[styles.groupTitle, { color: colors.mutedForeground }]}>{group.title}</Text>
+                  {groupLangs.map(lang => (
+                    <LanguageRow key={lang.code} lang={lang} selected={selected} onSelect={setSelected} colors={colors} />
+                  ))}
+                </View>
+              );
+            })}
+
+            {/* Langues secondaires — pas encore traduites, lignes non cliquables
+                avec le badge "Bientôt disponible" (même style que la Connexion
+                Biométrique sur l'écran Profil). */}
+            <View style={styles.group}>
+              <Text style={[styles.groupTitle, { color: colors.mutedForeground }]}>🔜 Bientôt disponibles</Text>
+              {COMING_SOON_LANGUAGES.map(lang => (
+                <LanguageRow key={lang.code} lang={lang} selected={selected} onSelect={setSelected} colors={colors} comingSoon />
+              ))}
+            </View>
+          </>
         )}
       </ScrollView>
     </View>
   );
 }
 
-function LanguageRow({ lang, selected, onSelect, colors }: {
+function LanguageRow({ lang, selected, onSelect, colors, comingSoon }: {
   lang: typeof LANGUAGES[0];
   selected: string;
   onSelect: (code: string) => void;
   colors: any;
+  comingSoon?: boolean;
 }) {
-  const isSelected = selected === lang.code;
+  const isSelected = !comingSoon && selected === lang.code;
   return (
     <TouchableOpacity
       style={[
@@ -132,9 +150,11 @@ function LanguageRow({ lang, selected, onSelect, colors }: {
         {
           backgroundColor: isSelected ? colors.accent : colors.card,
           borderColor: isSelected ? colors.primary : colors.border,
+          opacity: comingSoon ? 0.6 : 1,
         },
       ]}
       onPress={() => onSelect(lang.code)}
+      disabled={comingSoon}
     >
       <Text style={styles.langFlag}>{lang.flag}</Text>
       <View style={styles.langNames}>
@@ -146,7 +166,11 @@ function LanguageRow({ lang, selected, onSelect, colors }: {
           <Text style={[styles.rtlBadgeText, { color: colors.primary }]}>RTL</Text>
         </View>
       )}
-      {isSelected ? (
+      {comingSoon ? (
+        <View style={[styles.soonBadge, { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' }]}>
+          <Text style={styles.soonBadgeText}>Bientôt disponible</Text>
+        </View>
+      ) : isSelected ? (
         <View style={[styles.checkCircle, { backgroundColor: colors.primary }]}>
           <Feather name="check" size={14} color="white" />
         </View>
@@ -202,6 +226,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6,
   },
   rtlBadgeText: { fontSize: 10, fontWeight: '700' },
+  // Même style que le badge "Bientôt disponible" de la Connexion Biométrique
+  // (app/(app)/(tabs)/profile.tsx) — badge beige/jaune, texte ambre.
+  soonBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1 },
+  soonBadgeText: { fontSize: 10, fontWeight: '700', color: '#D97706' },
   checkCircle: {
     width: 26, height: 26, borderRadius: 13,
     justifyContent: 'center', alignItems: 'center',

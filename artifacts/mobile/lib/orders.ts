@@ -27,5 +27,7 @@ export function mapDbOrder(row: any): Order {
     estimatedDelivery:   row.estimated_delivery ?? undefined,
     paymentMethod:       row.payment_method ?? undefined,
     companyId:           row.company_id ?? undefined,
+    notes:               row.notes ?? undefined,
+    approverId:          row.approver_id ?? undefined,
   };
 }

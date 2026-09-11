@@ -52,16 +52,6 @@ export default function OrdersScreen() {
   const [refreshing,   setRefreshing]   = useState(false);
   const [orders,       setOrders]       = useState<Order[]>([]);
   const [loading,      setLoading]      = useState(true);
-  const [approving,    setApproving]    = useState<string | null>(null);
-
-  const isApprover = user?.role === 'APPROVER';
-  // Credit Net30 : dépassement volontairement non bloquant (décision produit
-  // validée) — juste signalé ici pour que l'approbateur voie le contexte
-  // avant de décider. user.creditLimit/creditBalance viennent de la société
-  // de CET approbateur (AuthContext), donc valables seulement pour ses
-  // propres commandes en attente — cohérent avec orders_approver (RLS
-  // scopée par company_id de l'utilisateur connecté).
-  const companyOverLimit = (user?.creditBalance ?? 0) > (user?.creditLimit ?? 0);
 
   // ── Review modal state ──────────────────────────────────────────────────────
   const [reviewOrder,      setReviewOrder]      = useState<Order | null>(null);
@@ -70,6 +60,10 @@ export default function OrdersScreen() {
   const [submittingReview, setSubmittingReview] = useState(false);
 
   // ── Fetch orders from Supabase ──────────────────────────────────────────────
+  // APPROVER's own company-wide pending_approval queue now lives in its own
+  // dedicated tab (app/(app)/(tabs)/approvals.tsx) — this screen is purely
+  // "my own orders" for everyone, approver included (an approver can still
+  // have placed their own personal orders as a buyer).
   const fetchOrders = useCallback(async () => {
     if (!user) { setLoading(false); return; }
 
@@ -80,24 +74,11 @@ export default function OrdersScreen() {
       const realId = authUser?.id;
       if (!realId) { setLoading(false); return; }
 
-      const isApprover = user?.role === 'APPROVER';
-
-      // APPROVERs need to see pending_approval orders from their company, not
-      // just their own orders. The RLS "orders_approver" policy (once applied)
-      // limits what they can see server-side; we just lift the customer_id filter.
-      const query = isApprover
-        ? supabase
-            .from('orders')
-            .select('*')
-            .in('status', ['pending_approval', 'pending'])
-            .order('created_at', { ascending: false })
-        : supabase
-            .from('orders')
-            .select('*')
-            .eq('customer_id', realId)
-            .order('created_at', { ascending: false });
-
-      const { data, error } = await query;
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('customer_id', realId)
+        .order('created_at', { ascending: false });
 
       if (error) {
         // Was falling back to MOCK_ORDERS here — a real backend error (e.g.
@@ -134,44 +115,6 @@ export default function OrdersScreen() {
     await fetchOrders();
     setRefreshing(false);
   }, [fetchOrders]);
-
-  // ── Approver: approve / reject a pending_approval order ─────────────────────
-  // This was the missing piece that made the APPROVER role purely visual —
-  // orders_approver RLS already allows the UPDATE, but no UI ever called it.
-  const handleApproverAction = useCallback(async (order: Order, approve: boolean) => {
-    Alert.alert(
-      approve ? 'Approuver la commande' : 'Rejeter la commande',
-      `${approve ? 'Approuver' : 'Rejeter'} la commande ${order.orderNumber} ?`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: approve ? 'Approuver' : 'Rejeter',
-          style: approve ? 'default' : 'destructive',
-          onPress: async () => {
-            setApproving(order.id);
-            const nextStatus = approve ? 'approved' : 'cancelled';
-            if (isSupabaseConfigured && supabase) {
-              const { data: updated, error } = await supabase
-                .from('orders')
-                .update({ status: nextStatus })
-                .eq('id', order.id)
-                .select('id');
-              setApproving(null);
-              if (error) { Alert.alert('Erreur', toUserMessage('orders:approverAction', error, 'Impossible de traiter cette commande. Réessaie dans un instant.')); return; }
-              if (!updated || updated.length === 0) {
-                Alert.alert('Permission refusée', "Tu n'as pas les droits pour approuver cette commande.");
-                return;
-              }
-              notifyOrderEvent(supabase, order.id, nextStatus);
-            } else {
-              setApproving(null);
-            }
-            setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: nextStatus } : o));
-          },
-        },
-      ],
-    );
-  }, []);
 
   // ── Confirm receipt ──────────────────────────────────────────────────────────
   const handleConfirmReceipt = useCallback((order: Order) => {
@@ -313,14 +256,6 @@ export default function OrdersScreen() {
           filtered.map(order => (
             <View key={order.id}>
               <OrderCard order={order} />
-              {isApprover && order.status === 'pending_approval' && order.paymentMethod === 'net30' && companyOverLimit && (
-                <View style={styles.creditWarning}>
-                  <Feather name="alert-triangle" size={14} color="#DC2626" />
-                  <Text style={styles.creditWarningText}>
-                    Solde Net30 de la société au-delà de la limite de crédit accordée.
-                  </Text>
-                </View>
-              )}
               {/* Confirm receipt CTA — only on "shipped" orders */}
               {order.status === 'shipped' && (
                 <TouchableOpacity
@@ -331,27 +266,13 @@ export default function OrdersScreen() {
                   <Text style={styles.confirmBtnText}>Confirmer la réception</Text>
                 </TouchableOpacity>
               )}
-              {/* Approve / reject CTA — approver only, pending_approval only */}
-              {isApprover && order.status === 'pending_approval' && (
-                <View style={styles.approveRow}>
-                  <TouchableOpacity
-                    style={[styles.approveBtn, styles.rejectBtn]}
-                    onPress={() => handleApproverAction(order, false)}
-                    disabled={approving === order.id}
-                  >
-                    {approving === order.id
-                      ? <ActivityIndicator size="small" color="#EF4444" />
-                      : <><Feather name="x-circle" size={16} color="#EF4444" /><Text style={[styles.approveBtnText, { color: '#EF4444' }]}>Rejeter</Text></>}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.approveBtn, styles.approveBtnGreen]}
-                    onPress={() => handleApproverAction(order, true)}
-                    disabled={approving === order.id}
-                  >
-                    {approving === order.id
-                      ? <ActivityIndicator size="small" color="white" />
-                      : <><Feather name="check-circle" size={16} color="white" /><Text style={styles.approveBtnText}>Approuver</Text></>}
-                  </TouchableOpacity>
+              {/* Motif de rejet — visible par le client/société une fois la commande rejetée
+                  par l'approbateur (traité désormais dans le tableau de bord Approbateur
+                  dédié, app/(app)/(tabs)/approvals.tsx) */}
+              {order.status === 'cancelled' && order.notes && (
+                <View style={styles.rejectReasonBox}>
+                  <Feather name="alert-circle" size={14} color="#DC2626" />
+                  <Text style={styles.rejectReasonText}>Motif du rejet : {order.notes}</Text>
                 </View>
               )}
             </View>
@@ -449,23 +370,12 @@ const styles = StyleSheet.create({
     marginTop: -4, marginBottom: 4, backgroundColor: '#22C55E',
   },
   confirmBtnText: { color: 'white', fontSize: 14, fontWeight: '700' },
-  creditWarning: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+  rejectReasonBox: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 6,
+    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8,
     marginTop: -4, marginBottom: 4, backgroundColor: '#FEE2E2',
   },
-  creditWarningText: { color: '#991B1B', fontSize: 12, fontWeight: '600', flex: 1 },
-  approveRow: {
-    flexDirection: 'row', gap: 8,
-    marginTop: -4, marginBottom: 4,
-  },
-  approveBtn: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, paddingVertical: 10, borderRadius: 10,
-  },
-  rejectBtn: { borderWidth: 1.5, borderColor: '#EF4444' },
-  approveBtnGreen: { backgroundColor: '#22C55E' },
-  approveBtnText: { color: 'white', fontSize: 14, fontWeight: '700' },
+  rejectReasonText: { color: '#991B1B', fontSize: 12, fontWeight: '600', flex: 1 },
   // Review modal
   reviewOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   reviewCard:    {

@@ -25,15 +25,18 @@ export default function TabLayout() {
   const isIOS   = Platform.OS === 'ios';
   const isWeb   = Platform.OS === 'web';
   const isAndroid = Platform.OS === 'android';
-  const isVendor = user?.role === 'VENDOR';
-  const isAdmin  = user?.role === 'ADMIN';
+  const isVendor   = user?.role === 'VENDOR';
+  const isAdmin    = user?.role === 'ADMIN';
+  const isApprover = user?.role === 'APPROVER';
 
   // Nearby badge — unseen active (pending | confirmed) proximity orders for customers.
   // Clears when the customer visits the Nearby tab (markSeen is called there via useFocusEffect).
   const { count: nearbyBadgeCount } = useNearbyBadge();
-  // Count of active BARDEC orders (pending / pending_approval / shipped / out_for_delivery).
+  // Count of active BARDEC orders (pending / pending_approval / shipped / out_for_delivery)
+  // for the customer "Commandes" tab, or pending_approval queue size for the
+  // approver's dedicated "Tableau de bord Approbateur" tab badge below.
   // Only runs when Supabase is configured; returns 0 in demo mode.
-  const activeOrdersCount = useActiveOrdersCount(user?.role === 'APPROVER');
+  const activeOrdersCount = useActiveOrdersCount(isApprover);
   const vendorPendingCount = useVendorPendingOrdersCount(isVendor);
 
   // Properly account for the gesture-navigation bar on Android and home-indicator on iOS.
@@ -70,7 +73,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: t('home'),
-          href: !isVendor && !isAdmin ? undefined : null,
+          href: !isVendor && !isAdmin && !isApprover ? undefined : null,
           tabBarIcon: ({ color }) => <Feather name="home" size={22} color={color} />,
         }}
       />
@@ -78,7 +81,7 @@ export default function TabLayout() {
         name="search"
         options={{
           title: t('search'),
-          href: !isVendor && !isAdmin ? undefined : null,
+          href: !isVendor && !isAdmin && !isApprover ? undefined : null,
           tabBarIcon: ({ color }) => <Feather name="search" size={22} color={color} />,
         }}
       />
@@ -86,7 +89,7 @@ export default function TabLayout() {
         name="cart"
         options={{
           title: t('cart'),
-          href: !isVendor && !isAdmin ? undefined : null,
+          href: !isVendor && !isAdmin && !isApprover ? undefined : null,
           tabBarBadge: totalItems > 0 ? totalItems : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.primary, fontSize: 10 },
           tabBarIcon: ({ color }) => <Feather name="shopping-cart" size={22} color={color} />,
@@ -96,10 +99,22 @@ export default function TabLayout() {
         name="orders"
         options={{
           title: t('orders'),
-          href: !isVendor && !isAdmin ? undefined : null,
+          href: !isVendor && !isAdmin && !isApprover ? undefined : null,
           tabBarBadge: activeOrdersCount > 0 ? activeOrdersCount : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.primary, fontSize: 10 },
           tabBarIcon: ({ color }) => <Feather name="list" size={22} color={color} />,
+        }}
+      />
+
+      {/* APPROVER tab */}
+      <Tabs.Screen
+        name="approvals"
+        options={{
+          title: 'Approbations',
+          href: isApprover ? undefined : null,
+          tabBarBadge: activeOrdersCount > 0 ? activeOrdersCount : undefined,
+          tabBarBadgeStyle: { backgroundColor: colors.primary, fontSize: 10 },
+          tabBarIcon: ({ color }) => <Feather name="check-circle" size={22} color={color} />,
         }}
       />
 

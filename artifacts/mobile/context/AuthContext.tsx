@@ -24,6 +24,7 @@ interface AuthContextType {
   switchDemoRole: (role: UserRole) => void;
   updateUserAvatar: (url: string) => Promise<void>;
   updateUserName: (name: string) => Promise<void>;
+  updateUserPhone: (phone: string) => Promise<void>;
   isDemoMode: boolean;
 }
 
@@ -37,6 +38,7 @@ const AuthContext = createContext<AuthContextType>({
   switchDemoRole: () => {},
   updateUserAvatar: async () => {},
   updateUserName: async () => {},
+  updateUserPhone: async () => {},
   isDemoMode: true,
 });
 
@@ -119,6 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       id:            data.id,
       name:          data.display_name ?? data.email,
       email:         data.email,
+      phone:         data.phone ?? undefined,
       role:          data.role as UserRole,
       company:       data.company_id ?? undefined,
       avatar:        data.avatar_url ?? undefined,
@@ -204,6 +207,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else if (supabase) {
       const { data: { user: authUser } } = await supabase.auth.getUser();
       if (authUser?.id) await supabase.from('users').update({ display_name: name }).eq('id', authUser.id);
+    }
+  }
+
+  async function updateUserPhone(phone: string): Promise<void> {
+    if (!user) return;
+    const updated: User = { ...user, phone };
+    setUser(updated);
+    if (isDemoMode) {
+      await AsyncStorage.setItem('bardec_demo_user', JSON.stringify(updated));
+    } else if (supabase) {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser?.id) await supabase.from('users').update({ phone }).eq('id', authUser.id);
     }
   }
 
@@ -386,7 +401,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, isLoading, isAuthenticated: !!user,
-      login, register, logout, switchDemoRole, updateUserAvatar, updateUserName, isDemoMode,
+      login, register, logout, switchDemoRole, updateUserAvatar, updateUserName, updateUserPhone, isDemoMode,
     }}>
       {children}
     </AuthContext.Provider>

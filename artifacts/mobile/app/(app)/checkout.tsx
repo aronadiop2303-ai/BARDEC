@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View,
@@ -17,6 +17,7 @@ import { useCart } from '@/context/CartContext';
 import { useCurrency } from '@/context/CurrencyContext';
 import { useRelayPoints } from '@/hooks/useRelayPoints';
 import { usePickupStores } from '@/hooks/usePickupStores';
+import { useDeliveryRates, DeliveryRateCode } from '@/hooks/useDeliveryRates';
 import { useCustomerAddresses, useCreateCustomerAddress } from '@/hooks/useCustomerAddresses';
 import { MOBILE_MONEY_LOGOS } from '@/components/PaymentLogos';
 import { citiesForCountryText } from '@/constants/cities';
@@ -55,17 +56,22 @@ function checkDroneEligibility(city: string): boolean {
   );
 }
 
-const HOME_OPTIONS: { id: HomeMethod; label: string; cost: number; days: string; desc: string }[] = [
-  { id: 'standard',  label: 'Standard', cost: 0,  days: '5–7 jours',       desc: 'Livraison gratuite à domicile' },
-  { id: 'express',   label: 'Express',  cost: 15, days: '2–3 jours',       desc: 'Rapide et fiable' },
-  { id: 'overnight', label: 'Nuit',     cost: 29, days: '1 jour ouvrable', desc: 'Livraison le lendemain avant 10h' },
+// Chantier Tarification Logistique Dynamique — label/desc/icône/couleur
+// restent de la copie UI statique ; cost/days viennent maintenant de la
+// table delivery_rates (admin-managed, onglet Logistique) via
+// useDeliveryRates(), fusionnés plus bas dans le composant. Ces "*_META"
+// ne contiennent donc plus aucun tarif en dur.
+const HOME_OPTIONS_META: { id: HomeMethod; label: string; desc: string }[] = [
+  { id: 'standard',  label: 'Standard', desc: 'Livraison gratuite à domicile' },
+  { id: 'express',   label: 'Express',  desc: 'Rapide et fiable' },
+  { id: 'overnight', label: 'Nuit',     desc: 'Livraison le lendemain avant 10h' },
 ];
 
-const DELIVERY_MODES: { type: DeliveryType; icon: string; label: string; sublabel: string; color: string; baseCost: number }[] = [
-  { type: 'home',         icon: 'home',         label: 'Livraison à domicile', sublabel: 'Standard · Express · Nuit',   color: '#1A56DB', baseCost: 0  },
-  { type: 'drone',        icon: 'wind',         label: 'Livraison par drone',  sublabel: 'Zones éligibles uniquement',  color: '#7C3AED', baseCost: 12 },
-  { type: 'relay_point',  icon: 'map-pin',      label: 'Point relais',         sublabel: 'Retrait proche de chez vous', color: '#0EA5E9', baseCost: 0  },
-  { type: 'store_pickup', icon: 'shopping-bag', label: 'Retrait en magasin',   sublabel: 'Gratuit · Chez le vendeur',   color: '#22C55E', baseCost: 0  },
+const DELIVERY_MODES_META: { type: DeliveryType; icon: string; label: string; sublabel: string; color: string }[] = [
+  { type: 'home',         icon: 'home',         label: 'Livraison à domicile', sublabel: 'Standard · Express · Nuit',   color: '#1A56DB' },
+  { type: 'drone',        icon: 'wind',         label: 'Livraison par drone',  sublabel: 'Zones éligibles uniquement',  color: '#7C3AED' },
+  { type: 'relay_point',  icon: 'map-pin',      label: 'Point relais',         sublabel: 'Retrait proche de chez vous', color: '#0EA5E9' },
+  { type: 'store_pickup', icon: 'shopping-bag', label: 'Retrait en magasin',   sublabel: 'Gratuit · Chez le vendeur',   color: '#22C55E' },
 ];
 
 // ── Payment methods ───────────────────────────────────────────────────────────
@@ -102,6 +108,26 @@ export default function CheckoutScreen() {
   const insets = useSafeAreaInsets();
   const { data: relayPoints = [], isLoading: loadingRelayPoints } = useRelayPoints();
   const { data: pickupStores = [], isLoading: loadingPickupStores } = usePickupStores();
+  const { data: deliveryRates = [] } = useDeliveryRates();
+
+  // Fusion copie UI statique + tarifs/délais dynamiques (delivery_rates).
+  const HOME_OPTIONS = useMemo(
+    () => HOME_OPTIONS_META.map(meta => {
+      const rate = deliveryRates.find(r => r.code === meta.id);
+      return { ...meta, cost: rate?.cost ?? 0, days: rate?.days ?? '' };
+    }),
+    [deliveryRates]
+  );
+  const DELIVERY_MODES = useMemo(
+    () => DELIVERY_MODES_META.map(meta => {
+      // "home" n'a pas de tarif propre — son coût dépend de la vitesse
+      // choisie (HOME_OPTIONS ci-dessus) ; la carte du mode affiche donc
+      // toujours "Gratuit" pour lui, cohérent avec le comportement d'avant.
+      const rate = meta.type === 'home' ? undefined : deliveryRates.find(r => r.code === (meta.type as DeliveryRateCode));
+      return { ...meta, baseCost: rate?.cost ?? 0 };
+    }),
+    [deliveryRates]
+  );
   const { data: savedAddresses = [] } = useCustomerAddresses();
   const createAddress = useCreateCustomerAddress();
 
@@ -125,6 +151,21 @@ export default function CheckoutScreen() {
     type: 'home', homeMethod: 'standard', cost: 0, days: '5–7 jours',
     relayPoint: null, storePickup: null, droneEligible: false,
   });
+  // Le state initial ci-dessus est un repli synchrone (avant que
+  // useDeliveryRates() ait fini de charger). Dès que les tarifs arrivent,
+  // resynchronise cost/days si l'utilisateur n'a pas encore quitté la
+  // sélection par défaut (home/standard) — sinon un client qui valide sans
+  // jamais ouvrir l'étape Livraison paierait un tarif "standard" obsolète
+  // si un admin l'a changé depuis le repli codé en dur.
+  useEffect(() => {
+    if (delivery.type === 'home' && delivery.homeMethod === 'standard') {
+      const opt = HOME_OPTIONS.find(o => o.id === 'standard');
+      if (opt && (opt.cost !== delivery.cost || opt.days !== delivery.days)) {
+        setDelivery(d => ({ ...d, cost: opt.cost, days: opt.days }));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [HOME_OPTIONS]);
   const [selectedSavedAddressId, setSelectedSavedAddressId] = useState<string | null>(null);
   const [saveNewAddress, setSaveNewAddress] = useState(false);
   const [locatingGps, setLocatingGps] = useState(false);
@@ -221,14 +262,17 @@ export default function CheckoutScreen() {
         );
         return;
       }
-      setDelivery(d => ({ ...d, type: 'drone', cost: 12, days: '2–4 heures', droneEligible: true }));
+      const droneRate = deliveryRates.find(r => r.code === 'drone');
+      setDelivery(d => ({ ...d, type: 'drone', cost: droneRate?.cost ?? 0, days: droneRate?.days ?? '', droneEligible: true }));
     } else if (type === 'home') {
       const opt = HOME_OPTIONS.find(o => o.id === delivery.homeMethod)!;
       setDelivery(d => ({ ...d, type: 'home', cost: opt.cost, days: opt.days }));
     } else if (type === 'relay_point') {
-      setDelivery(d => ({ ...d, type: 'relay_point', cost: 0, days: '3–5 jours' }));
+      const relayRate = deliveryRates.find(r => r.code === 'relay_point');
+      setDelivery(d => ({ ...d, type: 'relay_point', cost: relayRate?.cost ?? 0, days: relayRate?.days ?? '' }));
     } else {
-      setDelivery(d => ({ ...d, type: 'store_pickup', cost: 0, days: 'Dès disponibilité' }));
+      const storeRate = deliveryRates.find(r => r.code === 'store_pickup');
+      setDelivery(d => ({ ...d, type: 'store_pickup', cost: storeRate?.cost ?? 0, days: storeRate?.days ?? '' }));
     }
   }
 
