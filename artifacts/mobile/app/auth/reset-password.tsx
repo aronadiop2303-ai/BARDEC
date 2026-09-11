@@ -9,6 +9,7 @@ import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toUserMessage } from '@/lib/errors';
+import { PASSWORD_HINT, validatePassword } from '@/lib/validation';
 
 /**
  * Landed on from the "reset password" email link (Site URL → this route,
@@ -35,8 +36,9 @@ export default function ResetPasswordScreen() {
 
   async function handleSubmit() {
     if (!supabase) return;
-    if (password.length < 6) {
-      Alert.alert('Erreur', 'Le mot de passe doit contenir au moins 6 caractères.');
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      Alert.alert('Mot de passe invalide', passwordError);
       return;
     }
     if (password !== confirmPassword) {
@@ -113,7 +115,7 @@ export default function ResetPasswordScreen() {
           <Feather name="lock" size={18} color={colors.mutedForeground} />
           <TextInput
             style={[styles.input, { color: colors.foreground }]}
-            placeholder="Nouveau mot de passe (min. 6 caractères)"
+            placeholder={PASSWORD_HINT}
             placeholderTextColor={colors.mutedForeground}
             value={password}
             onChangeText={setPassword}

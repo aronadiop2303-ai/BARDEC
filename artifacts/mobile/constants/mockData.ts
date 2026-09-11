@@ -129,6 +129,22 @@ export const CATEGORIES = [
   { id: 'machinery', name: 'Machinery', icon: 'tool' },
   { id: 'food', name: 'Food & Bev', icon: 'coffee' },
   { id: 'auto', name: 'Auto Parts', icon: 'truck' },
+  // Chantier catégories (12 sept) — libellés affichés via t(`cat_${id}`)
+  // (constants/translations.ts, 20 blocs de langue), `name` ici sert juste
+  // de repli/valeur brute comme les 8 catégories ci-dessus.
+  { id: 'phones_tablets', name: 'Phones & Tablets', icon: 'phone' },
+  { id: 'tv_hightech',    name: 'TV & Tech',        icon: 'zap' },
+  { id: 'appliances',     name: 'Appliances',       icon: 'home' },
+  { id: 'home_office',    name: 'Home & Office',    icon: 'briefcase' },
+  { id: 'fashion',        name: 'Fashion',          icon: 'tag' },
+  { id: 'health_beauty',  name: 'Health & Beauty',  icon: 'heart' },
+  { id: 'computing',      name: 'Computing',        icon: 'code' },
+  { id: 'garden_outdoor', name: 'Garden & Outdoor', icon: 'wind' },
+  { id: 'baby',           name: 'Baby Products',    icon: 'smile' },
+  { id: 'sports',         name: 'Sports',           icon: 'star' },
+  { id: 'gaming',         name: 'Gaming & Consoles', icon: 'sliders' },
+  { id: 'automotive',     name: 'Automotive',       icon: 'navigation' },
+  { id: 'supermarket',    name: 'Supermarket',      icon: 'shopping-cart' },
 ];
 
 export const MOCK_PRODUCTS: Product[] = [

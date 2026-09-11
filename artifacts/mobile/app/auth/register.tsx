@@ -15,6 +15,7 @@ import { UserRole } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { readLocalImageBytes } from '@/lib/imageUpload';
 import { toUserMessage } from '@/lib/errors';
+import { PASSWORD_HINT, validatePassword } from '@/lib/validation';
 
 const ROLES: { id: UserRole; label: string; desc: string }[] = [
   { id: 'CUSTOMER', label: 'Client (B2C)',   desc: 'Achats personnels, prix public' },
@@ -66,8 +67,9 @@ export default function RegisterScreen() {
       Alert.alert('Erreur', 'Numéro de téléphone invalide pour le pays sélectionné');
       return;
     }
-    if (password.length < 6) {
-      Alert.alert('Erreur', 'Le mot de passe doit contenir au moins 6 caractères');
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      Alert.alert('Mot de passe invalide', passwordError);
       return;
     }
 
@@ -361,7 +363,7 @@ export default function RegisterScreen() {
             <Feather name="lock" size={18} color={colors.mutedForeground} />
             <TextInput
               style={[styles.input, { color: colors.foreground }]}
-              placeholder={t('password') + ' * (min. 6 caractères)'}
+              placeholder={PASSWORD_HINT}
               placeholderTextColor={colors.mutedForeground}
               value={password}
               onChangeText={setPassword}

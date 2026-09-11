@@ -38,7 +38,7 @@ export default function TabLayout() {
   // for the customer "Commandes" tab, or pending_approval queue size for the
   // approver's dedicated "Tableau de bord Approbateur" tab badge below.
   // Only runs when Supabase is configured; returns 0 in demo mode.
-  const activeOrdersCount = useActiveOrdersCount(isApprover);
+  const activeOrdersCount = useActiveOrdersCount(isApprover, user?.company);
   const vendorPendingCount = useVendorPendingOrdersCount(isVendor);
 
   // Properly account for the gesture-navigation bar on Android and home-indicator on iOS.

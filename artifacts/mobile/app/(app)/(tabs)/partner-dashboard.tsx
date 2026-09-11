@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Redirect, useFocusEffect } from 'expo-router';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Redirect, router, useFocusEffect } from 'expo-router';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { useAuth } from '@/context/AuthContext';
@@ -46,8 +46,6 @@ function moduleFeaturesFor(type: PartnerType | undefined): string[] {
   return [...DEFAULT_UPCOMING, ...(specific ?? [])];
 }
 
-const SUPPORT_EMAIL = 'support@bardec.app';
-
 export default function PartnerDashboardScreen() {
   const colors = useColors();
   const { user, isDemoMode } = useAuth();
@@ -89,7 +87,9 @@ export default function PartnerDashboardScreen() {
   const primaryType = user?.partnerType ? PARTNER_TYPE_LABELS[user.partnerType] ?? user.partnerType : null;
 
   function contactSupport() {
-    Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Support partenaire BARDEC')}`);
+    // Redirige vers le chat support interne (même écran que Profil → Support)
+    // plutôt que d'ouvrir l'appli email externe du téléphone.
+    router.push('/support');
   }
 
   return (
@@ -199,7 +199,7 @@ export default function PartnerDashboardScreen() {
           </>
         )}
         <TouchableOpacity style={[styles.supportBtn, { borderColor: colors.border }]} onPress={contactSupport}>
-          <Feather name="mail" size={16} color={colors.primary} />
+          <Feather name="message-circle" size={16} color={colors.primary} />
           <Text style={[styles.supportBtnText, { color: colors.primary }]}>Contacter le support</Text>
         </TouchableOpacity>
       </View>
