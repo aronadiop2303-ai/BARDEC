@@ -8,6 +8,7 @@ export default function AppGroupLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="partner-pending" options={{ headerShown: false }} />
       <Stack.Screen name="product/[id]" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="order/[id]" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="checkout" options={{ headerShown: false, presentation: 'card' }} />

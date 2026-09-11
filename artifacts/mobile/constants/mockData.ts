@@ -1,4 +1,8 @@
-export type UserRole = 'CUSTOMER' | 'BUYER' | 'APPROVER' | 'VENDOR' | 'ADMIN';
+// 'PARTNER' — fondation du rôle Partenaire (voir docs/README_PARTNER_ROLE.md).
+// Rôles existants inchangés ; un compte ne passe à 'PARTNER' que par
+// élévation ADMIN après approbation (jamais auto-sélectionnable à
+// l'inscription, voir users_insert_self côté RLS).
+export type UserRole = 'CUSTOMER' | 'BUYER' | 'APPROVER' | 'VENDOR' | 'ADMIN' | 'PARTNER';
 
 export interface User {
   id: string;
@@ -12,6 +16,11 @@ export interface User {
   creditLimit?: number;
   creditBalance?: number;
   pendingApprovals?: number;
+  // Fondation Partenaire — uniquement peuplés quand role === 'PARTNER'
+  // (voir AuthContext.enrichWithPartner). Optionnels : ne changent rien
+  // pour les 5 rôles existants.
+  partnerType?: import('@/types/partner').PartnerType;
+  partnerStatus?: import('@/types/partner').PartnerStatus;
 }
 
 export interface Product {

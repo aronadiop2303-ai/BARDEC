@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { usePathname } from 'expo-router';
 import { DEMO_USERS, User, UserRole } from '@/constants/mockData';
+import { PartnerType, PartnerStatus } from '@/types/partner';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toAuthMessage, toUserMessage } from '@/lib/errors';
 import { registerPushToken } from '@/lib/notifications';
@@ -148,10 +149,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }
 
+  // Fondation du rôle Partenaire (docs/README_PARTNER_ROLE.md) — un compte
+  // n'a role='PARTNER' qu'après élévation manuelle par un ADMIN (jamais à
+  // l'inscription, voir users_insert_self, inchangée), donc ce lookup est un
+  // no-op pour la quasi-totalité des utilisateurs. S'il existe plusieurs
+  // lignes partners pour cet utilisateur (doc §12, plusieurs types possibles
+  // pour une même organisation — pas encore exploité), la plus récemment
+  // mise à jour fait foi pour l'état de navigation (écran d'attente ou non).
+  async function enrichWithPartner(user: User): Promise<User> {
+    if (user.role !== 'PARTNER' || !supabase) return user;
+    const { data: partner } = await supabase
+      .from('partners')
+      .select('partner_type, status')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!partner) return user;
+    return {
+      ...user,
+      partnerType:   partner.partner_type as PartnerType,
+      partnerStatus: partner.status as PartnerStatus,
+    };
+  }
+
   async function fetchUserProfile(userId: string): Promise<User | null> {
     if (!supabase) return null;
     const { data } = await supabase.from('users').select('*').eq('id', userId).single();
-    if (data) return enrichWithCompany(mapUserRow(data));
+    if (data) return enrichWithPartner(await enrichWithCompany(mapUserRow(data)));
 
     // Self-heal: an authenticated session exists (auth.users row is real and
     // confirmed) but its public.users profile row is missing — e.g. register()
@@ -181,7 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('[fetchUserProfile] self-heal insert failed:', healErr);
       return null;
     }
-    return enrichWithCompany(mapUserRow(healed));
+    return enrichWithPartner(await enrichWithCompany(mapUserRow(healed)));
   }
 
   async function updateUserAvatar(url: string): Promise<void> {
@@ -382,7 +407,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // role just wasn't the account that placed/owns those orders. This is
       // a UI-only role preview — only the `role` field changes, id/email
       // stay real, and RLS still enforces the account's actual DB role.
-      if (user) setUser({ ...user, role });
+      if (!user) return;
+      const next = { ...user, role };
+      // PARTNER also needs partnerType/partnerStatus to preview correctly
+      // (app/(app)/(tabs)/_layout.tsx redirects to partner-pending unless
+      // partnerStatus is APPROVED/ACTIVE) — those normally only get
+      // populated by enrichWithPartner() during session load, never during
+      // this local role swap. Re-running it here means the preview reflects
+      // whatever is *actually* in `partners` for this account, rather than
+      // adding a separate dev-only bypass that would let a real gap in the
+      // partners row go untested.
+      //
+      // Must be awaited BEFORE setUser, not fired-and-forgotten after: an
+      // immediate `setUser({ ...user, role: 'PARTNER' })` renders with
+      // partnerStatus still stale (undefined, from whatever the account was
+      // before) — the tabs layout's guard reads that stale value on the very
+      // next render and redirects to partner-pending, which unmounts the
+      // tabs layout. The *correct* status then arrives a moment later from
+      // enrichWithPartner(), but nothing is left mounted to act on it, so
+      // the preview gets stuck on partner-pending despite a real APPROVED
+      // row. Resolving enrichment first makes role and partnerStatus land
+      // in the same render — no window where they can disagree.
+      if (role === 'PARTNER') {
+        enrichWithPartner(next).then(setUser);
+      } else {
+        setUser(next);
+      }
       return;
     }
     const found = DEMO_USERS.find(u => u.role === role);

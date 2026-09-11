@@ -18,9 +18,17 @@ import { toUserMessage } from '@/lib/errors';
 import { notifyVendorKycEvent } from '@/lib/notifications';
 import { loadCurrencyRates } from '@/lib/currency';
 import { useShopCategories } from '@/hooks/useShopCategories';
+import {
+  PARTNER_STATUS_LABELS, PARTNER_TYPES, PARTNER_TYPE_LABELS, PENDING_PARTNER_STATUSES,
+  PartnerRow, PartnerStatus, PartnerType,
+} from '@/types/partner';
+
+const PARTNER_STATUSES: PartnerStatus[] = [
+  'PENDING', 'UNDER_REVIEW', 'APPROVED', 'ACTIVE', 'SUSPENDED', 'RESTRICTED', 'REJECTED', 'TERMINATED',
+];
 
 const { width } = Dimensions.get('window');
-type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'reports' | 'orders' | 'disputes' | 'payments' | 'currencies' | 'companies' | 'logistics' | 'alerts' | 'notifications' | 'support' | 'settings' | 'apikeys';
+type AdminTab = 'dashboard' | 'users' | 'vendors' | 'shops' | 'reports' | 'orders' | 'disputes' | 'payments' | 'currencies' | 'companies' | 'partners' | 'logistics' | 'alerts' | 'notifications' | 'support' | 'settings' | 'apikeys';
 
 // ── API keys — matches what mcp-server actually enforces (validateApiKey):
 // hasWrite = perms.includes('write') || perms.includes('*');
@@ -870,6 +878,70 @@ function AdminScreenInner() {
     setCreditDrafts(prev => { const next = { ...prev }; delete next[c.id]; return next; });
   }
 
+  // ── Partenaires — le rôle PARTNER est exclusivement géré par l'ADMIN
+  // (partners_admin_manage RLS policy + trigger protect_partner_status,
+  // voir docs/README_PARTNER_ROLE.md). Ne touche pas au rôle APPROVER ni à
+  // cette RLS : ce tab ne fait qu'appeler les mêmes colonnes qu'elle protège
+  // déjà (status, partner_type, status_reason).
+  interface PartnerAdminRow extends PartnerRow {
+    users: { display_name: string | null; email: string | null; phone: string | null } | null;
+  }
+  const [partnersAdmin, setPartnersAdmin] = useState<PartnerAdminRow[]>([]);
+  const [loadingPartners, setLoadingPartners] = useState(isSupabaseConfigured);
+  const [partnerTypeFilter, setPartnerTypeFilter] = useState<PartnerType | 'ALL'>('ALL');
+  const [partnerStatusFilter, setPartnerStatusFilter] = useState<PartnerStatus | 'ALL'>('ALL');
+  const [bizPartnerActingId, setBizPartnerActingId] = useState<string | null>(null);
+  const [partnerActionOpen, setPartnerActionOpen] = useState<{ id: string; kind: 'reject' | 'suspend' } | null>(null);
+  const [partnerActionNotes, setPartnerActionNotes] = useState<Record<string, string>>({});
+
+  const fetchPartnersAdmin = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingPartners(false); return; }
+    setLoadingPartners(true);
+    const { data, error } = await supabase
+      .from('partners')
+      .select('*, users!user_id(display_name, email, phone)')
+      .order('created_at', { ascending: false });
+    if (error) { console.warn('Admin partners fetch error:', error.message); setLoadingPartners(false); return; }
+    setPartnersAdmin((data ?? []) as unknown as PartnerAdminRow[]);
+    setLoadingPartners(false);
+  }, []);
+  useEffect(() => { fetchPartnersAdmin(); }, [fetchPartnersAdmin]);
+  useFocusEffect(useCallback(() => { fetchPartnersAdmin(); }, [fetchPartnersAdmin]));
+
+  const pendingPartnersCount = partnersAdmin.filter(p => PENDING_PARTNER_STATUSES.includes(p.status)).length;
+  const filteredPartners = partnersAdmin.filter(p =>
+    (partnerTypeFilter === 'ALL' || p.partner_type === partnerTypeFilter) &&
+    (partnerStatusFilter === 'ALL' || p.status === partnerStatusFilter)
+  );
+
+  async function updatePartnerStatus(p: PartnerAdminRow, status: PartnerStatus, statusReason: string | null) {
+    if (!supabase) return;
+    setBizPartnerActingId(p.id);
+    const { error } = await supabase.from('partners').update({ status, status_reason: statusReason }).eq('id', p.id);
+    setBizPartnerActingId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:updatePartnerStatus', error, 'Impossible de modifier ce partenaire. Réessaie dans un instant.')); return; }
+    setPartnersAdmin(prev => prev.map(x => x.id === p.id ? { ...x, status, status_reason: statusReason } : x));
+    setPartnerActionOpen(null);
+    setPartnerActionNotes(prev => { const next = { ...prev }; delete next[p.id]; return next; });
+  }
+
+  function handleApprovePartner(p: PartnerAdminRow) {
+    updatePartnerStatus(p, 'APPROVED', null);
+  }
+  function handleReactivatePartner(p: PartnerAdminRow) {
+    updatePartnerStatus(p, 'ACTIVE', null);
+  }
+  function handleConfirmReject(p: PartnerAdminRow) {
+    const note = (partnerActionNotes[p.id] ?? '').trim();
+    if (!note) { Alert.alert('Motif requis', 'Indique le motif du rejet avant de confirmer.'); return; }
+    updatePartnerStatus(p, 'REJECTED', note);
+  }
+  function handleConfirmSuspend(p: PartnerAdminRow) {
+    const note = (partnerActionNotes[p.id] ?? '').trim();
+    if (!note) { Alert.alert('Motif requis', 'Indique le motif de la suspension avant de confirmer.'); return; }
+    updatePartnerStatus(p, 'SUSPENDED', note);
+  }
+
   // ── System alerts (monitoring) — alerts_admin_only RLS policy already
   // gives ADMIN a full ALL policy, no backend change needed. Outil interne,
   // pas encore alimenté avant ce chantier — voir omni-agent/index.ts pour le
@@ -1396,6 +1468,7 @@ function AdminScreenInner() {
     { id: 'payments',  label: 'Paiements',     icon: 'credit-card',  badge: pendingCount },
     { id: 'currencies', label: 'Devises',      icon: 'dollar-sign'  },
     { id: 'companies', label: 'Sociétés B2B',  icon: 'home'         },
+    { id: 'partners',  label: 'Partenaires',    icon: 'briefcase',    badge: pendingPartnersCount },
     { id: 'logistics', label: 'Logistique',    icon: 'truck'        },
     { id: 'alerts',    label: 'Alertes',       icon: 'alert-triangle', badge: unresolvedAlertsCount },
     { id: 'notifications', label: 'Notifications', icon: 'bell'    },
@@ -2914,6 +2987,163 @@ function AdminScreenInner() {
           {!loadingCompanies && companiesAdmin.length === 0 && (
             <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: 'center', paddingVertical: 12 }}>
               Aucune société B2B pour l'instant.
+            </Text>
+          )}
+        </View>
+      )}
+
+      {/* PARTNERS — rôle PARTNER, géré exclusivement par l'ADMIN */}
+      {activeTab === 'partners' && (
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Partenaires</Text>
+          <Text style={{ color: colors.mutedForeground, fontSize: 13, marginBottom: 10 }}>
+            Approuve, rejette ou suspends les comptes partenaires (livreurs, transporteurs, fournisseurs…).
+            Un motif est obligatoire pour rejeter ou suspendre — il est visible par le partenaire dans son espace.
+          </Text>
+
+          <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: '700', marginBottom: 6 }}>TYPE</Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+            {(['ALL', ...PARTNER_TYPES] as const).map(f => (
+              <TouchableOpacity
+                key={f}
+                style={[styles.tabChip, { backgroundColor: partnerTypeFilter === f ? colors.primary : colors.card, borderColor: colors.border, marginBottom: 0 }]}
+                onPress={() => setPartnerTypeFilter(f)}
+              >
+                <Text style={[styles.tabChipText, { color: partnerTypeFilter === f ? 'white' : colors.foreground }]}>
+                  {f === 'ALL' ? 'Tous types' : PARTNER_TYPE_LABELS[f]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={{ color: colors.mutedForeground, fontSize: 12, fontWeight: '700', marginBottom: 6 }}>STATUT</Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            {(['ALL', ...PARTNER_STATUSES] as const).map(f => (
+              <TouchableOpacity
+                key={f}
+                style={[styles.tabChip, { backgroundColor: partnerStatusFilter === f ? colors.primary : colors.card, borderColor: colors.border, marginBottom: 0 }]}
+                onPress={() => setPartnerStatusFilter(f)}
+              >
+                <Text style={[styles.tabChipText, { color: partnerStatusFilter === f ? 'white' : colors.foreground }]}>
+                  {f === 'ALL' ? 'Tous statuts' : PARTNER_STATUS_LABELS[f]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {loadingPartners && <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 12 }} />}
+
+          {filteredPartners.map(p => {
+            const isPending = PENDING_PARTNER_STATUSES.includes(p.status);
+            const isActive = p.status === 'APPROVED' || p.status === 'ACTIVE';
+            const isSuspendedLike = p.status === 'SUSPENDED' || p.status === 'RESTRICTED';
+            const acting = bizPartnerActingId === p.id;
+            const contact = [p.users?.display_name, p.users?.email, p.users?.phone].filter(Boolean).join(' · ');
+            return (
+              <View key={p.id} style={[styles.keyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={styles.keyCardHeader}>
+                  <View style={[styles.keyIconBox, { backgroundColor: colors.primary + '18' }]}>
+                    <Feather name="briefcase" size={16} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.keyName, { color: colors.foreground }]}>
+                      {p.company_name || contact || p.user_id}
+                    </Text>
+                    <Text style={[styles.keyPreview, { color: colors.mutedForeground, fontFamily: undefined }]} numberOfLines={1}>
+                      {PARTNER_TYPE_LABELS[p.partner_type]}{contact ? ` · ${contact}` : ''}
+                    </Text>
+                  </View>
+                  <View style={[styles.badgePill, { backgroundColor: colors.accent }]}>
+                    <Text style={[styles.badgePillText, { color: colors.primary }]}>{PARTNER_STATUS_LABELS[p.status]}</Text>
+                  </View>
+                </View>
+
+                {p.status_reason && (p.status === 'REJECTED' || p.status === 'SUSPENDED' || p.status === 'RESTRICTED' || p.status === 'TERMINATED') && (
+                  <Text style={{ color: '#DC2626', fontSize: 12, marginTop: 2 }}>Motif : {p.status_reason}</Text>
+                )}
+                <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 2 }}>
+                  Créé le {new Date(p.created_at).toLocaleDateString('fr-FR')}
+                </Text>
+
+                {isPending && (
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                    <TouchableOpacity
+                      style={[styles.pmtActionBtn, { backgroundColor: '#DCFCE7', borderColor: '#22C55E', flex: 1 }]}
+                      onPress={() => handleApprovePartner(p)}
+                      disabled={acting}
+                    >
+                      <Feather name="check-circle" size={15} color="#059669" />
+                      <Text style={[styles.pmtActionText, { color: '#059669' }]}>Approuver</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.pmtActionBtn, { backgroundColor: '#FEE2E2', borderColor: '#EF4444', flex: 1 }]}
+                      onPress={() => setPartnerActionOpen(partnerActionOpen?.id === p.id && partnerActionOpen.kind === 'reject' ? null : { id: p.id, kind: 'reject' })}
+                      disabled={acting}
+                    >
+                      <Feather name="x-circle" size={15} color="#DC2626" />
+                      <Text style={[styles.pmtActionText, { color: '#DC2626' }]}>Rejeter</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {isActive && (
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                    <TouchableOpacity
+                      style={[styles.pmtActionBtn, { backgroundColor: '#FEE2E2', borderColor: '#EF4444', flex: 1 }]}
+                      onPress={() => setPartnerActionOpen(partnerActionOpen?.id === p.id && partnerActionOpen.kind === 'suspend' ? null : { id: p.id, kind: 'suspend' })}
+                      disabled={acting}
+                    >
+                      <Feather name="lock" size={15} color="#DC2626" />
+                      <Text style={[styles.pmtActionText, { color: '#DC2626' }]}>Suspendre</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {isSuspendedLike && (
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                    <TouchableOpacity
+                      style={[styles.pmtActionBtn, { backgroundColor: '#DCFCE7', borderColor: '#22C55E', flex: 1 }]}
+                      onPress={() => handleReactivatePartner(p)}
+                      disabled={acting}
+                    >
+                      <Feather name="refresh-cw" size={15} color="#059669" />
+                      <Text style={[styles.pmtActionText, { color: '#059669' }]}>Réactiver</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Motif obligatoire — rejet ou suspension */}
+                {partnerActionOpen?.id === p.id && (
+                  <View style={[styles.pmtRejectForm, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                    <Text style={[styles.pmtRejectTitle, { color: colors.foreground }]}>
+                      Motif {partnerActionOpen.kind === 'reject' ? 'du rejet' : 'de la suspension'} *
+                    </Text>
+                    <TextInput
+                      style={[styles.pmtRejectInput, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                      placeholder="Explique la raison au partenaire…"
+                      placeholderTextColor={colors.mutedForeground}
+                      value={partnerActionNotes[p.id] ?? ''}
+                      onChangeText={v => setPartnerActionNotes(prev => ({ ...prev, [p.id]: v }))}
+                      multiline
+                      numberOfLines={3}
+                    />
+                    <TouchableOpacity
+                      style={[styles.pmtRejectConfirm, { backgroundColor: '#EF4444', opacity: acting ? 0.6 : 1 }]}
+                      onPress={() => partnerActionOpen.kind === 'reject' ? handleConfirmReject(p) : handleConfirmSuspend(p)}
+                      disabled={acting}
+                    >
+                      {acting
+                        ? <ActivityIndicator size="small" color="white" />
+                        : <><Feather name="x" size={14} color="white" /><Text style={styles.pmtRejectConfirmText}>Confirmer</Text></>}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            );
+          })}
+          {!loadingPartners && filteredPartners.length === 0 && (
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: 'center', paddingVertical: 12 }}>
+              Aucun partenaire pour ce filtre.
             </Text>
           )}
         </View>

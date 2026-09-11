@@ -33,6 +33,19 @@ const KYC_STATUS_STYLES: Record<string, { bg: string; color: string; icon: strin
   incomplete: { bg: '#FEE2E2', color: '#DC2626', icon: 'alert-circle', label: 'Dossier incomplet',           desc: 'Ajoute les documents manquants pour continuer la vérification.' },
 };
 
+// ─── "Commandes récentes" status label — distingue explicitement
+// pending_approval (en attente de l'Approbateur B2B) de approved (validé,
+// prêt à expédier), avant que la couleur seule ne suffise plus à le voir.
+const VENDOR_ORDER_STATUS_LABELS: Record<string, string> = {
+  pending:            'En attente',
+  pending_approval:   'En attente d\'approbation B2B',
+  approved:           'Approuvé',
+  shipped:            'Expédié',
+  out_for_delivery:   'En livraison',
+  completed:          'Livré',
+  cancelled:          'Annulé',
+};
+
 const { width } = Dimensions.get('window');
 
 type Period = '7j' | '30j' | '90j' | '12m';
@@ -738,13 +751,29 @@ export default function VendorDashboardScreen() {
   // ─── Update order status ───────────────────────────────────────────────────
   async function handleUpdateOrderStatus() {
     if (!statusOrder || !newStatus) return;
+
+    // Commande B2B (company_id) pas encore validée par l'Approbateur B2B : le
+    // vendeur ne peut pas la faire passer directement à 'approved' (ni sauter
+    // à 'shipped'/'out_for_delivery', bloqué aussi côté UI par les chips
+    // désactivées — ce garde-fou couvre le cas où newStatus serait resté sur
+    // une de ces valeurs malgré tout, ex. sélection avant que la commande ne
+    // soit rechargée). "Approuvé" devient alors une demande de validation
+    // interne, pas une approbation finale.
+    const requiresApproval = !!statusOrder.company_id;
+    const alreadyApproved = ['approved', 'shipped', 'out_for_delivery', 'completed'].includes(statusOrder.status);
+    let actualStatus = newStatus;
+    if (requiresApproval && !alreadyApproved) {
+      if (newStatus === 'approved') actualStatus = 'pending_approval';
+      else if (newStatus === 'shipped' || newStatus === 'out_for_delivery') actualStatus = statusOrder.status;
+    }
+
     setIsUpdatingStatus(true);
     if (isSupabaseConfigured && supabase) {
       // Use .select('id') so Supabase returns the updated rows — if the array
       // is empty, the RLS vendor-update policy is missing (0 rows affected).
       const { data: updated, error } = await supabase
         .from('orders')
-        .update({ status: newStatus, tracking_number: trackingNumber || null, delivery_partner_id: deliveryPartnerId })
+        .update({ status: actualStatus, tracking_number: trackingNumber || null, delivery_partner_id: deliveryPartnerId })
         .eq('id', statusOrder.id)
         .select('id');
       setIsUpdatingStatus(false);
@@ -752,8 +781,11 @@ export default function VendorDashboardScreen() {
         Alert.alert('Erreur', toUserMessage('vendor:updateOrderStatus', error, 'Impossible de mettre à jour cette commande. Réessaie dans un instant.'));
         return;
       }
-      if (updated && updated.length > 0) {
-        notifyOrderEvent(supabase, statusOrder.id, newStatus);
+      // pending_approval n'est pas un événement de notification connu de
+      // l'Edge Function send-push (mode "order") — seule l'approbation finale
+      // par l'Approbateur B2B notifie vendeur + acheteur (approver-dashboard.tsx).
+      if (updated && updated.length > 0 && actualStatus !== 'pending_approval') {
+        notifyOrderEvent(supabase, statusOrder.id, actualStatus);
       }
       if (!updated || updated.length === 0) {
         // The UPDATE ran but RLS blocked it — no vendor-update policy yet.
@@ -770,7 +802,7 @@ export default function VendorDashboardScreen() {
       // Optimistic local update
       setVendorOrders(prev =>
         prev.map(o => o.id === statusOrder.id
-          ? { ...o, status: newStatus, tracking_number: trackingNumber || o.tracking_number, delivery_partner_id: deliveryPartnerId }
+          ? { ...o, status: actualStatus, tracking_number: trackingNumber || o.tracking_number, delivery_partner_id: deliveryPartnerId }
           : o
         )
       );
@@ -778,7 +810,7 @@ export default function VendorDashboardScreen() {
       // Demo mode — update local state only
       setVendorOrders(prev =>
         prev.map(o => o.id === statusOrder.id
-          ? { ...o, status: newStatus }
+          ? { ...o, status: actualStatus }
           : o
         )
       );
@@ -1214,6 +1246,20 @@ export default function VendorDashboardScreen() {
     return <Redirect href="/(app)/(tabs)" />;
   }
 
+  // ─── Statut modal : commandes B2B — gating de l'approbation ───────────────
+  // Une commande B2B (company_id non nul — voir checkout.tsx : toute commande
+  // passée par un compte BUYER/APPROVER reçoit un company_id et démarre déjà
+  // à pending_approval côté serveur, quelle que soit la méthode de paiement,
+  // pas seulement Net30) doit passer par l'Approbateur B2B
+  // (app/(app)/(tabs)/approver-dashboard.tsx) avant d'être vraiment
+  // "Approuvé" : le vendeur ne peut plus la faire passer directement à
+  // 'approved' en cliquant "Approuvé" dans cette modale — ça la renvoie en
+  // pending_approval, et Expédié/En livraison restent grisés tant que
+  // l'approbateur n'a pas validé (statut 'approved').
+  const statusOrderRequiresApproval = !!statusOrder?.company_id;
+  const statusOrderAwaitingApproval =
+    statusOrderRequiresApproval && !['approved', 'shipped', 'out_for_delivery', 'completed'].includes(statusOrder?.status ?? '');
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <BardecLayout onRefresh={onRefresh} refreshing={refreshing} omniContext={omniContext}>
@@ -1412,9 +1458,13 @@ export default function VendorDashboardScreen() {
             const orderTotal = order.total ?? 0;
             const orderStatus = order.status ?? 'pending';
             const statusColor =
-              orderStatus === 'completed' ? '#22C55E' :
-              orderStatus === 'shipped'   ? '#0EA5E9' :
-              orderStatus === 'cancelled' ? '#EF4444' : '#F59E0B';
+              orderStatus === 'completed'        ? '#22C55E' :
+              orderStatus === 'shipped'           ? '#0EA5E9' :
+              orderStatus === 'out_for_delivery'  ? '#0EA5E9' :
+              orderStatus === 'cancelled'         ? '#EF4444' :
+              orderStatus === 'pending_approval'  ? '#7C3AED' :
+              orderStatus === 'approved'          ? '#22C55E' : '#F59E0B';
+            const orderStatusLabel = VENDOR_ORDER_STATUS_LABELS[orderStatus] ?? orderStatus;
             return (
               <View key={order.id} style={[styles.orderRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={{ flex: 1 }}>
@@ -1423,7 +1473,10 @@ export default function VendorDashboardScreen() {
                 </View>
                 <View style={styles.orderMeta}>
                   <Text style={[styles.orderTotal, { color: colors.primary }]}>{formatPrice(orderTotal)}</Text>
-                  <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+                    <Text style={{ color: statusColor, fontSize: 11, fontWeight: '700' }}>{orderStatusLabel}</Text>
+                  </View>
                 </View>
                 {/* Vendor action: update status */}
                 <TouchableOpacity
@@ -1787,26 +1840,43 @@ export default function VendorDashboardScreen() {
             </Text>
 
             <Text style={[styles.modalLabel, { color: colors.foreground }]}>Nouveau statut</Text>
+            {statusOrderAwaitingApproval && (
+              <View style={styles.approvalNotice}>
+                <Feather name="lock" size={13} color="#7C3AED" />
+                <Text style={styles.approvalNoticeText}>
+                  Commande B2B — "Approuvé" l'envoie en validation B2B. Expédition disponible une fois validée par l'Approbateur.
+                </Text>
+              </View>
+            )}
             <View style={{ gap: 8, marginBottom: 12 }}>
-              {ORDER_STATUSES.map(s => (
-                <TouchableOpacity
-                  key={s.value}
-                  style={[
-                    styles.statusChoice,
-                    {
-                      backgroundColor: newStatus === s.value ? colors.primary + '20' : colors.background,
-                      borderColor:     newStatus === s.value ? colors.primary : colors.border,
-                    },
-                  ]}
-                  onPress={() => setNewStatus(s.value)}
-                >
-                  <View style={[
-                    styles.statusChoiceRadio,
-                    { borderColor: colors.primary, backgroundColor: newStatus === s.value ? colors.primary : 'transparent' }
-                  ]} />
-                  <Text style={[{ color: colors.foreground, fontWeight: '600', fontSize: 14 }]}>{s.label}</Text>
-                </TouchableOpacity>
-              ))}
+              {ORDER_STATUSES.map(s => {
+                const locked = statusOrderAwaitingApproval && (s.value === 'shipped' || s.value === 'out_for_delivery');
+                const label = statusOrderAwaitingApproval && s.value === 'approved'
+                  ? 'Approuvé (→ envoie en validation B2B)'
+                  : s.label;
+                return (
+                  <TouchableOpacity
+                    key={s.value}
+                    style={[
+                      styles.statusChoice,
+                      {
+                        backgroundColor: newStatus === s.value ? colors.primary + '20' : colors.background,
+                        borderColor:     newStatus === s.value ? colors.primary : colors.border,
+                        opacity: locked ? 0.4 : 1,
+                      },
+                    ]}
+                    onPress={() => { if (!locked) setNewStatus(s.value); }}
+                    disabled={locked}
+                  >
+                    <View style={[
+                      styles.statusChoiceRadio,
+                      { borderColor: colors.primary, backgroundColor: newStatus === s.value ? colors.primary : 'transparent' }
+                    ]} />
+                    <Text style={[{ color: colors.foreground, fontWeight: '600', fontSize: 14, flex: 1 }]}>{label}</Text>
+                    {locked && <Feather name="lock" size={14} color={colors.mutedForeground} />}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
             {deliveryPartners.length > 0 && (
@@ -1952,6 +2022,11 @@ const styles = StyleSheet.create({
   statusChoiceRadio: {
     width: 18, height: 18, borderRadius: 9, borderWidth: 2,
   },
+  approvalNotice: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 6,
+    backgroundColor: '#EDE9FE', borderRadius: 8, padding: 8, marginBottom: 8,
+  },
+  approvalNoticeText: { color: '#5B21B6', fontSize: 11, fontWeight: '600', flex: 1, lineHeight: 15 },
 
   // Add product modal
   modalOverlay:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },

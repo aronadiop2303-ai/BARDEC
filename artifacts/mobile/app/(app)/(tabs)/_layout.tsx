@@ -4,13 +4,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { Feather } from '@/components/Icon';
 import { BlurView } from 'expo-blur';
-import { Tabs } from 'expo-router';
+import { Tabs, Redirect } from 'expo-router';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { useNearbyBadge } from '@/hooks/useProximityOrders';
 import { useActiveOrdersCount } from '@/hooks/useActiveOrdersCount';
 import { useVendorPendingOrdersCount } from '@/hooks/useVendorPendingOrdersCount';
+import { ACTIVE_PARTNER_STATUSES } from '@/types/partner';
 
 // NOTE: expo-symbols (SF Symbols) is iOS-only and its native module is
 // unavailable on Android — importing it crashes the tab layout on Android.
@@ -28,6 +29,7 @@ export default function TabLayout() {
   const isVendor   = user?.role === 'VENDOR';
   const isAdmin    = user?.role === 'ADMIN';
   const isApprover = user?.role === 'APPROVER';
+  const isPartner  = user?.role === 'PARTNER';
 
   // Nearby badge — unseen active (pending | confirmed) proximity orders for customers.
   // Clears when the customer visits the Nearby tab (markSeen is called there via useFocusEffect).
@@ -43,6 +45,16 @@ export default function TabLayout() {
   // Without this, tab icons overlap the system gesture area on modern Android phones.
   const tabBarPaddingBottom = isWeb ? 24 : insets.bottom + (isAndroid ? 6 : 8);
   const tabBarHeight = isWeb ? 84 : (isAndroid ? 62 : 60) + insets.bottom;
+
+  // Fondation du rôle Partenaire — un compte PARTNER dont le statut n'est
+  // ni APPROVED ni ACTIVE (PENDING, UNDER_REVIEW, mais aussi SUSPENDED /
+  // RESTRICTED / REJECTED / TERMINATED) n'a pas accès à l'onglet "Espace
+  // Partenaire" : redirection vers l'écran de statut plutôt que de monter
+  // une bottom bar avec un onglet dont l'accès n'est pas/plus légitime. Ne
+  // change rien au flux Acheteur/Vendeur/Approbateur/Admin.
+  if (isPartner && !(user?.partnerStatus && ACTIVE_PARTNER_STATUSES.includes(user.partnerStatus))) {
+    return <Redirect href="/(app)/partner-pending" />;
+  }
 
   return (
     <Tabs
@@ -73,7 +85,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: t('home'),
-          href: !isVendor && !isAdmin && !isApprover ? undefined : null,
+          href: !isVendor && !isAdmin && !isApprover && !isPartner ? undefined : null,
           tabBarIcon: ({ color }) => <Feather name="home" size={22} color={color} />,
         }}
       />
@@ -81,7 +93,7 @@ export default function TabLayout() {
         name="search"
         options={{
           title: t('search'),
-          href: !isVendor && !isAdmin && !isApprover ? undefined : null,
+          href: !isVendor && !isAdmin && !isApprover && !isPartner ? undefined : null,
           tabBarIcon: ({ color }) => <Feather name="search" size={22} color={color} />,
         }}
       />
@@ -89,7 +101,7 @@ export default function TabLayout() {
         name="cart"
         options={{
           title: t('cart'),
-          href: !isVendor && !isAdmin && !isApprover ? undefined : null,
+          href: !isVendor && !isAdmin && !isApprover && !isPartner ? undefined : null,
           tabBarBadge: totalItems > 0 ? totalItems : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.primary, fontSize: 10 },
           tabBarIcon: ({ color }) => <Feather name="shopping-cart" size={22} color={color} />,
@@ -99,7 +111,7 @@ export default function TabLayout() {
         name="orders"
         options={{
           title: t('orders'),
-          href: !isVendor && !isAdmin && !isApprover ? undefined : null,
+          href: !isVendor && !isAdmin && !isApprover && !isPartner ? undefined : null,
           tabBarBadge: activeOrdersCount > 0 ? activeOrdersCount : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.primary, fontSize: 10 },
           tabBarIcon: ({ color }) => <Feather name="list" size={22} color={color} />,
@@ -108,13 +120,23 @@ export default function TabLayout() {
 
       {/* APPROVER tab */}
       <Tabs.Screen
-        name="approvals"
+        name="approver-dashboard"
         options={{
-          title: 'Approbations',
+          title: 'Espace Approbateur',
           href: isApprover ? undefined : null,
           tabBarBadge: activeOrdersCount > 0 ? activeOrdersCount : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.primary, fontSize: 10 },
-          tabBarIcon: ({ color }) => <Feather name="check-circle" size={22} color={color} />,
+          tabBarIcon: ({ color }) => <Feather name="clipboard-check" size={22} color={color} />,
+        }}
+      />
+
+      {/* PARTNER tab */}
+      <Tabs.Screen
+        name="partner-dashboard"
+        options={{
+          title: 'Espace Partenaire',
+          href: isPartner ? undefined : null,
+          tabBarIcon: ({ color }) => <Feather name="briefcase" size={22} color={color} />,
         }}
       />
 

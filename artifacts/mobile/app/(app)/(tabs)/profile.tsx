@@ -558,7 +558,7 @@ export default function ProfileScreen() {
           )}
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {(['CUSTOMER', 'BUYER', 'APPROVER', 'VENDOR', 'ADMIN'] as UserRole[]).map(role => (
+          {(['CUSTOMER', 'BUYER', 'APPROVER', 'VENDOR', 'ADMIN', 'PARTNER'] as UserRole[]).map(role => (
             <TouchableOpacity
               key={role}
               style={[

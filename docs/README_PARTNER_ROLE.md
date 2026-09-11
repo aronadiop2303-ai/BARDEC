@@ -656,3 +656,119 @@ Avant toute modification du code BARDEC :
 10. tester avant toute migration.
 
 **Aucune modification du code n'est imposée par ce document.**
+
+---
+
+# ANNEXE — Implémentation réelle (Fondation, 11 sept)
+
+> Cette section documente ce qui a été **réellement implémenté** dans le repo (projet Supabase `asawazxocogumygptdwh`), suite à un audit qui a trouvé plusieurs écarts entre un brief de mission générique et l'architecture réelle de BARDEC : pas de `SELLER`/`CONTROLLER` (c'est `VENDOR`, pas de rôle contrôleur), pas de `supabase/migrations/` versionné (migrations appliquées en direct contre le projet Supabase), pas de `types/database.types.ts` généré, pas de dossier `src/adapters/`.
+
+## A. Schéma
+
+**Enum `user_role`** (existant) : `PARTNER` ajouté sans toucher aux 5 valeurs existantes (`CUSTOMER`, `BUYER`, `APPROVER`, `VENDOR`, `ADMIN`).
+
+**Enum `partner_type`** (nouveau, extensible) :
+```sql
+create type partner_type as enum (
+  'DELIVERY', 'TRANSPORTER', 'LOGISTICS', 'SUPPLIER', 'WHOLESALER',
+  'COMMERCIAL', 'PICKUP_POINT', 'WAREHOUSE', 'FINANCIAL', 'TECH_API',
+  'AI', 'SERVICE_PROVIDER', 'TECHNICIAN', 'MARKETING', 'INSTITUTION_NGO',
+  'INVESTOR', 'STRATEGIC_INTL', 'OTHER'
+);
+```
+
+**Enum `partner_status`** (machine à états, distincte du type — §9) :
+```sql
+create type partner_status as enum (
+  'PENDING', 'UNDER_REVIEW', 'APPROVED', 'ACTIVE',
+  'SUSPENDED', 'RESTRICTED', 'REJECTED', 'TERMINATED'
+);
+```
+
+**Table `public.partners`** :
+```sql
+create table public.partners (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id),
+  partner_type partner_type not null,
+  status partner_status not null default 'PENDING',
+  company_name text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+```
+Pas de contrainte `UNIQUE(user_id)` — conformément à la section 12 de ce document (une organisation peut à terme exercer plusieurs types de partenariat), même si ce n'est pas exploité aujourd'hui.
+
+⚠️ Une table `delivery_partners` existait déjà (livreurs internes/API, enum `delivery_partner_type: internal|external_api`). C'est un concept **différent** (intégration technique de livraison, pas le rôle Partenaire générique). Pas de collision de nom, mais à ne pas confondre.
+
+## B. RLS (testée empiriquement — transactions annulées, comptes réels)
+
+| Opération | Règle | Vérifié |
+|---|---|---|
+| SELECT | `user_id = auth.uid()` OU `ADMIN` | ✅ un autre compte non-admin voit 0 ligne |
+| INSERT | `user_id = auth.uid()` ET `status = 'PENDING'` | ✅ tentative d'insert avec `status='APPROVED'` directement → rejetée (42501) |
+| UPDATE | `user_id = auth.uid()` OU `ADMIN`, mais un trigger fige `status`/`partner_type`/`user_id` pour un non-admin | ✅ tentative d'auto-approbation + changement de type → les deux silencieusement annulés, `metadata`/`company_name` restent modifiables |
+| DELETE | `ADMIN` uniquement | ✅ 0 ligne supprimée par un non-admin |
+| Élévation `users.role → 'PARTNER'` | ADMIN uniquement (RLS `users_update_self` + trigger `prevent_user_field_escalation`, inchangés) | ✅ `current_user_role()` reflète bien `PARTNER` après élévation ; le compte garde l'accès à ses propres données (`users`, `partners`) ; aucune policy existante (`orders_approver`, `orders_admin`…) ne référence `PARTNER`, donc aucun accès non désiré n'est accordé automatiquement |
+
+Trigger : `protect_partner_status()` — même pattern que `protect_order_sensitive_fields()`/`prevent_user_field_escalation()` déjà en place sur `orders`/`users`.
+
+**Décision volontaire** : `PARTNER` n'a **pas** été ajouté aux rôles auto-sélectionnables à l'inscription (`users_insert_self`, policy inchangée). Un utilisateur candidate via `partners` indépendamment de son `users.role` actuel ; l'élévation vers `role='PARTNER'` reste une action manuelle ADMIN (base de données directe — comme **tout** changement de rôle dans BARDEC aujourd'hui : il n'existe aucune UI de changement de rôle dans l'admin, pour aucun rôle).
+
+## C. Types TypeScript
+
+- `artifacts/mobile/types/partner.ts` (nouveau — ce repo n'a pas de `database.types.ts` généré, chaque écran déclare ses interfaces à la frontière Supabase) : `PartnerType`, `PartnerStatus`, `PartnerRow`, et l'interface `PartnerAdapter` (Ports/Adapters, §14) avec `initialize()` / `getCapabilities()` / `validateConfig()`.
+- `artifacts/mobile/constants/mockData.ts` : `UserRole` étendu avec `'PARTNER'` ; `User` étendu avec `partnerType?`/`partnerStatus?` (optionnels, no-op pour les 5 rôles existants).
+- `artifacts/mobile/components/RoleBadge.tsx` : couleur badge ajoutée pour `PARTNER`. Libellé **non traduit** dans les 20 langues (`constants/translations.ts` est un `Record<TranslationKey, string>` strict répété sur 20 blocs de langue — y ajouter une clé correctement est un vrai chantier i18n séparé, volontairement non fait ici pour ne pas risquer une régression sur les 5 rôles déjà traduits). Repli sur le libellé anglais `"Partner"`.
+
+## D. Auth & Navigation
+
+- `context/AuthContext.tsx` : nouvelle fonction `enrichWithPartner()` (même pattern que `enrichWithCompany()`) — no-op pour tout rôle ≠ `PARTNER`, sinon lit la ligne `partners` la plus récente de l'utilisateur et peuple `partnerType`/`partnerStatus`.
+- `app/(app)/(tabs)/_layout.tsx` : garde ajoutée — un compte `PARTNER` avec statut `PENDING`/`UNDER_REVIEW` est redirigé vers `app/(app)/partner-pending.tsx` au lieu de monter la bottom bar. Aucun impact sur les flux Acheteur/Vendeur/Approbateur/Admin (même principe que les gardes de rôle ajoutées le 11 sept sur `admin.tsx`/`vendor-dashboard.tsx`).
+- `app/(app)/partner-pending.tsx` : écran d'attente minimal (statut, type de partenaire, déconnexion). Aucun espace partenaire fonctionnel au-delà — voir "Post-lancement" ci-dessous.
+
+## E. Comment approuver un partenaire (procédure actuelle — pas d'UI dédiée)
+
+1. Le candidat s'authentifie normalement (rôle existant inchangé) puis une ligne est insérée dans `partners` (`status='PENDING'`) — **côté client, aucun écran de candidature n'a été construit dans cette fondation** (voir Post-lancement) ; l'insertion peut pour l'instant se faire via une requête directe respectant la RLS (`user_id = auth.uid()`, `status = 'PENDING'`).
+2. Un ADMIN passe la ligne en `UNDER_REVIEW` puis `APPROVED`/`REJECTED` :
+   ```sql
+   update partners set status = 'APPROVED' where id = '<partner_id>';
+   ```
+   (autorisé par RLS + trigger uniquement pour un compte `ADMIN` réel — vérifié empiriquement.)
+3. Si l'organisation doit obtenir des permissions BARDEC plus larges que "voir/éditer sa propre ligne partenaire", un ADMIN élève manuellement son compte :
+   ```sql
+   update users set role = 'PARTNER' where id = '<user_id>';
+   ```
+   Cette étape est **volontairement séparée** de l'approbation `partners.status` (doc §9 : statut et permissions restent deux concepts distincts) et reste manuelle, comme tout changement de rôle dans BARDEC aujourd'hui.
+
+## F. Étendre avec un nouveau type de partenaire (via l'adapter)
+
+1. Ajouter la valeur au enum Postgres `partner_type` (migration `ALTER TYPE ... ADD VALUE`) et à l'union TypeScript `PartnerType` (`types/partner.ts`).
+2. Implémenter `PartnerAdapter` pour ce type (capacités, validation de `metadata`) — aucun adapter concret n'existe encore, l'interface est prête à être implémentée au cas par cas.
+3. Ne **jamais** dupliquer la logique RLS par type dans cette fondation : le périmètre par type (doc §6-§7) est un chantier post-lancement distinct, pas une modification de la table `partners` elle-même.
+
+## G. Réservé pour la phase post-lancement (explicitement hors périmètre de cette fondation)
+
+- Écran de candidature partenaire côté client (formulaire `partner_type` + `company_name` + `metadata`).
+- Permissions granulaires (`partner.read`, `partner.manage_delivery`, …) et périmètre de données par type (doc §6-§8) — la fondation ne pose que rôle + type + statut, pas encore le système de permissions/scope détaillé.
+- Élévation automatique `users.role → 'PARTNER'` déclenchée par l'approbation (aujourd'hui manuelle, par design — voir section E).
+- Traduction du libellé "Partenaire" dans les 20 langues actives (`constants/translations.ts`).
+- Ajout de `PARTNER` à la liste des rôles ciblables par l'admin dans l'onglet Notifications (`admin.tsx`) — trouvé pendant l'implémentation, non fait pour rester dans le périmètre strict de la mission.
+- Adapters concrets par type de partenaire (`DeliveryPartnerAdapter`, `AIPartnerAdapter`, …).
+- API/webhooks partenaires (doc §15-§16).
+- Modules métier réels par type de partenaire (suivi de flotte LOGISTICS, catalogue SUPPLIER…) — seuls des libellés "Bientôt disponible" existent aujourd'hui (`partner-dashboard.tsx`, section H).
+
+## H. Extension du 11 sept (suite) — onglet Admin Partenaires, Dashboard Partenaire enrichi, renommage du Dashboard Approbateur
+
+Le rôle **PARTNER reste exclusivement géré par l'ADMIN** — aucun changement au rôle APPROVER ni à la RLS/trigger `protect_partner_status` : cette extension ajoute uniquement de l'UI et une colonne, sans toucher au périmètre de permissions posé en section B.
+
+**Schéma** — colonne `status_reason text` ajoutée à `public.partners` (migration `add_partner_status_reason`), protégée par le même trigger `protect_partner_status()` que `status`/`partner_type`/`user_id` (étendu, pas remplacé) : un non-admin ne peut pas l'auto-éditer (vérifié empiriquement). Portée le motif que l'admin renseigne lors d'un rejet ou d'une suspension.
+
+**`types/partner.ts`** — `PARTNER_TYPE_LABELS` et `PARTNER_STATUS_LABELS` (FR) déplacés ici comme unique source (étaient dupliqués dans `partner-dashboard.tsx` et `partner-pending.tsx`, qui importent désormais les deux). `PartnerRow` inclut `status_reason: string | null`.
+
+**Admin — onglet "Partenaires"** (`admin.tsx`, `AdminTab` étendu) : même conventions que l'onglet "Sociétés B2B" (`keyCard`/`formInput`) et "Alertes" (chips `tabChip` pour les filtres). Liste jointe à `users!user_id(display_name, email, phone)` ; filtres TYPE (18 valeurs) et STATUT (8 valeurs) ; badge de comptage sur les statuts `PENDING`/`UNDER_REVIEW`. Actions : Approuver → `APPROVED` ; Rejeter → motif obligatoire (formulaire inline, même pattern que le rejet de paiement) → `REJECTED` ; Suspendre (motif obligatoire) ↔ Réactiver (sans motif) entre `SUSPENDED` et `ACTIVE`.
+
+**Dashboard Partenaire** (`partner-dashboard.tsx`) : bannière d'alerte si une ligne `partners` de l'utilisateur repasse à `SUSPENDED`/`REJECTED` (affiche `status_reason`) — défense en profondeur pour le cas où le cache local `user.partnerStatus` n'a pas encore été rafraîchi après une décision admin ; la garde de navigation (section D) n'a pas changé. Section "Profil & compte" (coordonnées, identifiant partenaire, date d'adhésion, bouton "Contacter le support"). Placeholders "Bientôt disponible" désormais différenciés par type (`MODULE_PLACEHOLDERS`, ex. suivi de flotte pour LOGISTICS/TRANSPORTER, catalogue pour SUPPLIER/WHOLESALER) — toujours aucune logique métier réelle derrière (voir section G).
+
+**Dashboard Approbateur renommé** — `approvals.tsx` → `approver-dashboard.tsx` (convention `*-dashboard.tsx` des autres rôles à écran dédié), tab `_layout.tsx` mis à jour (titre "Espace Approbateur", icône `clipboard-check` ajoutée à `components/Icon.tsx`). Le premier onglet visible pour `role === 'APPROVER'` était déjà cet écran (les onglets Accueil/Recherche/Panier/Commandes sont masqués pour ce rôle) — pas de changement structurel de position. Ajouts : garde explicite `!user?.companyId` (défense en profondeur en plus de la policy RLS `orders_approver`) ; jointure `customer:users!customer_id(display_name, email)` pour afficher l'employé demandeur ; affichage du crédit Net30 restant (`creditLimit - creditBalance`) dans l'en-tête.

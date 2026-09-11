@@ -61,7 +61,7 @@ export default function OrdersScreen() {
 
   // ── Fetch orders from Supabase ──────────────────────────────────────────────
   // APPROVER's own company-wide pending_approval queue now lives in its own
-  // dedicated tab (app/(app)/(tabs)/approvals.tsx) — this screen is purely
+  // dedicated tab (app/(app)/(tabs)/approver-dashboard.tsx) — this screen is purely
   // "my own orders" for everyone, approver included (an approver can still
   // have placed their own personal orders as a buyer).
   const fetchOrders = useCallback(async () => {
@@ -268,7 +268,7 @@ export default function OrdersScreen() {
               )}
               {/* Motif de rejet — visible par le client/société une fois la commande rejetée
                   par l'approbateur (traité désormais dans le tableau de bord Approbateur
-                  dédié, app/(app)/(tabs)/approvals.tsx) */}
+                  dédié, app/(app)/(tabs)/approver-dashboard.tsx) */}
               {order.status === 'cancelled' && order.notes && (
                 <View style={styles.rejectReasonBox}>
                   <Feather name="alert-circle" size={14} color="#DC2626" />
