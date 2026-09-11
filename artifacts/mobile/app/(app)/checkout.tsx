@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView,
+  ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
+import * as Location from 'expo-location';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { router } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
+import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@/components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,7 +16,11 @@ import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { useCurrency } from '@/context/CurrencyContext';
 import { useRelayPoints } from '@/hooks/useRelayPoints';
+import { usePickupStores } from '@/hooks/usePickupStores';
 import { useCustomerAddresses, useCreateCustomerAddress } from '@/hooks/useCustomerAddresses';
+import { MOBILE_MONEY_LOGOS } from '@/components/PaymentLogos';
+import { citiesForCountryText } from '@/constants/cities';
+import { PhoneInput, PhoneInputValue } from '@/components/PhoneInput';
 
 type Step = 1 | 2 | 3 | 4;
 type DeliveryType = 'home' | 'drone' | 'relay_point' | 'store_pickup';
@@ -34,7 +39,7 @@ interface RelayPoint {
   id: string; name: string; address: string;
 }
 interface StorePickup {
-  id: string; name: string; address: string; hours: string; contact: string;
+  id: string; name: string; address: string; city: string; hours: string; phone: string;
 }
 interface DeliveryState {
   type: DeliveryType; homeMethod: HomeMethod; cost: number; days: string;
@@ -47,12 +52,6 @@ function checkDroneEligibility(city: string): boolean {
     city.toLowerCase().trim()
   );
 }
-
-const STORE_PICKUPS: StorePickup[] = [
-  { id: 's1', name: 'BARDEC Hub Paris Centre', address: '8 Rue de Rivoli, 75001 Paris',          hours: 'Lun–Ven 9h–18h, Sam 10h–17h', contact: '+33 1 23 45 67 89' },
-  { id: 's2', name: 'Showroom Opéra',          address: '24 Boulevard des Capucines, 75009',     hours: 'Lun–Sam 9h–19h',              contact: '+33 1 98 76 54 32' },
-  { id: 's3', name: 'Point Vente Nation',       address: '33 Cours de Vincennes, 75020',         hours: 'Mar–Sam 10h–18h',             contact: '+33 1 11 22 33 44' },
-];
 
 const HOME_OPTIONS: { id: HomeMethod; label: string; cost: number; days: string; desc: string }[] = [
   { id: 'standard',  label: 'Standard', cost: 0,  days: '5–7 jours',       desc: 'Livraison gratuite à domicile' },
@@ -74,7 +73,7 @@ const PAYMENT_METHODS: {
 }[] = [
   // ─ Available now — B2C
   { id: 'wave',             label: 'Wave',                   sublabel: 'Mobile Money',                icon: 'zap',              color: '#1A56DB', available: true,  b2c: true,  b2b: false },
-  { id: 'orange_money',     label: 'Orange Money',           sublabel: 'Mobile Money',                icon: 'smartphone',       color: '#F97316', available: true,  b2c: true,  b2b: false },
+  { id: 'orange_money',     label: 'Orange Money',           sublabel: 'Mobile Money',                icon: 'smartphone',       color: '#FF7900', available: true,  b2c: true,  b2b: false },
   { id: 'mtn_momo',         label: 'MTN MoMo',               sublabel: 'Mobile Money Afrique',        icon: 'phone',            color: '#EAB308', available: true,  b2c: true,  b2b: false },
   { id: 'cash_on_delivery', label: 'Paiement à la livraison',sublabel: 'Cash · Aucune vérification',  icon: 'package',          color: '#22C55E', available: true,  b2c: true,  b2b: true  },
   // Net30 : disponible=true depuis que le backend crédit est branché
@@ -91,48 +90,6 @@ const PAYMENT_METHODS: {
   { id: 'card',             label: 'Carte bancaire',         sublabel: 'Visa · Mastercard · Bientôt', icon: 'credit-card',      color: '#6B7280', available: false, b2c: true,  b2b: true  },
 ];
 
-const MOBILE_MONEY_INFO: Record<string, { number: string; name: string; instructions: string[] }> = {
-  wave: {
-    number: '+221 70 000 WAVE (9283)',
-    name: 'BARDEC SAS',
-    instructions: [
-      'Ouvrez l\'app Wave sur votre téléphone',
-      'Appuyez sur "Envoyer de l\'argent"',
-      'Entrez le numéro BARDEC ci-dessus',
-      'Saisissez le montant exact en FCFA',
-      'Mettez la référence commande en motif',
-      'Confirmez avec votre code Wave',
-      'Prenez une capture d\'écran du reçu',
-    ],
-  },
-  orange_money: {
-    number: '+221 77 000 OM00 (0600)',
-    name: 'BARDEC SAS',
-    instructions: [
-      'Composez #144# ou ouvrez l\'app Orange Money',
-      'Choisissez "Transfert d\'argent"',
-      'Entrez le numéro BARDEC ci-dessus',
-      'Saisissez le montant exact en FCFA',
-      'Indiquez la référence commande',
-      'Confirmez avec votre code secret',
-      'Sauvegardez le reçu SMS ou screenshot',
-    ],
-  },
-  mtn_momo: {
-    number: '+233 24 000 MOMO (6666)',
-    name: 'BARDEC LTD',
-    instructions: [
-      'Composez *170# ou ouvrez l\'app MoMo',
-      'Sélectionnez "Transfer Money"',
-      'Entrez le numéro BARDEC ci-dessus',
-      'Saisissez le montant exact en FCFA',
-      'Ajoutez la référence commande en note',
-      'Confirmez avec votre PIN MoMo',
-      'Conservez le reçu de transaction',
-    ],
-  },
-};
-
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function CheckoutScreen() {
   const colors = useColors();
@@ -142,6 +99,7 @@ export default function CheckoutScreen() {
   const { formatPrice } = useCurrency();
   const insets = useSafeAreaInsets();
   const { data: relayPoints = [], isLoading: loadingRelayPoints } = useRelayPoints();
+  const { data: pickupStores = [], isLoading: loadingPickupStores } = usePickupStores();
   const { data: savedAddresses = [] } = useCustomerAddresses();
   const createAddress = useCreateCustomerAddress();
 
@@ -167,6 +125,54 @@ export default function CheckoutScreen() {
   });
   const [selectedSavedAddressId, setSelectedSavedAddressId] = useState<string | null>(null);
   const [saveNewAddress, setSaveNewAddress] = useState(false);
+  const [locatingGps, setLocatingGps] = useState(false);
+  // Chantier 4 — même composant PhoneInput que l'inscription (drapeau +
+  // indicatif, libphonenumber-js). address.phone reste la source de vérité
+  // en E.164 quand le numéro est valide (utilisé tel quel pour la commande),
+  // ou les chiffres nationaux bruts sinon (numéro optionnel au checkout,
+  // contrairement à l'inscription — voir la validation dans handleNext).
+  const [phoneValue, setPhoneValue] = useState<PhoneInputValue | null>(null);
+
+  // Chantier 3 — suggestions de villes filtrées par le pays saisi (texte
+  // libre) + préfixe déjà tapé dans le champ Ville ; le champ reste une
+  // TextInput normale, ces suggestions ne sont qu'un raccourci facultatif.
+  const citySuggestions = useMemo(
+    () => citiesForCountryText(address.country, address.city),
+    [address.country, address.city]
+  );
+
+  async function handleUseGpsLocation() {
+    setLocatingGps(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission refusée', "Autorise l'accès à la position pour pré-remplir ton adresse automatiquement.");
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const results = await Location.reverseGeocodeAsync({
+        latitude: pos.coords.latitude, longitude: pos.coords.longitude,
+      });
+      const place = results[0];
+      if (!place) {
+        Alert.alert('Adresse introuvable', "Impossible de déterminer ton adresse à partir de la position. Renseigne-la manuellement.");
+        return;
+      }
+      const streetLine = [place.streetNumber, place.street].filter(Boolean).join(' ') || place.name || '';
+      setAddress(a => ({
+        ...a,
+        street:   streetLine || a.street,
+        city:     place.city ?? place.subregion ?? a.city,
+        zipCode:  place.postalCode ?? a.zipCode,
+        country:  place.country ?? a.country,
+      }));
+      setSelectedSavedAddressId(null);
+    } catch {
+      Alert.alert('Erreur', "Impossible d'obtenir ta position GPS. Réessaie ou renseigne l'adresse manuellement.");
+    } finally {
+      setLocatingGps(false);
+    }
+  }
 
   const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
   // Net30 n'est offert que si la société de l'acheteur est approuvée ET a
@@ -177,8 +183,6 @@ export default function CheckoutScreen() {
   const availableCredit = Math.max((user?.creditLimit ?? 0) - (user?.creditBalance ?? 0), 0);
   const defaultMethod: PaymentMethod = isB2B ? 'cash_on_delivery' : 'wave';
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(defaultMethod);
-  const [proofUri, setProofUri]     = useState<string | null>(null);
-  const [pendingProofUri, setPendingProofUri] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('pending');
   const [purchaseOrder, setPurchaseOrder] = useState('');
   const [agreed, setAgreed] = useState(false);
@@ -224,44 +228,55 @@ export default function CheckoutScreen() {
 
   const isMobileMoney = ['wave', 'orange_money', 'mtn_momo'].includes(paymentMethod);
 
-  // No allowsEditing on either picker below — same fix as profile.tsx (avatar),
-  // register-shop.tsx and my-shop/add-product.tsx (shop/product photos): the
-  // OS crop screen has no reliable confirm path on some Android devices, so
-  // the pick gets reported as canceled even after a real selection. Confirm
-  // explicitly in-app instead (see the modal near the bottom of this file).
-  async function pickProof() {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission requise', 'Autorisez l\'accès à votre galerie pour envoyer votre preuve de paiement.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
+  // Chantier 2 — paiement direct via API (sandbox PayDunya), remplace l'ancien
+  // flux "transfert manuel + capture d'écran". PayDunya agrège Wave/Orange
+  // Money/MTN MoMo/carte derrière une seule page de paiement hébergée : on
+  // n'a pas besoin d'intégrer séparément l'API brute de chaque opérateur.
+  // Le montant est recalculé côté serveur (payment-gateway lit orders.total,
+  // jamais un montant envoyé par ce client) et le statut "paid" n'est
+  // JAMAIS mis à jour ici — uniquement par payment-gateway-webhook, après
+  // vérification signée auprès de PayDunya. Voir supabase/edge-functions/
+  // payment-gateway et payment-gateway-webhook.
+  async function payWithAggregator(orderId: string): Promise<void> {
+    const { data, error: invokeError } = await supabase!.functions.invoke('payment-gateway', {
+      body: { provider_code: 'paydunya', order_id: orderId },
     });
-    if (!result.canceled && result.assets[0]) {
-      setPendingProofUri(result.assets[0].uri);
-    }
-  }
 
-  async function takeProofPhoto() {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission requise', 'Autorisez l\'accès à l\'appareil photo.');
-      return;
+    if (invokeError) {
+      const ctx = (invokeError as any)?.context;
+      let detail: string | null = null;
+      if (ctx?.json) {
+        const body = await ctx.json().catch(() => null);
+        if (typeof body?.error === 'string') detail = body.message ?? body.error;
+      }
+      console.warn('[checkout:payWithAggregator]', detail ?? invokeError.message);
+      throw new Error(detail ?? 'Impossible d\'initier le paiement pour le moment.');
     }
-    const result = await ImagePicker.launchCameraAsync({
-      quality: 0.7,
-    });
-    if (!result.canceled && result.assets[0]) {
-      setPendingProofUri(result.assets[0].uri);
-    }
-  }
 
-  function handleConfirmProof() {
-    if (!pendingProofUri) return;
-    setProofUri(pendingProofUri);
-    setPendingProofUri(null);
+    const checkoutUrl: string | undefined = data?.checkout_url;
+    if (!checkoutUrl) {
+      throw new Error('Réponse de paiement invalide — réessaie dans un instant.');
+    }
+
+    // Ouvre la page de paiement PayDunya (mode sandbox) dans un navigateur
+    // intégré — c'est PayDunya qui présente ensuite Wave/OM/carte au client
+    // et gère la saisie de son propre numéro, pas nous.
+    await WebBrowser.openBrowserAsync(checkoutUrl);
+
+    // Le webhook (service_role, signature vérifiée côté serveur) est la
+    // seule source de vérité pour "paid" — ce re-fetch est purement pour
+    // rafraîchir l'affichage si la confirmation est déjà arrivée pendant
+    // que le client avait le navigateur ouvert ; sans lui, l'écran reste
+    // simplement sur "en attente de confirmation" jusqu'à la prochaine
+    // ouverture de la commande.
+    const { data: refreshed } = await supabase!
+      .from('orders')
+      .select('payment_status')
+      .eq('id', orderId)
+      .maybeSingle();
+    if (refreshed?.payment_status === 'paid') {
+      setPaymentStatus('paid');
+    }
   }
 
   async function handleNext() {
@@ -279,8 +294,8 @@ export default function CheckoutScreen() {
         Alert.alert('Pays invalide', 'Le pays doit contenir des lettres, pas seulement des chiffres.');
         return;
       }
-      if (address.phone && !/^[+\d][\d\s().-]{5,19}$/.test(address.phone.trim())) {
-        Alert.alert('Téléphone invalide', 'Entrez un numéro de téléphone valide (chiffres uniquement, 6 à 20 caractères).');
+      if (phoneValue && phoneValue.nationalDigits.length > 0 && !phoneValue.isValid) {
+        Alert.alert('Téléphone invalide', 'Entrez un numéro de téléphone valide pour le pays sélectionné (ou laisse le champ vide).');
         return;
       }
     }
@@ -306,14 +321,6 @@ export default function CheckoutScreen() {
         Alert.alert('Méthode indisponible', 'Ce moyen de paiement n\'est pas encore disponible. Choisissez-en un autre.');
         return;
       }
-      if (isMobileMoney && !proofUri) {
-        Alert.alert(
-          'Preuve requise',
-          'Veuillez envoyer votre paiement mobile money puis joindre la capture d\'écran du reçu de transaction.'
-        );
-        return;
-      }
-
       // Determine payment status (local variable — state update is async).
       // net30 stays 'pending' like cash_on_delivery — it's genuinely unpaid
       // until an admin settles the invoice later (which is what actually
@@ -382,10 +389,11 @@ export default function CheckoutScreen() {
         // schema.sql previously described this as a delivery_relay_point
         // JSONB column, which does not exist in production; fixed there
         // too). delivery_point_name/address are generic columns (not
-        // relay-specific) also filled in for store_pickup for consistency,
-        // even though store_pickup itself still uses local mock data
-        // (STORE_PICKUPS) — wiring real vendor pickup addresses is a
-        // separate chantier, see BUGS.md.
+        // relay-specific) also filled in for store_pickup — the store itself
+        // now comes from the real `pickup_stores` table (admin-managed, see
+        // admin.tsx → Logistique → Magasins), no FK column added on orders
+        // since name/address are enough to keep a snapshot of the chosen
+        // store at order time (same rationale as the pre-existing pattern).
         const relayOrStoreFields = delivery.type === 'relay_point' && delivery.relayPoint
           ? {
               relay_point_id:         delivery.relayPoint.id,
@@ -399,7 +407,7 @@ export default function CheckoutScreen() {
             }
           : {};
 
-        const { error: dbErr } = await supabase.from('orders').insert({
+        const { data: insertedOrder, error: dbErr } = await supabase.from('orders').insert({
           customer_id:           realCustomerId,
           company_id:            realProfile?.company_id ?? null,
           order_number:          orderRef,
@@ -428,10 +436,10 @@ export default function CheckoutScreen() {
             zip_code:  address.zipCode,
           },
           purchase_order_number: purchaseOrder || null,
-        });
-        setSubmitting(false);
+        }).select('id').single();
 
-        if (dbErr) {
+        if (dbErr || !insertedOrder) {
+          setSubmitting(false);
           console.error('[checkout:insertOrder]', dbErr);
           Alert.alert(
             'Erreur commande',
@@ -456,6 +464,22 @@ export default function CheckoutScreen() {
             console.warn('[checkout:saveAddress]', err);
           }
         }
+
+        // Chantier 2 : déclenche le paiement direct via l'agrégateur — la
+        // commande existe déjà (payment_status='awaiting_verification'),
+        // donc un échec ici n'annule pas la commande, il empêche juste de
+        // passer à l'écran de confirmation tant que le client n'a pas
+        // retenté le paiement.
+        if (isMobileMoney) {
+          try {
+            await payWithAggregator(insertedOrder.id);
+          } catch (payErr: any) {
+            setSubmitting(false);
+            Alert.alert('Paiement indisponible', payErr?.message ?? 'Réessaie dans un instant.');
+            return; // ← reste à l'étape 3, la commande est déjà enregistrée
+          }
+        }
+        setSubmitting(false);
       }
       // ─────────────────────────────────────────────────────────────────────
     }
@@ -572,16 +596,17 @@ export default function CheckoutScreen() {
             return;
           }
           setPaymentMethod(pm.id as PaymentMethod);
-          if (!['wave', 'orange_money', 'mtn_momo'].includes(pm.id)) {
-            setProofUri(null);
-          }
         }}
         activeOpacity={locked ? 0.6 : 0.8}
       >
-        {/* Icon box */}
-        <View style={[styles.payIconBox, { backgroundColor: locked ? colors.border : pm.color + '20' }]}>
-          <Feather name={pm.icon as any} size={20} color={locked ? colors.mutedForeground : pm.color} />
-        </View>
+        {/* Icon box — logo officiel pour Wave / Orange Money / MTN MoMo, icône générique sinon */}
+        {!locked && MOBILE_MONEY_LOGOS[pm.id] ? (
+          React.createElement(MOBILE_MONEY_LOGOS[pm.id], { size: 44 })
+        ) : (
+          <View style={[styles.payIconBox, { backgroundColor: locked ? colors.border : pm.color + '20' }]}>
+            <Feather name={pm.icon as any} size={20} color={locked ? colors.mutedForeground : pm.color} />
+          </View>
+        )}
 
         {/* Labels */}
         <View style={{ flex: 1 }}>
@@ -605,11 +630,12 @@ export default function CheckoutScreen() {
     );
   };
 
-  // ── Mobile money instructions panel ──────────────────────────────────────────
+  // ── Mobile money payment panel ────────────────────────────────────────────────
+  // Chantier 2 : paiement direct via l'agrégateur (PayDunya, mode sandbox) —
+  // plus d'instructions de virement manuel ni de preuve à joindre. Le clic sur
+  // "Payer avec {méthode}" (bouton du bas) ouvre la page de paiement hébergée.
   const MobileMoneyPanel = () => {
-    const info = MOBILE_MONEY_INFO[paymentMethod];
-    const pm   = PAYMENT_METHODS.find(p => p.id === paymentMethod)!;
-    if (!info) return null;
+    const pm = PAYMENT_METHODS.find(p => p.id === paymentMethod)!;
     return (
       <View style={[styles.mmPanel, { backgroundColor: pm.color + '08', borderColor: pm.color + '40' }]}>
         {/* Header */}
@@ -617,96 +643,59 @@ export default function CheckoutScreen() {
           colors={[pm.color + '20', 'transparent']}
           style={styles.mmHeader}
         >
-          <View style={[styles.mmIconCircle, { backgroundColor: pm.color }]}>
-            <Feather name={pm.icon as any} size={20} color="white" />
-          </View>
+          {MOBILE_MONEY_LOGOS[pm.id] ? (
+            React.createElement(MOBILE_MONEY_LOGOS[pm.id], { size: 42 })
+          ) : (
+            <View style={[styles.mmIconCircle, { backgroundColor: pm.color }]}>
+              <Feather name={pm.icon as any} size={20} color="white" />
+            </View>
+          )}
           <View style={{ flex: 1 }}>
-            <Text style={[styles.mmTitle, { color: pm.color }]}>Instructions — {pm.label}</Text>
-            <Text style={[styles.mmSubtitle, { color: colors.mutedForeground }]}>Paiement manuel · Vérification sous 24h</Text>
+            <Text style={[styles.mmTitle, { color: pm.color }]}>Paiement — {pm.label}</Text>
+            <Text style={[styles.mmSubtitle, { color: colors.mutedForeground }]}>Via PayDunya · Environnement de test (sandbox)</Text>
           </View>
         </LinearGradient>
 
-        {/* Amount to send */}
+        {/* Amount */}
         <View style={[styles.mmAmountBox, { backgroundColor: pm.color + '15', borderColor: pm.color + '40' }]}>
-          <Text style={[styles.mmAmountLabel, { color: colors.mutedForeground }]}>Montant exact à envoyer</Text>
+          <Text style={[styles.mmAmountLabel, { color: colors.mutedForeground }]}>Montant à payer</Text>
           <Text style={[styles.mmAmountValue, { color: pm.color }]}>{formatXOF(total)}</Text>
           <Text style={[styles.mmAmountRef, { color: colors.foreground }]}>Référence : {orderRef}</Text>
         </View>
 
-        {/* Recipient */}
-        <View style={[styles.mmRecipient, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Feather name="user" size={14} color={pm.color} />
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.mmRecipientLabel, { color: colors.mutedForeground }]}>Numéro destinataire</Text>
-            <Text style={[styles.mmRecipientNumber, { color: colors.foreground }]} selectable>{info.number}</Text>
-            <Text style={[styles.mmRecipientName, { color: colors.mutedForeground }]}>{info.name}</Text>
-          </View>
-          <TouchableOpacity style={[styles.mmCopyBtn, { backgroundColor: pm.color + '15' }]}>
-            <Feather name="copy" size={14} color={pm.color} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Steps */}
+        {/* How it works */}
         <View style={styles.mmSteps}>
-          {info.instructions.map((step, i) => (
-            <View key={i} style={styles.mmStepRow}>
-              <View style={[styles.mmStepNum, { backgroundColor: pm.color }]}>
-                <Text style={styles.mmStepNumText}>{i + 1}</Text>
-              </View>
-              <Text style={[styles.mmStepText, { color: colors.foreground }]}>{step}</Text>
+          <View style={styles.mmStepRow}>
+            <View style={[styles.mmStepNum, { backgroundColor: pm.color }]}>
+              <Text style={styles.mmStepNumText}>1</Text>
             </View>
-          ))}
+            <Text style={[styles.mmStepText, { color: colors.foreground }]}>
+              Appuie sur « Payer avec {pm.label} » ci-dessous
+            </Text>
+          </View>
+          <View style={styles.mmStepRow}>
+            <View style={[styles.mmStepNum, { backgroundColor: pm.color }]}>
+              <Text style={styles.mmStepNumText}>2</Text>
+            </View>
+            <Text style={[styles.mmStepText, { color: colors.foreground }]}>
+              Une page de paiement sécurisée s'ouvre — renseigne ton numéro {pm.label} et confirme
+            </Text>
+          </View>
+          <View style={styles.mmStepRow}>
+            <View style={[styles.mmStepNum, { backgroundColor: pm.color }]}>
+              <Text style={styles.mmStepNumText}>3</Text>
+            </View>
+            <Text style={[styles.mmStepText, { color: colors.foreground }]}>
+              Reviens dans l'app — la confirmation est automatique dès que le paiement est validé
+            </Text>
+          </View>
         </View>
 
-        {/* Proof upload */}
-        <View style={[styles.mmUploadSection, { borderTopColor: colors.border }]}>
-          <Text style={[styles.mmUploadTitle, { color: colors.foreground }]}>
-            Joindre la preuve de paiement *
-          </Text>
-          <Text style={[styles.mmUploadHint, { color: colors.mutedForeground }]}>
-            Capture d'écran ou photo du reçu de transaction
-          </Text>
-
-          {proofUri ? (
-            <View style={styles.mmProofPreview}>
-              <Image source={{ uri: proofUri }} style={styles.mmProofImage} resizeMode="cover" />
-              <TouchableOpacity
-                style={[styles.mmProofChange, { backgroundColor: pm.color }]}
-                onPress={pickProof}
-              >
-                <Feather name="refresh-cw" size={13} color="white" />
-                <Text style={styles.mmProofChangeText}>Changer</Text>
-              </TouchableOpacity>
-              <View style={[styles.mmProofOk, { backgroundColor: '#D1FAE5', borderColor: '#22C55E' }]}>
-                <Feather name="check-circle" size={14} color="#059669" />
-                <Text style={[styles.mmProofOkText, { color: '#059669' }]}>Preuve de paiement jointe</Text>
-              </View>
-            </View>
-          ) : (
-            <View style={styles.mmUploadBtns}>
-              <TouchableOpacity
-                style={[styles.mmUploadBtn, { backgroundColor: pm.color, flex: 1 }]}
-                onPress={pickProof}
-              >
-                <Feather name="image" size={16} color="white" />
-                <Text style={styles.mmUploadBtnText}>Galerie</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.mmUploadBtn, { backgroundColor: colors.card, borderWidth: 1.5, borderColor: pm.color, flex: 1 }]}
-                onPress={takeProofPhoto}
-              >
-                <Feather name="camera" size={16} color={pm.color} />
-                <Text style={[styles.mmUploadBtnText, { color: pm.color }]}>Appareil photo</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-
-        {/* Warning */}
+        {/* Notice */}
         <View style={[styles.mmWarning, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
-          <Feather name="clock" size={14} color="#D97706" />
+          <Feather name="shield" size={14} color="#D97706" />
           <Text style={styles.mmWarningText}>
-            Votre commande sera validée après vérification manuelle de votre paiement (sous 24h ouvrées).
+            Le montant est vérifié côté serveur et le statut "payé" n'est confirmé qu'après validation par PayDunya — jamais depuis cet écran.
           </Text>
         </View>
       </View>
@@ -717,7 +706,7 @@ export default function CheckoutScreen() {
   function ctaLabel(): string {
     if (step < 3) return t('continue');
     if (step === 4) return 'Retour à l\'accueil';
-    if (isMobileMoney)           return `Soumettre · Paiement en attente`;
+    if (isMobileMoney)           return `Payer avec ${PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label ?? paymentMethod}`;
     if (paymentMethod === 'cash_on_delivery') return `Confirmer · Payer à la livraison`;
     if (isB2B)                   return 'Soumettre pour approbation';
     return `Confirmer · ${formatXOF(total)}`;
@@ -729,37 +718,6 @@ export default function CheckoutScreen() {
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      {/* Payment-proof confirmation modal — no native OS crop screen, confirm in-app instead */}
-      <Modal
-        visible={!!pendingProofUri}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPendingProofUri(null)}
-      >
-        <View style={styles.photoModalOverlay}>
-          <View style={[styles.photoModalCard, { backgroundColor: colors.card }]}>
-            <Text style={[styles.photoModalTitle, { color: colors.foreground }]}>Utiliser cette photo ?</Text>
-            {pendingProofUri && (
-              <Image source={{ uri: pendingProofUri }} style={styles.photoModalPreview} resizeMode="cover" />
-            )}
-            <View style={styles.photoModalActions}>
-              <TouchableOpacity
-                style={[styles.photoModalBtn, { borderWidth: 1, borderColor: colors.border }]}
-                onPress={() => setPendingProofUri(null)}
-              >
-                <Text style={{ color: colors.mutedForeground, fontWeight: '700' }}>Annuler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.photoModalBtn, { backgroundColor: colors.primary }]}
-                onPress={handleConfirmProof}
-              >
-                <Text style={{ color: 'white', fontWeight: '700' }}>Valider</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: colors.card, borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => step > 1 ? setStep((step - 1) as Step) : router.back()}>
@@ -835,13 +793,28 @@ export default function CheckoutScreen() {
               </View>
             )}
 
+            {/* Chantier 3 — GPS : pré-remplit street/city/zipCode/country via
+                reverse-geocoding, tous les champs restent éditables après. */}
+            <TouchableOpacity
+              style={[styles.gpsButton, { borderColor: colors.primary, backgroundColor: colors.primary + '10' }]}
+              onPress={handleUseGpsLocation}
+              disabled={locatingGps}
+              activeOpacity={0.8}
+            >
+              {locatingGps
+                ? <ActivityIndicator size="small" color={colors.primary} />
+                : <Feather name="navigation" size={16} color={colors.primary} />}
+              <Text style={[styles.gpsButtonText, { color: colors.primary }]}>
+                {locatingGps ? 'Localisation en cours…' : 'Utiliser ma position GPS'}
+              </Text>
+            </TouchableOpacity>
+
             {[
               { key: 'fullName', label: 'Nom complet *',  placeholder: 'Jean Dupont',       keyboard: 'default'    as const },
               { key: 'street',   label: 'Adresse *',       placeholder: '15 rue du Commerce', keyboard: 'default'    as const },
               { key: 'city',     label: 'Ville *',          placeholder: 'Paris',             keyboard: 'default'    as const },
               { key: 'zipCode',  label: 'Code postal',      placeholder: '75001',             keyboard: 'number-pad' as const },
               { key: 'country',  label: 'Pays',             placeholder: 'France',            keyboard: 'default'    as const },
-              { key: 'phone',    label: 'Téléphone',        placeholder: '+33 6 12 34 56 78', keyboard: 'phone-pad'  as const },
             ].map(field => (
               <View key={field.key} style={styles.inputGroup}>
                 <Text style={[styles.inputLabel, { color: colors.foreground }]}>{field.label}</Text>
@@ -853,8 +826,45 @@ export default function CheckoutScreen() {
                   onChangeText={v => setAddress(a => ({ ...a, [field.key]: v }))}
                   keyboardType={field.keyboard}
                 />
+
+                {/* Chantier 3 — suggestions de villes filtrées par le pays
+                    saisi ; toujours une simple TextInput au-dessus, saisie
+                    manuelle libre à tout moment. */}
+                {field.key === 'city' && citySuggestions.length > 0 && (
+                  <View style={styles.citySuggestionsRow}>
+                    {citySuggestions.map(c => (
+                      <TouchableOpacity
+                        key={c.name}
+                        style={[styles.citySuggestionChip, { borderColor: colors.border, backgroundColor: colors.card }]}
+                        onPress={() => setAddress(a => ({ ...a, city: c.name, zipCode: c.zipCode ?? a.zipCode }))}
+                      >
+                        <Feather name="map-pin" size={11} color={colors.primary} />
+                        <Text style={[styles.citySuggestionChipText, { color: colors.foreground }]}>{c.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
               </View>
             ))}
+
+            {/* Chantier 4 — même sélecteur d'indicatif (drapeau + code pays)
+                que l'écran d'inscription. Téléphone reste optionnel ici
+                (contrairement à l'inscription) : voir la validation dans
+                handleNext, qui ne bloque que si un numéro incomplet/invalide
+                a été saisi. */}
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: colors.foreground }]}>Téléphone</Text>
+              <PhoneInput
+                defaultCountry="SN"
+                initialE164={address.phone.startsWith('+') ? address.phone : null}
+                onChangeValue={v => {
+                  setPhoneValue(v);
+                  setAddress(a => ({ ...a, phone: v.isValid && v.e164 ? v.e164 : v.nationalDigits }));
+                }}
+                colors={colors}
+                placeholder="77 123 45 67"
+              />
+            </View>
 
             {!selectedSavedAddressId && (
               <TouchableOpacity style={styles.saveAddressRow} onPress={() => setSaveNewAddress(v => !v)}>
@@ -976,38 +986,52 @@ export default function CheckoutScreen() {
             {/* Store pickup sub-options */}
             {delivery.type === 'store_pickup' && (
               <View style={[styles.subSection, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Text style={[styles.subSectionTitle, { color: colors.foreground }]}>Points de retrait vendeur</Text>
-                {STORE_PICKUPS.map(store => {
+                <Text style={[styles.subSectionTitle, { color: colors.foreground }]}>
+                  Magasins disponibles ({pickupStores.length})
+                </Text>
+                {loadingPickupStores && <ActivityIndicator color="#22C55E" style={{ marginVertical: 12 }} />}
+                {!loadingPickupStores && pickupStores.length === 0 && (
+                  <Text style={[styles.relayEmptyText, { color: colors.mutedForeground }]}>
+                    Aucun magasin de retrait disponible pour le moment. Choisis un autre mode de livraison.
+                  </Text>
+                )}
+                {pickupStores.map(store => {
                   const sel = delivery.storePickup?.id === store.id;
                   return (
                     <TouchableOpacity
                       key={store.id}
                       style={[styles.relayCard, { borderColor: sel ? '#22C55E' : colors.border, backgroundColor: sel ? '#22C55E12' : colors.background }]}
-                      onPress={() => setDelivery(d => ({ ...d, storePickup: store, relayPoint: null }))}
+                      onPress={() => setDelivery(d => ({
+                        ...d,
+                        storePickup: { id: store.id, name: store.name, address: store.address, city: store.city, hours: store.hours, phone: store.phone },
+                        relayPoint: null,
+                      }))}
                     >
                       <View style={[styles.relayIconBox, { backgroundColor: sel ? '#22C55E20' : colors.muted }]}>
                         <Feather name="shopping-bag" size={16} color={sel ? '#22C55E' : colors.mutedForeground} />
                       </View>
                       <View style={{ flex: 1, gap: 2 }}>
                         <Text style={[styles.relayName, { color: colors.foreground }]}>{store.name}</Text>
-                        <Text style={[styles.relayAddress, { color: colors.mutedForeground }]}>{store.address}</Text>
+                        <Text style={[styles.relayAddress, { color: colors.mutedForeground }]}>{store.address}, {store.city}</Text>
                         <View style={styles.relayHoursRow}>
                           <Feather name="clock" size={11} color={colors.mutedForeground} />
                           <Text style={[styles.relayHours, { color: colors.mutedForeground }]}>{store.hours}</Text>
                         </View>
                         <View style={styles.relayHoursRow}>
                           <Feather name="phone" size={11} color={colors.mutedForeground} />
-                          <Text style={[styles.relayHours, { color: colors.mutedForeground }]}>{store.contact}</Text>
+                          <Text style={[styles.relayHours, { color: colors.mutedForeground }]}>{store.phone}</Text>
                         </View>
                       </View>
                       {sel && <Feather name="check-circle" size={20} color="#22C55E" />}
                     </TouchableOpacity>
                   );
                 })}
-                <View style={[styles.relayPriceNote, { backgroundColor: '#DCFCE7', borderColor: '#22C55E' }]}>
-                  <Feather name="tag" size={13} color="#22C55E" />
-                  <Text style={styles.relayPriceNoteText}>Retrait en magasin — Toujours gratuit</Text>
-                </View>
+                {pickupStores.length > 0 && (
+                  <View style={[styles.relayPriceNote, { backgroundColor: '#DCFCE7', borderColor: '#22C55E' }]}>
+                    <Feather name="tag" size={13} color="#22C55E" />
+                    <Text style={styles.relayPriceNoteText}>Retrait en magasin — Toujours gratuit</Text>
+                  </View>
+                )}
               </View>
             )}
 
@@ -1189,7 +1213,7 @@ export default function CheckoutScreen() {
             </Text>
             <Text style={[styles.confirmSubtitle, { color: colors.mutedForeground }]}>
               {paymentStatus === 'awaiting_verification'
-                ? 'Votre paiement est en attente de vérification par notre équipe.'
+                ? 'Confirmation automatique du paiement en cours.'
                 : t('order_confirmed')}
             </Text>
             <Text style={[styles.confirmOrder, { color: colors.primary }]}>{orderRef}</Text>
@@ -1199,14 +1223,11 @@ export default function CheckoutScreen() {
               <View style={[styles.confirmPayStatus, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
                 <Feather name="clock" size={16} color="#D97706" />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.confirmPayStatusTitle, { color: '#92400E' }]}>Paiement en attente de vérification</Text>
+                  <Text style={[styles.confirmPayStatusTitle, { color: '#92400E' }]}>Paiement en attente de confirmation</Text>
                   <Text style={[styles.confirmPayStatusSub, { color: '#D97706' }]}>
-                    Notre équipe va vérifier votre preuve de paiement {PAYMENT_METHODS.find(p=>p.id===paymentMethod)?.label} sous 24h ouvrées.
-                    Vous recevrez une notification de confirmation.
+                    Ta commande sera automatiquement marquée payée dès que PayDunya confirme la transaction {PAYMENT_METHODS.find(p=>p.id===paymentMethod)?.label}.
+                    Si tu n'as pas terminé le paiement, retourne dans la commande pour réessayer.
                   </Text>
-                  {proofUri && (
-                    <Image source={{ uri: proofUri }} style={styles.confirmProofThumb} resizeMode="cover" />
-                  )}
                 </View>
               </View>
             )}
@@ -1286,11 +1307,11 @@ export default function CheckoutScreen() {
           {submitting ? (
             <>
               <ActivityIndicator size="small" color="white" />
-              <Text style={styles.nextBtnText}>Enregistrement…</Text>
+              <Text style={styles.nextBtnText}>{isMobileMoney ? 'Ouverture du paiement…' : 'Enregistrement…'}</Text>
             </>
           ) : step === 3 ? (
             <>
-              <Feather name={isMobileMoney ? 'upload' : paymentMethod === 'cash_on_delivery' ? 'package' : 'lock'} size={18} color="white" />
+              <Feather name={isMobileMoney ? 'external-link' : paymentMethod === 'cash_on_delivery' ? 'package' : 'lock'} size={18} color="white" />
               <Text style={styles.nextBtnText}>{ctaLabel()}</Text>
             </>
           ) : step === 4 ? (
@@ -1328,6 +1349,11 @@ const styles = StyleSheet.create({
   inputGroup:        { gap: 6 },
   inputLabel:        { fontSize: 13, fontWeight: '600' },
   input:             { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15 },
+  gpsButton:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderRadius: 12, paddingVertical: 12, marginBottom: 4 },
+  gpsButtonText:     { fontSize: 14, fontWeight: '700' },
+  citySuggestionsRow:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  citySuggestionChip:      { flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6 },
+  citySuggestionChipText:  { fontSize: 12, fontWeight: '600' },
 
   // Mode cards (delivery)
   modeCard:          { flexDirection: 'row', alignItems: 'center', borderRadius: 14, borderWidth: 2, padding: 14, gap: 12 },

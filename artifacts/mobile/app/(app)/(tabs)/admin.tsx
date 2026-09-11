@@ -237,6 +237,7 @@ function AdminScreenInner() {
     description: string | null; phone: string | null; address_text: string;
     images: string[] | null; is_active: boolean; verified: boolean;
     rating: number; review_count: number; created_at: string;
+    relay_point_id: string | null; logistics_zone: string | null;
   }
   interface ShopReport {
     id: string; reporter_id: string; reason: string; details: string | null; status: string; created_at: string;
@@ -246,12 +247,13 @@ function AdminScreenInner() {
   const [loadingShops,     setLoadingShops]     = useState(isSupabaseConfigured);
   const [shopStatusFilter, setShopStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [shopVerifiedFilter, setShopVerifiedFilter] = useState<'all' | 'verified' | 'unverified'>('all');
+  const [shopZoneFilter, setShopZoneFilter] = useState<string>('all');
   const [shopPendingReportCounts, setShopPendingReportCounts] = useState<Record<string, number>>({});
   const [expandedShopId,   setExpandedShopId]   = useState<string | null>(null);
   const [shopReports,      setShopReports]      = useState<Record<string, ShopReport[]>>({});
   const [reporterUsers,    setReporterUsers]    = useState<Record<string, { display_name: string | null; email: string }>>({});
   const [editingShopId,    setEditingShopId]    = useState<string | null>(null);
-  const [shopEditForm,     setShopEditForm]     = useState({ name: '', phone: '', address_text: '', description: '' });
+  const [shopEditForm,     setShopEditForm]     = useState({ name: '', phone: '', address_text: '', description: '', logistics_zone: '', relay_point_id: null as string | null });
   const [savingShopEdit,   setSavingShopEdit]   = useState(false);
   const [shopActingId,     setShopActingId]     = useState<string | null>(null);
 
@@ -260,7 +262,7 @@ function AdminScreenInner() {
     setLoadingShops(true);
     const { data, error } = await supabase
       .from('proximity_shops')
-      .select('id, owner_id, name, category, subcategory, description, phone, address_text, images, is_active, verified, rating, review_count, created_at')
+      .select('id, owner_id, name, category, subcategory, description, phone, address_text, images, is_active, verified, rating, review_count, created_at, relay_point_id, logistics_zone')
       .order('created_at', { ascending: false });
     if (error) { console.warn('Admin shops fetch error:', error.message); setLoadingShops(false); return; }
     setRealShops((data ?? []) as RealShop[]);
@@ -347,6 +349,7 @@ function AdminScreenInner() {
     setShopEditForm({
       name: shop.name, phone: shop.phone ?? '',
       address_text: shop.address_text, description: shop.description ?? '',
+      logistics_zone: shop.logistics_zone ?? '', relay_point_id: shop.relay_point_id,
     });
   }
 
@@ -361,12 +364,15 @@ function AdminScreenInner() {
       phone: shopEditForm.phone.trim() || null,
       address_text: shopEditForm.address_text.trim(),
       description: shopEditForm.description.trim() || null,
+      logistics_zone: shopEditForm.logistics_zone.trim() || null,
+      relay_point_id: shopEditForm.relay_point_id,
     }).eq('id', shopId);
     setSavingShopEdit(false);
     if (error) { Alert.alert('Erreur', toUserMessage('admin:saveShopEdit', error, 'Impossible d\'enregistrer ces modifications. Réessaie dans un instant.')); return; }
     setRealShops(prev => prev.map(s => s.id === shopId ? {
       ...s, name: shopEditForm.name.trim(), phone: shopEditForm.phone.trim() || null,
       address_text: shopEditForm.address_text.trim(), description: shopEditForm.description.trim() || null,
+      logistics_zone: shopEditForm.logistics_zone.trim() || null, relay_point_id: shopEditForm.relay_point_id,
     } : s));
     setEditingShopId(null);
   }
@@ -606,6 +612,101 @@ function AdminScreenInner() {
     setDroneZones(prev => prev.map(d => d.id === dz.id ? { ...d, active: !dz.active } : d));
   }
 
+  // ── Magasins de retrait (Click & Collect) — pickup_stores_admin_manage RLS
+  // policy already gives ADMIN a full ALL policy, no backend change needed.
+  // Contrairement à relay_points/drone_zones (toggle actif seulement), ce
+  // module a aussi une vraie édition + suppression (spec du chantier) : la
+  // table n'est référencée par aucune FK (orders ne garde qu'un snapshot
+  // delivery_point_name/address, comme pour les points relais), donc un
+  // hard delete est sans risque d'intégrité référentielle.
+  interface PickupStoreRow { id: string; name: string; address: string; city: string; phone: string; hours: string; active: boolean; created_at: string }
+  const [pickupStoresAdmin, setPickupStoresAdmin] = useState<PickupStoreRow[]>([]);
+  const [loadingPickupStores, setLoadingPickupStores] = useState(isSupabaseConfigured);
+  const [showStoreForm, setShowStoreForm] = useState(false);
+  const [editingStoreId, setEditingStoreId] = useState<string | null>(null);
+  const [storeForm, setStoreForm] = useState({ name: '', address: '', city: '', phone: '', hours: '' });
+  const [savingStore, setSavingStore] = useState(false);
+  const [storeActingId, setStoreActingId] = useState<string | null>(null);
+
+  const fetchPickupStores = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingPickupStores(false); return; }
+    setLoadingPickupStores(true);
+    const { data, error } = await supabase.from('pickup_stores').select('*').order('created_at', { ascending: false });
+    if (error) { console.warn('Admin pickup stores fetch error:', error.message); setLoadingPickupStores(false); return; }
+    setPickupStoresAdmin((data ?? []) as PickupStoreRow[]);
+    setLoadingPickupStores(false);
+  }, []);
+  useEffect(() => { fetchPickupStores(); }, [fetchPickupStores]);
+  useFocusEffect(useCallback(() => { fetchPickupStores(); }, [fetchPickupStores]));
+
+  function openCreateStoreForm() {
+    setEditingStoreId(null);
+    setStoreForm({ name: '', address: '', city: '', phone: '', hours: '' });
+    setShowStoreForm(true);
+  }
+
+  function openEditStoreForm(s: PickupStoreRow) {
+    setEditingStoreId(s.id);
+    setStoreForm({ name: s.name, address: s.address, city: s.city, phone: s.phone, hours: s.hours });
+    setShowStoreForm(true);
+  }
+
+  function closeStoreForm() {
+    setShowStoreForm(false);
+    setEditingStoreId(null);
+    setStoreForm({ name: '', address: '', city: '', phone: '', hours: '' });
+  }
+
+  async function handleSaveStore() {
+    if (!supabase) return;
+    const { name, address, city, phone, hours } = storeForm;
+    if (!name.trim() || !address.trim() || !city.trim() || !phone.trim() || !hours.trim()) {
+      Alert.alert('Champs requis', 'Nom, adresse, ville, téléphone et horaires sont tous obligatoires.'); return;
+    }
+    setSavingStore(true);
+    const payload = {
+      name: name.trim(), address: address.trim(), city: city.trim(),
+      phone: phone.trim(), hours: hours.trim(),
+    };
+    const { error } = editingStoreId
+      ? await supabase.from('pickup_stores').update(payload).eq('id', editingStoreId)
+      : await supabase.from('pickup_stores').insert({ ...payload, active: true });
+    setSavingStore(false);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:saveStore', error, "Impossible d'enregistrer ce magasin. Réessaie dans un instant.")); return; }
+    closeStoreForm();
+    fetchPickupStores();
+  }
+
+  async function handleToggleStoreActive(s: PickupStoreRow) {
+    if (!supabase) return;
+    setStoreActingId(s.id);
+    const { error } = await supabase.from('pickup_stores').update({ active: !s.active }).eq('id', s.id);
+    setStoreActingId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:toggleStoreActive', error, 'Impossible de modifier ce magasin. Réessaie dans un instant.')); return; }
+    setPickupStoresAdmin(prev => prev.map(x => x.id === s.id ? { ...x, active: !s.active } : x));
+  }
+
+  function handleDeleteStore(s: PickupStoreRow) {
+    Alert.alert(
+      'Supprimer ce magasin ?',
+      `"${s.name}" sera définitivement supprimé et ne sera plus proposé au checkout.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer', style: 'destructive',
+          onPress: async () => {
+            if (!supabase) return;
+            setStoreActingId(s.id);
+            const { error } = await supabase.from('pickup_stores').delete().eq('id', s.id);
+            setStoreActingId(null);
+            if (error) { Alert.alert('Erreur', toUserMessage('admin:deleteStore', error, 'Impossible de supprimer ce magasin. Réessaie dans un instant.')); return; }
+            setPickupStoresAdmin(prev => prev.filter(x => x.id !== s.id));
+          },
+        },
+      ]
+    );
+  }
+
   // ── Delivery partners (livreurs) — this chantier only builds the
   // 'internal' flow (delivery_partners_admin_manage RLS policy already
   // gives ADMIN a full ALL policy, no backend change needed); external_api
@@ -783,8 +884,13 @@ function AdminScreenInner() {
     if (shopStatusFilter === 'inactive' && s.is_active) return false;
     if (shopVerifiedFilter === 'verified' && !s.verified) return false;
     if (shopVerifiedFilter === 'unverified' && s.verified) return false;
+    if (shopZoneFilter === 'unassigned' && (s.logistics_zone || s.relay_point_id)) return false;
+    if (shopZoneFilter !== 'all' && shopZoneFilter !== 'unassigned' && s.logistics_zone !== shopZoneFilter) return false;
     return true;
   });
+  // Zones réellement assignées dans les données, pour peupler le filtre —
+  // pas une liste figée, reflète ce que les admins ont assigné jusqu'ici.
+  const knownShopZones = [...new Set(realShops.map(s => s.logistics_zone).filter((z): z is string => !!z))].sort();
   const totalPendingShopReports = Object.values(shopPendingReportCounts).reduce((a, b) => a + b, 0);
 
   const [realUsers,        setRealUsers]        = useState<RealUser[]>([]);
@@ -1536,6 +1642,20 @@ function AdminScreenInner() {
               </TouchableOpacity>
             ))}
           </ScrollView>
+          {/* Filtre par zone logistique — Tâche 3 : "filtres" pour le module Magasins */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingTop: 2, paddingBottom: 4 }}>
+            {['all', 'unassigned', ...knownShopZones].map(f => (
+              <TouchableOpacity
+                key={f}
+                style={[styles.tabChip, { backgroundColor: shopZoneFilter === f ? colors.primary : colors.card, borderColor: colors.border }]}
+                onPress={() => setShopZoneFilter(f)}
+              >
+                <Text style={[styles.tabChipText, { color: shopZoneFilter === f ? 'white' : colors.foreground }]}>
+                  {f === 'all' ? 'Toutes zones' : f === 'unassigned' ? 'Non assignées' : f}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
 
           {loadingShops && <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />}
           {!loadingShops && filteredShops.length === 0 && (
@@ -1628,6 +1748,13 @@ function AdminScreenInner() {
                         <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>
                           {(shop.rating ?? 0).toFixed(1)} ★ · {shop.review_count ?? 0} avis
                         </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Feather name="navigation" size={13} color={shop.logistics_zone || shop.relay_point_id ? colors.primary : colors.mutedForeground} />
+                          <Text style={{ color: shop.logistics_zone || shop.relay_point_id ? colors.foreground : colors.mutedForeground, fontSize: 13 }}>
+                            {shop.logistics_zone ? `Zone : ${shop.logistics_zone}` : 'Aucune zone assignée'}
+                            {shop.relay_point_id ? ` · Relais : ${relayPoints.find(r => r.id === shop.relay_point_id)?.name ?? shop.relay_point_id}` : ''}
+                          </Text>
+                        </View>
                         <TouchableOpacity
                           style={[styles.vendorActionBtn, { backgroundColor: colors.accent, borderColor: colors.border, alignSelf: 'flex-start' }]}
                           onPress={() => openEditShop(shop)}
@@ -1654,6 +1781,49 @@ function AdminScreenInner() {
                             />
                           </View>
                         ))}
+
+                        {/* Tâche 3 : assignation logistique — zone (texte libre,
+                            même convention que delivery_partners.zone) et point
+                            relais (choix parmi relay_points, géré côté onglet
+                            Logistique). Réservé à l'admin côté serveur (trigger
+                            trg_protect_shop_logistics_fields). */}
+                        <View>
+                          <Text style={[styles.formLabel, { color: colors.foreground }]}>Zone logistique</Text>
+                          <TextInput
+                            style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                            placeholder="Ex : Dakar Nord"
+                            placeholderTextColor={colors.mutedForeground}
+                            value={shopEditForm.logistics_zone}
+                            onChangeText={v => setShopEditForm(prev => ({ ...prev, logistics_zone: v }))}
+                          />
+                        </View>
+                        <View>
+                          <Text style={[styles.formLabel, { color: colors.foreground }]}>Point relais assigné</Text>
+                          {relayPoints.length === 0 ? (
+                            <Text style={{ color: colors.mutedForeground, fontSize: 12, marginBottom: 8 }}>
+                              Aucun point relais créé — onglet Logistique.
+                            </Text>
+                          ) : (
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 8 }}>
+                              <TouchableOpacity
+                                style={[styles.tabChip, { backgroundColor: !shopEditForm.relay_point_id ? colors.primary : colors.card, borderColor: colors.border }]}
+                                onPress={() => setShopEditForm(prev => ({ ...prev, relay_point_id: null }))}
+                              >
+                                <Text style={[styles.tabChipText, { color: !shopEditForm.relay_point_id ? 'white' : colors.foreground }]}>Aucun</Text>
+                              </TouchableOpacity>
+                              {relayPoints.map(rp => (
+                                <TouchableOpacity
+                                  key={rp.id}
+                                  style={[styles.tabChip, { backgroundColor: shopEditForm.relay_point_id === rp.id ? colors.primary : colors.card, borderColor: colors.border }]}
+                                  onPress={() => setShopEditForm(prev => ({ ...prev, relay_point_id: rp.id }))}
+                                >
+                                  <Text style={[styles.tabChipText, { color: shopEditForm.relay_point_id === rp.id ? 'white' : colors.foreground }]}>{rp.name}</Text>
+                                </TouchableOpacity>
+                              ))}
+                            </ScrollView>
+                          )}
+                        </View>
+
                         <View style={{ flexDirection: 'row', gap: 8 }}>
                           <TouchableOpacity
                             style={[styles.vendorActionBtn, { backgroundColor: colors.primary, borderColor: colors.primary, opacity: savingShopEdit ? 0.6 : 1 }]}
@@ -2397,6 +2567,134 @@ function AdminScreenInner() {
           {!loadingDeliveryPartners && deliveryPartnersAdmin.length === 0 && (
             <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: 'center', paddingVertical: 12 }}>
               Aucun livreur pour l'instant.
+            </Text>
+          )}
+
+          <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 28 }]}>Magasins de retrait (Click & Collect)</Text>
+          <Text style={{ color: colors.mutedForeground, fontSize: 13, marginBottom: 8 }}>
+            Proposés au client à l'étape Livraison → "Retrait en magasin", uniquement quand actifs.
+          </Text>
+
+          {!showStoreForm ? (
+            <TouchableOpacity style={[styles.createKeyBtn, { backgroundColor: colors.primary }]} onPress={openCreateStoreForm}>
+              <Feather name="plus" size={16} color="white" />
+              <Text style={styles.createKeyBtnText}>Ajouter un magasin</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.createKeyForm, { backgroundColor: colors.card, borderColor: colors.primary }]}>
+              <Text style={[styles.formTitle, { color: colors.foreground }]}>
+                {editingStoreId ? 'Modifier le magasin' : 'Nouveau magasin'}
+              </Text>
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Nom du magasin *</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="Ex: BARDEC Hub Plateau"
+                placeholderTextColor={colors.mutedForeground}
+                value={storeForm.name}
+                onChangeText={v => setStoreForm(f => ({ ...f, name: v }))}
+              />
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Adresse *</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="12 Avenue Léopold Sédar Senghor"
+                placeholderTextColor={colors.mutedForeground}
+                value={storeForm.address}
+                onChangeText={v => setStoreForm(f => ({ ...f, address: v }))}
+              />
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Ville *</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="Dakar"
+                placeholderTextColor={colors.mutedForeground}
+                value={storeForm.city}
+                onChangeText={v => setStoreForm(f => ({ ...f, city: v }))}
+              />
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Téléphone *</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="+221 77 000 0000"
+                placeholderTextColor={colors.mutedForeground}
+                keyboardType="phone-pad"
+                value={storeForm.phone}
+                onChangeText={v => setStoreForm(f => ({ ...f, phone: v }))}
+              />
+
+              <Text style={[styles.formLabel, { color: colors.foreground }]}>Horaires *</Text>
+              <TextInput
+                style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="Lun–Sam 9h–19h"
+                placeholderTextColor={colors.mutedForeground}
+                value={storeForm.hours}
+                onChangeText={v => setStoreForm(f => ({ ...f, hours: v }))}
+              />
+
+              <View style={styles.formActions}>
+                <TouchableOpacity
+                  style={[styles.formCancelBtn, { borderColor: colors.border }]}
+                  onPress={closeStoreForm}
+                >
+                  <Text style={[styles.formCancelText, { color: colors.mutedForeground }]}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.formConfirmBtn, { backgroundColor: colors.primary, opacity: savingStore ? 0.7 : 1 }]}
+                  onPress={handleSaveStore}
+                  disabled={savingStore}
+                >
+                  {savingStore
+                    ? <ActivityIndicator size="small" color="white" />
+                    : <><Feather name="shopping-bag" size={14} color="white" /><Text style={styles.formConfirmText}>{editingStoreId ? 'Enregistrer' : 'Créer'}</Text></>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {loadingPickupStores && <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 12 }} />}
+          {pickupStoresAdmin.map(s => (
+            <View key={s.id} style={[styles.keyCard, { backgroundColor: colors.card, borderColor: s.active ? colors.border : '#FEE2E2', opacity: s.active ? 1 : 0.75 }]}>
+              <View style={styles.keyCardHeader}>
+                <View style={[styles.keyIconBox, { backgroundColor: s.active ? colors.primary + '18' : '#FEE2E2' }]}>
+                  <Feather name="shopping-bag" size={16} color={s.active ? colors.primary : '#DC2626'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.keyName, { color: colors.foreground }]}>{s.name}</Text>
+                  <Text style={[styles.keyPreview, { color: colors.mutedForeground }]} numberOfLines={1}>{s.address}, {s.city}</Text>
+                  <Text style={[styles.keyPreview, { color: colors.mutedForeground }]} numberOfLines={1}>{s.phone} · {s.hours}</Text>
+                </View>
+                <Switch
+                  value={s.active}
+                  onValueChange={() => handleToggleStoreActive(s)}
+                  disabled={storeActingId === s.id}
+                  trackColor={{ false: colors.muted, true: '#22C55E' }}
+                  thumbColor="white"
+                />
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}
+                  onPress={() => openEditStoreForm(s)}
+                  disabled={storeActingId === s.id}
+                >
+                  <Feather name="edit-2" size={13} color={colors.foreground} />
+                  <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: '600' }}>Modifier</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: '#FEE2E2' }}
+                  onPress={() => handleDeleteStore(s)}
+                  disabled={storeActingId === s.id}
+                >
+                  <Feather name="trash-2" size={13} color="#DC2626" />
+                  <Text style={{ color: '#DC2626', fontSize: 13, fontWeight: '600' }}>Supprimer</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+          {!loadingPickupStores && pickupStoresAdmin.length === 0 && (
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: 'center', paddingVertical: 12 }}>
+              Aucun magasin de retrait pour l'instant.
             </Text>
           )}
         </View>

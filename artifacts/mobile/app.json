@@ -8,7 +8,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "bardec",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.bardec.app"
@@ -48,7 +47,9 @@
           "resizeMode": "contain",
           "backgroundColor": "#FFFFFF"
         }
-      ]
+      ],
+      "expo-localization",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

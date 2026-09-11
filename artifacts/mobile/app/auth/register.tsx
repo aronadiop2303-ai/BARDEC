@@ -7,6 +7,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import { Feather } from '@/components/Icon';
+import { PhoneInput, PhoneInputValue } from '@/components/PhoneInput';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
@@ -28,7 +29,7 @@ export default function RegisterScreen() {
   const insets = useSafeAreaInsets();
 
   const [name,         setName]         = useState('');
-  const [phone,        setPhone]        = useState('');
+  const [phoneValue,   setPhoneValue]   = useState<PhoneInputValue | null>(null);
   const [email,        setEmail]        = useState('');
   const [password,     setPassword]     = useState('');
   const [company,      setCompany]      = useState('');
@@ -57,13 +58,12 @@ export default function RegisterScreen() {
   }, [successName]);
 
   async function handleRegister() {
-    if (!name || !phone || !email || !password) {
+    if (!name || !email || !password) {
       Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires');
       return;
     }
-    const phoneDigits = phone.replace(/\D/g, '');
-    if (phoneDigits.length < 8) {
-      Alert.alert('Erreur', 'Numéro de téléphone invalide');
+    if (!phoneValue || !phoneValue.isValid || !phoneValue.e164) {
+      Alert.alert('Erreur', 'Numéro de téléphone invalide pour le pays sélectionné');
       return;
     }
     if (password.length < 6) {
@@ -84,7 +84,7 @@ export default function RegisterScreen() {
         password,
         name.trim(),
         selectedRole,
-        phone.trim(),
+        phoneValue.e164,
         company.trim() || undefined,
         inviteCode.trim() || undefined,
       );
@@ -336,17 +336,12 @@ export default function RegisterScreen() {
             />
           </View>
 
-          <View style={[styles.inputGroup, { borderColor: colors.border, backgroundColor: colors.card }]}>
-            <Feather name="phone" size={18} color={colors.mutedForeground} />
-            <TextInput
-              style={[styles.input, { color: colors.foreground }]}
-              placeholder="Numéro de téléphone *"
-              placeholderTextColor={colors.mutedForeground}
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-            />
-          </View>
+          <PhoneInput
+            defaultCountry="SN"
+            onChangeValue={setPhoneValue}
+            colors={colors}
+            placeholder="Numéro de téléphone *"
+          />
 
           <View style={[styles.inputGroup, { borderColor: colors.border, backgroundColor: colors.card }]}>
             <Feather name="mail" size={18} color={colors.mutedForeground} />
