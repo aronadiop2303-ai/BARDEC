@@ -21,6 +21,8 @@ import { useCustomerAddresses, useCreateCustomerAddress } from '@/hooks/useCusto
 import { MOBILE_MONEY_LOGOS } from '@/components/PaymentLogos';
 import { citiesForCountryText } from '@/constants/cities';
 import { PhoneInput, PhoneInputValue } from '@/components/PhoneInput';
+import { countryDisplayName } from '@/constants/phoneCountries';
+import type { CountryCode } from 'libphonenumber-js';
 
 type Step = 1 | 2 | 3 | 4;
 type DeliveryType = 'home' | 'drone' | 'relay_point' | 'store_pickup';
@@ -159,12 +161,21 @@ export default function CheckoutScreen() {
         return;
       }
       const streetLine = [place.streetNumber, place.street].filter(Boolean).join(' ') || place.name || '';
+      // place.country vient localisé dans la langue du téléphone (ex:
+      // "Ivory Coast" sur un appareil en anglais), ce qui ne matcherait
+      // jamais les noms français utilisés par citiesForCountryText — on
+      // repart plutôt du code ISO fiable (isoCountryCode) traduit via notre
+      // propre countryDisplayName(), pour que les suggestions de villes
+      // continuent de fonctionner après un remplissage GPS.
+      const countryText = place.isoCountryCode
+        ? countryDisplayName(place.isoCountryCode as CountryCode)
+        : place.country;
       setAddress(a => ({
         ...a,
         street:   streetLine || a.street,
         city:     place.city ?? place.subregion ?? a.city,
         zipCode:  place.postalCode ?? a.zipCode,
-        country:  place.country ?? a.country,
+        country:  countryText ?? a.country,
       }));
       setSelectedSavedAddressId(null);
     } catch {
@@ -813,7 +824,10 @@ export default function CheckoutScreen() {
               { key: 'fullName', label: 'Nom complet *',  placeholder: 'Jean Dupont',       keyboard: 'default'    as const },
               { key: 'street',   label: 'Adresse *',       placeholder: '15 rue du Commerce', keyboard: 'default'    as const },
               { key: 'city',     label: 'Ville *',          placeholder: 'Paris',             keyboard: 'default'    as const },
-              { key: 'zipCode',  label: 'Code postal',      placeholder: '75001',             keyboard: 'number-pad' as const },
+              // 'default' et non 'number-pad' : certains pays suggérés (UK,
+              // Canada) ont des codes postaux alphanumériques (EC1A, H1A…),
+              // un clavier numérique pur empêcherait de les corriger à la main.
+              { key: 'zipCode',  label: 'Code postal',      placeholder: '75001',             keyboard: 'default' as const },
               { key: 'country',  label: 'Pays',             placeholder: 'France',            keyboard: 'default'    as const },
             ].map(field => (
               <View key={field.key} style={styles.inputGroup}>

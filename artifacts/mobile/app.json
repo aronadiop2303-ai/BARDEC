@@ -32,6 +32,12 @@
       "expo-web-browser",
       "expo-local-authentication",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "BARDEC utilise ta position pour pré-remplir ton adresse de livraison et proposer les commerces à proximité."
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/images/icon.png",
