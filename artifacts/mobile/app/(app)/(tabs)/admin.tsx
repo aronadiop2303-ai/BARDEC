@@ -938,8 +938,14 @@ function AdminScreenInner() {
       .update({ company_id: newCompany.id })
       .eq('id', r.user_id);
     if (userErr) {
+      // Rollback : sans ça, la société créée ci-dessus reste orpheline (pas
+      // rattachée) et la demande reste "pending" — un nouveau clic sur
+      // "Approuver" recréerait une deuxième société pour le même nom au
+      // lieu de réessayer proprement le rattachement.
+      const { error: rollbackErr } = await supabase.from('companies').delete().eq('id', newCompany.id);
+      if (rollbackErr) console.warn('Admin approveJoinRequest rollback error:', rollbackErr.message);
       setJoinRequestActingId(null);
-      Alert.alert('Erreur', toUserMessage('admin:approveJoinRequest:attachUser', userErr, 'Société créée mais impossible de rattacher le compte demandeur. Réessaie dans un instant.'));
+      Alert.alert('Erreur', toUserMessage('admin:approveJoinRequest:attachUser', userErr, 'Impossible de rattacher le compte demandeur. Réessaie dans un instant.'));
       return;
     }
 

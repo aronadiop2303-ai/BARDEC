@@ -781,9 +781,10 @@ export default function CheckoutScreen() {
   };
 
   // ── CTA label ────────────────────────────────────────────────────────────────
+  // Appelée uniquement pour step === 3 (voir le bouton d'action en bas —
+  // step 4 a son propre bloc "Suivre ma commande" / "Retour à l'accueil").
   function ctaLabel(): string {
     if (step < 3) return t('continue');
-    if (step === 4) return 'Retour à l\'accueil';
     if (isMobileMoney)           return `Payer avec ${PAYMENT_METHODS.find(p => p.id === paymentMethod)?.label ?? paymentMethod}`;
     if (paymentMethod === 'cash_on_delivery') return `Confirmer · Payer à la livraison`;
     if (isB2B)                   return 'Soumettre pour approbation';

@@ -29,6 +29,7 @@ interface AuthContextType {
   updateUserName: (name: string) => Promise<void>;
   updateUserPhone: (phone: string) => Promise<void>;
   refreshUser: () => Promise<void>;
+  verifyPassword: (password: string) => Promise<boolean>;
   isDemoMode: boolean;
   sessionExpiredMessage: string | null;
   clearSessionExpiredMessage: () => void;
@@ -46,6 +47,7 @@ const AuthContext = createContext<AuthContextType>({
   updateUserName: async () => {},
   updateUserPhone: async () => {},
   refreshUser: async () => {},
+  verifyPassword: async () => false,
   isDemoMode: true,
   sessionExpiredMessage: null,
   clearSessionExpiredMessage: () => {},
@@ -72,6 +74,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ref (not the `user` state) because this callback is registered once in
   // initAuth() and would otherwise close over a stale value forever.
   const hadSession = useRef(false);
+  // Set around the signInWithPassword() call in changePassword-style flows
+  // (profile.tsx) that only exists to re-verify the current password —
+  // Supabase has no standalone "check this password" endpoint. That call
+  // fires the same SIGNED_IN event as a real login, and onAuthStateChange
+  // would otherwise refetch the DB profile and setUser(dbUser) wholesale,
+  // silently reverting an in-progress role preview (switchDemoRole, real
+  // mode — see there) back to the account's real DB role, the same
+  // clobbering bug refreshUser() was written to avoid for the focus-refresh
+  // path.
+  const isVerifyingPassword = useRef(false);
 
   useEffect(() => {
     initAuth();
@@ -135,6 +147,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // During register() the users row does not exist yet when this fires —
         // skip the fetch; register() will call setUser() directly after INSERT.
         if (isRegistering.current) return;
+        // A password-verification-only sign-in (see isVerifyingPassword above)
+        // — the session/user haven't actually changed, don't touch state.
+        if (isVerifyingPassword.current) return;
 
         const dbUser = await fetchUserProfile(session.user.id);
         // Only update state when we actually find the profile row.
@@ -309,6 +324,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       creditLimit:     dbUser.creditLimit,
       creditBalance:   dbUser.creditBalance,
     } : dbUser);
+  }
+
+  // Re-confirms the current user's password (no standalone "check password"
+  // endpoint in Supabase Auth) via signInWithPassword() — sets
+  // isVerifyingPassword so onAuthStateChange's SIGNED_IN handler ignores the
+  // resulting event instead of overwriting `user` (see isVerifyingPassword
+  // above). Returns whether the password was correct.
+  async function verifyPassword(password: string): Promise<boolean> {
+    if (isDemoMode || !supabase || !user?.email) return false;
+    isVerifyingPassword.current = true;
+    const { error } = await supabase.auth.signInWithPassword({ email: user.email, password });
+    isVerifyingPassword.current = false;
+    return !error;
   }
 
   // ── Login ──────────────────────────────────────────────────────────────────
@@ -550,7 +578,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, isLoading, isAuthenticated: !!user,
-      login, register, logout, switchDemoRole, updateUserAvatar, updateUserName, updateUserPhone, refreshUser, isDemoMode,
+      login, register, logout, switchDemoRole, updateUserAvatar, updateUserName, updateUserPhone, refreshUser, verifyPassword, isDemoMode,
       sessionExpiredMessage, clearSessionExpiredMessage,
     }}>
       {children}

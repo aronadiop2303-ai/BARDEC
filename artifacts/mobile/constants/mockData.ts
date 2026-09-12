@@ -161,13 +161,6 @@ export const CATEGORIES: Category[] = [
   { id: 'supermarket',    name: 'Supermarket',      icon: 'shopping-cart' },
 ];
 
-/** Looks up a category by id, falling back to a generic icon for an id
- * that isn't in CATEGORIES (e.g. stale/removed category on an old product)
- * instead of leaving a blank or crashing icon lookup. */
-export function getCategory(id: string | undefined | null): Category {
-  return CATEGORIES.find(c => c.id === id) ?? { id: id ?? 'unknown', name: id ?? 'Unknown', icon: DEFAULT_CATEGORY_ICON };
-}
-
 export const MOCK_PRODUCTS: Product[] = [
   {
     id: 'p1',

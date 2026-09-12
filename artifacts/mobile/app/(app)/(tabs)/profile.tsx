@@ -76,7 +76,7 @@ const TEST_ACCOUNT_EMAILS = [
 export default function ProfileScreen() {
   const colors = useColors();
   const { t, language } = useLanguage();
-  const { user, logout, switchDemoRole, isDemoMode, updateUserAvatar, updateUserName, updateUserPhone, refreshUser } = useAuth();
+  const { user, logout, switchDemoRole, isDemoMode, updateUserAvatar, updateUserName, updateUserPhone, refreshUser, verifyPassword } = useAuth();
   const { currency, setCurrency } = useCurrency();
   const canSwitchRole = isDemoMode || TEST_ACCOUNT_EMAILS.includes(user?.email ?? '');
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -97,6 +97,13 @@ export default function ProfileScreen() {
   const [editNameValue,   setEditNameValue]   = useState('');
   const [editPhoneValue,  setEditPhoneValue]  = useState<PhoneInputValue | null>(null);
   const [savingName,      setSavingName]      = useState(false);
+
+  // ── Sécurité : changement de mot de passe (Supabase Auth) ───────────────────
+  const [changePasswordVisible, setChangePasswordVisible] = useState(false);
+  const [currentPassword,       setCurrentPassword]       = useState('');
+  const [newPassword,           setNewPassword]           = useState('');
+  const [confirmPassword,       setConfirmPassword]       = useState('');
+  const [changingPassword,      setChangingPassword]      = useState(false);
 
   // ── Confidentialité: export / suppression de compte ─────────────────────────
   const [exportingData,     setExportingData]     = useState(false);
@@ -248,6 +255,51 @@ export default function ProfileScreen() {
   function handleAppInfo() {
     const version = Constants.expoConfig?.version ?? '—';
     Alert.alert('BARDEC', `Version ${version}\nMarketplace B2B & B2C mondial`);
+  }
+
+  function openChangePasswordModal() {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setChangePasswordVisible(true);
+  }
+
+  async function handleChangePassword() {
+    if (!currentPassword) {
+      Alert.alert('Champ requis', 'Entre ton mot de passe actuel.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      Alert.alert('Mot de passe trop court', 'Le mot de passe doit contenir au moins 6 caractères.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Les mots de passe ne correspondent pas', 'Vérifie la confirmation du nouveau mot de passe.');
+      return;
+    }
+    if (!supabase || !user?.email) return;
+    setChangingPassword(true);
+
+    // verifyPassword() (AuthContext) reconfirme l'identité via
+    // signInWithPassword sur le compte réel, en suppressant le SIGNED_IN
+    // qui en résulte côté onAuthStateChange — appeler signInWithPassword
+    // directement ici écraserait le `user` en mémoire (et un rôle
+    // prévisualisé via le sélecteur de test) avec le profil frais de la BDD.
+    const passwordOk = await verifyPassword(currentPassword);
+    if (!passwordOk) {
+      setChangingPassword(false);
+      Alert.alert('Mot de passe incorrect', 'Le mot de passe actuel saisi est incorrect.');
+      return;
+    }
+
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setChangingPassword(false);
+    if (error) {
+      Alert.alert('Erreur', toUserMessage('profile:changePassword', error, 'Impossible de changer le mot de passe. Réessaie dans un instant.'));
+      return;
+    }
+    setChangePasswordVisible(false);
+    Alert.alert('Mot de passe modifié', 'Ton mot de passe a été mis à jour avec succès.');
   }
 
   async function handleChangeAvatar() {
@@ -660,6 +712,75 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
+      {/* Change password modal — Supabase Auth n'a pas d'endpoint dédié pour
+          vérifier un mot de passe : handleChangePassword() reconfirme le
+          mot de passe actuel via signInWithPassword() avant d'appliquer
+          updateUser(). */}
+      <Modal
+        visible={changePasswordVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setChangePasswordVisible(false)}
+      >
+        <View style={styles.avatarModalOverlay}>
+          <View style={[styles.avatarModalCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.avatarModalTitle, { color: colors.foreground }]}>
+              Changer le mot de passe
+            </Text>
+
+            <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Mot de passe actuel</Text>
+            <TextInput
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
+              placeholder="Entre ton mot de passe actuel"
+              placeholderTextColor={colors.mutedForeground}
+              secureTextEntry
+              style={[styles.editNameInput, { borderColor: colors.border, color: colors.foreground, marginTop: 0 }]}
+              autoFocus
+            />
+
+            <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Nouveau mot de passe</Text>
+            <TextInput
+              value={newPassword}
+              onChangeText={setNewPassword}
+              placeholder="Au moins 6 caractères"
+              placeholderTextColor={colors.mutedForeground}
+              secureTextEntry
+              style={[styles.editNameInput, { borderColor: colors.border, color: colors.foreground, marginTop: 0 }]}
+            />
+
+            <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Confirmer le mot de passe</Text>
+            <TextInput
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="Ressaisis le mot de passe"
+              placeholderTextColor={colors.mutedForeground}
+              secureTextEntry
+              style={[styles.editNameInput, { borderColor: colors.border, color: colors.foreground, marginTop: 0 }]}
+            />
+
+            <View style={styles.avatarModalActions}>
+              <TouchableOpacity
+                style={[styles.avatarModalBtn, styles.avatarModalBtnCancel, { borderColor: colors.border }]}
+                onPress={() => setChangePasswordVisible(false)}
+                disabled={changingPassword}
+              >
+                <Text style={[styles.avatarModalBtnText, { color: colors.mutedForeground }]}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.avatarModalBtn, styles.avatarModalBtnConfirm, { backgroundColor: colors.primary }]}
+                onPress={handleChangePassword}
+                disabled={changingPassword}
+              >
+                {changingPassword
+                  ? <ActivityIndicator size="small" color="white" />
+                  : <Text style={[styles.avatarModalBtnText, { color: 'white' }]}>Enregistrer</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Delete account confirmation modal — double confirmation: the Alert
           in handleDeleteAccountPress warns about irreversibility first, this
           modal then requires typing SUPPRIMER before the button unlocks. */}
@@ -969,12 +1090,16 @@ export default function ProfileScreen() {
         <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground }]}>{t('account')}</Text>
 
         <MenuItem icon="user" label="Informations personnelles" colors={colors} onPress={handleOpenEditName} />
+        <MenuItem icon="list" label="Mes commandes" colors={colors} onPress={() => router.push('/(tabs)/orders' as any)} />
         <MenuItem icon="map-pin" label="Mes adresses" colors={colors} onPress={() => router.push('/addresses' as any)} />
         {/* No wishlist table and no RLS-readable `reviews` table yet (RLS enabled,
             zero policies — blocks even ADMIN) — honest "coming soon" rather than
             a silent dead tap, until that backend work is scoped. */}
         <MenuItem icon="heart" label={t('wishlist')} colors={colors} onPress={() => Alert.alert('Bientôt disponible', 'La liste de souhaits arrive prochainement.')} />
         <MenuItem icon="star" label={t('my_reviews')} colors={colors} onPress={() => Alert.alert('Bientôt disponible', 'Tes avis arrivent prochainement.')} />
+        {/* Pas de table referrals/affiliate_program en base (vérifié) —
+            stub honnête plutôt qu'une fonctionnalité fabriquée. */}
+        <MenuItem icon="gift" label="Programme d'affiliation" colors={colors} onPress={() => Alert.alert('Bientôt disponible', 'Le programme d\'affiliation BARDEC arrive prochainement.')} />
 
         <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
         <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>{t('settings')}</Text>
@@ -1019,6 +1144,10 @@ export default function ProfileScreen() {
             thumbColor="white"
           />
         </View>
+
+        {isSupabaseConfigured && (
+          <MenuItem icon="lock" label="Changer le mot de passe" colors={colors} onPress={openChangePasswordModal} />
+        )}
 
         {/* lib/biometric.ts was never wired to this switch (onValueChange
             just set local state, nothing was persisted or enforced at
@@ -1066,6 +1195,20 @@ export default function ProfileScreen() {
         <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>Application</Text>
 
         <MenuItem icon="headphones" label={t('support')} colors={colors} onPress={handleSupport} iconColor="#2563EB" />
+        {/* Le détail des garanties (paiement sécurisé, qualité, livraison,
+            retour) vit sur chaque fiche produit (onglet "Assurance
+            Commerce") — pas d'écran de suivi de litige dédié en base, donc
+            pas de nouvelle fonctionnalité fabriquée ici, juste un rappel. */}
+        <MenuItem
+          icon="award"
+          label="Assurance Commerce"
+          colors={colors}
+          onPress={() => Alert.alert(
+            'Assurance Commerce',
+            'Paiement sécurisé, garantie de qualité, livraison garantie et politique de retour — consulte l\'onglet "Assurance Commerce" sur la fiche de chaque produit. Pour un litige en cours, contacte le support.',
+          )}
+          iconColor="#F59E0B"
+        />
         <MenuItem icon="info" label={t('app_info')} colors={colors} onPress={handleAppInfo} iconColor="#64748B" />
         <MenuItem icon="trash-2" label={t('clear_cache')} colors={colors} onPress={handleClearCache} />
       </View>

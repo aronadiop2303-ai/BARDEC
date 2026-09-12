@@ -327,14 +327,18 @@ export default function VendorDashboardScreen() {
   // approuvé inconditionnellement. Défaut à `true` (comportement historique)
   // tant que le fetch n'a pas répondu ou si Supabase n'est pas configuré.
   const [kycRequiredSetting, setKycRequiredSetting] = useState(true);
-  useEffect(() => {
+  const fetchKycRequiredSetting = useCallback(async () => {
     if (!isSupabaseConfigured || !supabase) return;
-    supabase.from('platform_settings').select('kyc_required').eq('id', 1).maybeSingle()
-      .then(({ data, error }) => {
-        if (error) { console.warn('platform_settings fetch error:', error.message); return; }
-        if (data) setKycRequiredSetting(!!data.kyc_required);
-      });
+    const { data, error } = await supabase.from('platform_settings').select('kyc_required').eq('id', 1).maybeSingle();
+    if (error) { console.warn('platform_settings fetch error:', error.message); return; }
+    if (data) setKycRequiredSetting(!!data.kyc_required);
   }, []);
+  useEffect(() => { fetchKycRequiredSetting(); }, [fetchKycRequiredSetting]);
+  // Un dashboard vendeur déjà ouvert pendant qu'un admin change ce réglage
+  // gardait sinon la valeur figée au montage (fetch une seule fois) —
+  // ensureKycApprovedToPublish() pouvait rester désactivé après réactivation
+  // du KYC obligatoire par un admin, tant que l'onglet restait monté.
+  useFocusEffect(useCallback(() => { fetchKycRequiredSetting(); }, [fetchKycRequiredSetting]));
 
   // Gate: a vendor can register and even upload KYC docs freely, but cannot
   // publish products (manual add or CSV import) until an admin approves them.
