@@ -15,7 +15,8 @@ import { UserRole } from '@/constants/mockData';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { readLocalImageBytes } from '@/lib/imageUpload';
 import { toUserMessage } from '@/lib/errors';
-import { PASSWORD_HINT, validatePassword } from '@/lib/validation';
+import { PASSWORD_HINT, validatePassword, isDisposableEmail } from '@/lib/validation';
+import { getOrCreateDeviceId, getOsVersion } from '@/lib/deviceId';
 
 const ROLES: { id: UserRole; label: string; desc: string }[] = [
   { id: 'CUSTOMER', label: 'Client (B2C)',   desc: 'Achats personnels, prix public' },
@@ -35,6 +36,7 @@ export default function RegisterScreen() {
   const [password,     setPassword]     = useState('');
   const [company,      setCompany]      = useState('');
   const [inviteCode,   setInviteCode]   = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [selectedRole, setSelectedRole] = useState<UserRole>('CUSTOMER');
   const [showPassword, setShowPassword] = useState(false);
   const [loading,      setLoading]      = useState(false);
@@ -72,9 +74,19 @@ export default function RegisterScreen() {
       Alert.alert('Mot de passe invalide', passwordError);
       return;
     }
+    if (isDisposableEmail(email)) {
+      Alert.alert('Erreur', 'Merci d\'utiliser une adresse email permanente (pas une adresse jetable).');
+      return;
+    }
+    if (!termsAccepted) {
+      Alert.alert('Erreur', 'Merci d\'accepter les CGU et la Charte Anti-Fraude de BARDEC pour continuer.');
+      return;
+    }
 
     setLoading(true);
     try {
+      const deviceId = await getOrCreateDeviceId();
+      const osVersion = getOsVersion();
       // register() is expected to always resolve to { error? } rather than
       // throw — but a raw network-level exception (fetch failing outright,
       // not a Postgres error) can still slip through. Without this try/catch
@@ -87,8 +99,10 @@ export default function RegisterScreen() {
         name.trim(),
         selectedRole,
         phoneValue.e164,
+        termsAccepted,
         company.trim() || undefined,
         inviteCode.trim() || undefined,
+        { deviceId, osVersion },
       );
 
       if (error === 'CONFIRM_EMAIL') {
@@ -399,6 +413,25 @@ export default function RegisterScreen() {
               autoCorrect={false}
             />
           </View>
+
+          <TouchableOpacity
+            style={styles.termsRow}
+            onPress={() => setTermsAccepted(v => !v)}
+            activeOpacity={0.7}
+          >
+            <View style={[
+              styles.checkbox,
+              {
+                borderColor: termsAccepted ? colors.primary : colors.border,
+                backgroundColor: termsAccepted ? colors.primary : 'transparent',
+              },
+            ]}>
+              {termsAccepted && <Feather name="check" size={13} color="white" />}
+            </View>
+            <Text style={[styles.termsText, { color: colors.foreground }]}>
+              J'accepte les CGU et la Charte Anti-Fraude de BARDEC *
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {selectedRole === 'VENDOR' && (
@@ -460,6 +493,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 14, gap: 12,
   },
   input:          { flex: 1, fontSize: 15 },
+  termsRow:       { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingTop: 2 },
+  checkbox: {
+    width: 20, height: 20, borderRadius: 5, borderWidth: 2,
+    justifyContent: 'center', alignItems: 'center', marginTop: 1,
+  },
+  termsText:      { flex: 1, fontSize: 13, lineHeight: 18 },
   kycNote: {
     flexDirection: 'row', alignItems: 'flex-start',
     gap: 10, padding: 14, borderRadius: 12, borderWidth: 1,

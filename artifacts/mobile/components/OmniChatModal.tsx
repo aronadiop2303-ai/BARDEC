@@ -2,9 +2,10 @@ import React, { useRef, useEffect } from 'react';
 import {
   Modal, View, Text, TextInput, Pressable, FlatList,
   KeyboardAvoidingView, Platform, StyleSheet, ActivityIndicator,
-  Animated, Image,
+  Animated, Image, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Feather } from './Icon';
 import { useOmniChat, OmniChatMessage, OmniContext } from '../hooks/useOmniChat';
 
 // ─── OMNI official logo (globe + infinity emblem, blue/silver) ────────────────
@@ -126,12 +127,98 @@ function VendorEmptyState({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// "+" menu bottom sheet — media row + business shortcuts, all "Bientôt disponible"
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PLUS_MEDIA_OPTIONS: { key: string; label: string; icon: string }[] = [
+  { key: 'photos', label: 'Photos', icon: 'image' },
+  { key: 'camera', label: 'Appareil photo', icon: 'camera' },
+  { key: 'files', label: 'Fichiers/Documents', icon: 'file-text' },
+];
+
+const PLUS_SHORTCUT_OPTIONS: { key: string; label: string; icon: string }[] = [
+  { key: 'sell', label: 'Vendre', icon: 'dollar-sign' },
+  { key: 'buy', label: 'Acheter', icon: 'shopping-cart' },
+  { key: 'product', label: 'Produit', icon: 'package' },
+  { key: 'order', label: 'Commande', icon: 'clipboard-check' },
+  { key: 'ad', label: 'Publicité', icon: 'megaphone' },
+  { key: 'measure', label: 'Mesure', icon: 'ruler' },
+  { key: 'other', label: 'Autres', icon: 'more-horizontal' },
+];
+
+function handleComingSoon() {
+  Alert.alert('Bientôt disponible', 'Cette fonctionnalité arrive prochainement.');
+}
+
+function PlusMenuSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={plusMenuStyles.overlay} onPress={onClose} />
+      <View style={[plusMenuStyles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+        <View style={plusMenuStyles.handle} />
+
+        <View style={plusMenuStyles.mediaRow}>
+          {PLUS_MEDIA_OPTIONS.map(opt => (
+            <Pressable
+              key={opt.key}
+              style={plusMenuStyles.mediaItem}
+              onPress={() => { onClose(); handleComingSoon(); }}
+            >
+              <View style={plusMenuStyles.mediaIconCircle}>
+                <Feather name={opt.icon} size={20} color="#2563EB" />
+              </View>
+              <Text style={plusMenuStyles.mediaLabel}>{opt.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <View style={plusMenuStyles.divider} />
+
+        {PLUS_SHORTCUT_OPTIONS.map(opt => (
+          <Pressable
+            key={opt.key}
+            style={plusMenuStyles.shortcutRow}
+            onPress={() => { onClose(); handleComingSoon(); }}
+          >
+            <Feather name={opt.icon} size={18} color="#2563EB" />
+            <Text style={plusMenuStyles.shortcutLabel}>{opt.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </Modal>
+  );
+}
+
+const plusMenuStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
+  sheet: {
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 20, paddingTop: 12,
+    backgroundColor: '#FFFFFF', maxHeight: '75%',
+  },
+  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#E2E8F0', alignSelf: 'center', marginBottom: 16 },
+  mediaRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 8 },
+  mediaItem: { alignItems: 'center', gap: 6, width: 84 },
+  mediaIconCircle: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center',
+  },
+  mediaLabel: { fontSize: 12, color: '#1E293B', fontWeight: '600', textAlign: 'center' },
+  divider: { height: 1, backgroundColor: '#E2E8F0', marginVertical: 8 },
+  shortcutRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
+  shortcutLabel: { fontSize: 15, color: '#1E293B', fontWeight: '500' },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Modal
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function OmniChatModal({ visible, onClose, context }: OmniChatModalProps) {
   const { messages, isSending, error, sendMessage, startNewConversation } = useOmniChat(context);
   const [input, setInput] = React.useState('');
+  const [plusMenuVisible, setPlusMenuVisible] = React.useState(false);
   const listRef = useRef<FlatList>(null);
   const insets = useSafeAreaInsets();
 
@@ -195,6 +282,13 @@ export function OmniChatModal({ visible, onClose, context }: OmniChatModalProps)
         {error && <Text style={styles.errorText}>{error}</Text>}
 
         <View style={[styles.inputRow, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <Pressable
+            onPress={() => setPlusMenuVisible(true)}
+            style={styles.plusButton}
+            accessibilityLabel="Plus d'options"
+          >
+            <Feather name="plus" size={20} color="#2563EB" />
+          </Pressable>
           <TextInput
             style={styles.input}
             placeholder="Écris ton message à OMNI..."
@@ -213,6 +307,8 @@ export function OmniChatModal({ visible, onClose, context }: OmniChatModalProps)
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+
+      <PlusMenuSheet visible={plusMenuVisible} onClose={() => setPlusMenuVisible(false)} />
     </Modal>
   );
 }
@@ -254,6 +350,7 @@ const styles = StyleSheet.create({
   cursor: { color: '#2563EB', fontSize: 15 },
   errorText: { color: '#DC2626', fontSize: 12, textAlign: 'center', paddingBottom: 4 },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 12, borderTopWidth: 1, borderTopColor: '#E2E8F0', backgroundColor: '#FFFFFF' },
+  plusButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center' },
   input: { flex: 1, maxHeight: 100, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, backgroundColor: '#F1F5F9', fontSize: 15 },
   sendButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center' },
   sendButtonDisabled: { backgroundColor: '#CBD5E1' },

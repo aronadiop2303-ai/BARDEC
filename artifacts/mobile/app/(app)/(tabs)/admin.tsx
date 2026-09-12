@@ -163,6 +163,7 @@ function AdminScreenInner() {
   interface RealUser {
     id: string; email: string; display_name: string | null; phone: string | null;
     role: string; is_approved: boolean; created_at: string;
+    invite_code: string | null; referred_by: string | null;
   }
   interface RealOrder {
     id: string; order_number: string; status: string; total: number; created_at: string;
@@ -1030,6 +1031,9 @@ function AdminScreenInner() {
   const [realDisputes,     setRealDisputes]      = useState<RealDispute[]>([]);
   const [realPayments,     setRealPayments]      = useState<RealPayment[]>([]);
   const [loadingAdminData, setLoadingAdminData]  = useState(isSupabaseConfigured);
+  const [editingInviteCodeId, setEditingInviteCodeId] = useState<string | null>(null);
+  const [inviteCodeDraft,     setInviteCodeDraft]     = useState('');
+  const [savingInviteCode,    setSavingInviteCode]    = useState(false);
 
   const fetchAdminData = useCallback(async () => {
     if (!isSupabaseConfigured || !supabase) { setLoadingAdminData(false); return; }
@@ -1040,7 +1044,7 @@ function AdminScreenInner() {
       { data: disputesData, error: disputesErr },
       { data: paymentsData, error: paymentsErr },
     ] = await Promise.all([
-      supabase.from('users').select('id, email, display_name, phone, role, is_approved, created_at')
+      supabase.from('users').select('id, email, display_name, phone, role, is_approved, created_at, invite_code, referred_by')
         .order('created_at', { ascending: false }),
       supabase.from('orders').select('id, order_number, status, total, created_at')
         .order('created_at', { ascending: false }).limit(200),
@@ -1062,6 +1066,19 @@ function AdminScreenInner() {
     setRealPayments((paymentsData ?? []) as unknown as RealPayment[]);
     setLoadingAdminData(false);
   }, []);
+
+  async function handleSaveInviteCode(userId: string) {
+    if (!supabase) return;
+    setSavingInviteCode(true);
+    const newCode = inviteCodeDraft.trim().toUpperCase() || null;
+    // users_admin RLS policy (cmd ALL, current_user_role() = 'ADMIN') already
+    // allows an admin to update any row — no new policy needed here.
+    const { error } = await supabase.from('users').update({ invite_code: newCode }).eq('id', userId);
+    setSavingInviteCode(false);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:saveInviteCode', error, 'Impossible de mettre à jour le code d\'invitation. Réessaie dans un instant.')); return; }
+    setRealUsers(prev => prev.map(u => u.id === userId ? { ...u, invite_code: newCode } : u));
+    setEditingInviteCodeId(null);
+  }
 
   async function handleResolveDispute(id: string) {
     if (!supabase) return;
@@ -1245,8 +1262,8 @@ function AdminScreenInner() {
 
   // Normalized shapes so the JSX below doesn't need to branch per-field.
   const displayUsers = isSupabaseConfigured
-    ? realUsers.map(u => ({ id: u.id, name: u.display_name ?? u.email, email: u.email, role: u.role }))
-    : DEMO_USERS.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role }));
+    ? realUsers.map(u => ({ id: u.id, name: u.display_name ?? u.email, email: u.email, role: u.role, inviteCode: u.invite_code }))
+    : DEMO_USERS.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, inviteCode: null as string | null }));
 
   const displayOrders = isSupabaseConfigured
     ? realOrders.map(o => ({
@@ -1587,6 +1604,43 @@ function AdminScreenInner() {
                 <Text style={[styles.userName, { color: colors.foreground }]}>{u.name}</Text>
                 <Text style={[styles.userEmail, { color: colors.mutedForeground }]}>{u.email}</Text>
                 <Text style={[styles.userRole, { color: colors.primary }]}>{u.role}</Text>
+
+                {isSupabaseConfigured && (
+                  editingInviteCodeId === u.id ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                      <TextInput
+                        style={[styles.pmtRejectInput, { flex: 1, minHeight: 0, paddingVertical: 6, backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                        value={inviteCodeDraft}
+                        onChangeText={setInviteCodeDraft}
+                        placeholder="Code d'invitation"
+                        placeholderTextColor={colors.mutedForeground}
+                        autoCapitalize="characters"
+                        autoCorrect={false}
+                      />
+                      <TouchableOpacity
+                        onPress={() => handleSaveInviteCode(u.id)}
+                        disabled={savingInviteCode}
+                        style={{ padding: 6 }}
+                      >
+                        <Feather name="check" size={16} color="#22C55E" />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setEditingInviteCodeId(null)} style={{ padding: 6 }}>
+                        <Feather name="x" size={16} color={colors.mutedForeground} />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}
+                      onPress={() => { setEditingInviteCodeId(u.id); setInviteCodeDraft(u.inviteCode ?? ''); }}
+                    >
+                      <Feather name="gift" size={12} color={colors.mutedForeground} />
+                      <Text style={{ fontSize: 12, color: colors.mutedForeground }}>
+                        {u.inviteCode ? `Code : ${u.inviteCode}` : 'Aucun code d\'invitation'}
+                      </Text>
+                      <Feather name="edit-2" size={11} color={colors.mutedForeground} />
+                    </TouchableOpacity>
+                  )
+                )}
               </View>
             </View>
           ))}

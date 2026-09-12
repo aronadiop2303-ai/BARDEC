@@ -21,6 +21,9 @@ import { OmniChatModal } from './OmniChatModal';
 import { OmniContext } from '../hooks/useOmniChat';
 import { ChatFiniButton } from './ChatFiniButton';
 
+// Logo BARDEC Unlimited — remplace l'ancien glyphe texte "∞" du bouton flottant.
+const UNLIMITED_LOGO = require('../assets/images/unlimited-logo.png') as number;
+
 interface BardecLayoutProps {
   children: React.ReactNode;
   scrollable?: boolean;
@@ -123,10 +126,10 @@ export default function BardecLayout({
       <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
         <TouchableOpacity
           onPress={() => router.push('/unlimited-benefits')}
-          style={[styles.infinityButton, { backgroundColor: colors.primary }]}
+          style={styles.infinityButton}
           activeOpacity={0.85}
         >
-          <Text style={styles.infinityText}>∞</Text>
+          <Image source={UNLIMITED_LOGO} style={styles.infinityLogo} resizeMode="cover" />
         </TouchableOpacity>
       </Animated.View>
     </View>
@@ -238,20 +241,22 @@ const styles = StyleSheet.create({
     gap:             12,
   },
   infinityButton: {
-    width:         56,
-    height:        56,
-    borderRadius:  28,
+    width:          56,
+    height:         56,
+    borderRadius:   28,
+    backgroundColor: 'transparent',
+    padding:        0,
+    overflow:       'hidden',
     justifyContent: 'center',
-    alignItems:    'center',
+    alignItems:     'center',
     shadowColor:   '#1A56DB',
     shadowOffset:  { width: 0, height: 6 },
     shadowOpacity: 0.4,
     shadowRadius:  12,
     elevation:     8,
   },
-  infinityText: {
-    color:      'white',
-    fontSize:   26,
-    fontWeight: '900',
+  infinityLogo: {
+    width:  '100%',
+    height: '100%',
   },
 });

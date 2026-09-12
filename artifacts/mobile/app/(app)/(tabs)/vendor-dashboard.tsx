@@ -1696,6 +1696,15 @@ export default function VendorDashboardScreen() {
                 onChangeText={v => setAddForm(prev => ({ ...prev, description: v }))}
                 multiline
               />
+              <TouchableOpacity
+                style={[styles.imagePicker, { backgroundColor: colors.background, borderColor: colors.border }]}
+                onPress={() => Alert.alert('Bientôt disponible', 'L\'ajout d\'un vocal audio arrive prochainement.')}
+              >
+                <Feather name="mic" size={18} color={colors.primary} />
+                <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 14 }}>
+                  Ajouter un vocal audio
+                </Text>
+              </TouchableOpacity>
             </View>
 
             {/* Category picker — same CATEGORIES list/ids used to filter the home screen,
@@ -1768,15 +1777,26 @@ export default function VendorDashboardScreen() {
             {/* Product images picker */}
             <View style={styles.modalField}>
               <Text style={[styles.modalLabel, { color: colors.foreground }]}>Photos du produit</Text>
-              <TouchableOpacity
-                style={[styles.imagePicker, { backgroundColor: colors.background, borderColor: colors.border }]}
-                onPress={handlePickProductImages}
-              >
-                <Feather name="camera" size={18} color={colors.primary} />
-                <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 14 }}>
-                  {pendingImages.length > 0 ? `${pendingImages.length} photo(s) sélectionnée(s)` : 'Ajouter des photos'}
-                </Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  style={[styles.imagePicker, { flex: 1, backgroundColor: colors.background, borderColor: colors.border }]}
+                  onPress={handlePickProductImages}
+                >
+                  <Feather name="camera" size={18} color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 14 }}>
+                    {pendingImages.length > 0 ? `${pendingImages.length} photo(s) sélectionnée(s)` : 'Ajouter des photos'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.imagePicker, { backgroundColor: colors.background, borderColor: colors.border }]}
+                  onPress={() => Alert.alert('Bientôt disponible', 'L\'ajout de vidéo arrive prochainement.')}
+                >
+                  <Feather name="video" size={18} color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 14 }}>
+                    Ajouter une vidéo
+                  </Text>
+                </TouchableOpacity>
+              </View>
               {pendingImages.length > 0 && (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                   {pendingImages.map((uri, idx) => (

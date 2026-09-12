@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import {
-  Alert, Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View,
+  Alert, Animated, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +9,17 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
+
+// Logo BARDEC Unlimited (même asset que components/BardecLayout.tsx) —
+// remplace l'ancien glyphe texte "∞" du hero BARDEC Unlimited.
+const UNLIMITED_LOGO = require('../../assets/images/unlimited-logo.png') as number;
+
+// Aucun backend paiement/abonnement branché (voir BUGS.md) — chaque élément
+// interactif de cet écran affiche un "Bientôt disponible" honnête plutôt
+// qu'un tap silencieux.
+function handleComingSoon() {
+  Alert.alert('Bientôt disponible', 'BARDEC Unlimited arrive prochainement.');
+}
 
 const BENEFIT_DEFINITIONS = [
   { icon: 'zap',        title: 'Accès Prioritaire',   desc: 'Accédez aux nouvelles offres 24h avant tout le monde.', color: '#F59E0B', tag: 'Exclusif' },
@@ -63,7 +74,7 @@ export default function UnlimitedBenefitsScreen() {
           <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
             <View style={styles.infinityCircleOuter}>
               <View style={styles.infinityCircleInner}>
-                <Text style={styles.infinitySymbol}>∞</Text>
+                <Image source={UNLIMITED_LOGO} style={styles.infinityLogo} resizeMode="cover" />
               </View>
             </View>
           </Animated.View>
@@ -82,12 +93,20 @@ export default function UnlimitedBenefitsScreen() {
         {/* Pricing */}
         <View style={styles.pricingSection}>
           <View style={styles.pricingRow}>
-            <View style={[styles.pricingCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <TouchableOpacity
+              style={[styles.pricingCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={handleComingSoon}
+              activeOpacity={0.8}
+            >
               <Text style={[styles.pricingBillingLabel, { color: colors.mutedForeground }]}>Mensuel</Text>
               <Text style={[styles.pricingAmount, { color: colors.foreground }]}>$29</Text>
               <Text style={[styles.pricingPeriod, { color: colors.mutedForeground }]}>/mois</Text>
-            </View>
-            <View style={[styles.pricingCardActive, { backgroundColor: colors.primary }]}>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.pricingCardActive, { backgroundColor: colors.primary }]}
+              onPress={handleComingSoon}
+              activeOpacity={0.8}
+            >
               <View style={styles.bestValueBadge}>
                 <Text style={styles.bestValueText}>Meilleure valeur</Text>
               </View>
@@ -95,7 +114,7 @@ export default function UnlimitedBenefitsScreen() {
               <Text style={styles.pricingAmountActive}>$19</Text>
               <Text style={styles.pricingPeriodActive}>/mois · $228/an</Text>
               <Text style={styles.savingsBadgeText}>Économisez 34%</Text>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -103,7 +122,12 @@ export default function UnlimitedBenefitsScreen() {
         <View style={styles.benefitsSection}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{t('member_benefits')}</Text>
           {BENEFIT_DEFINITIONS.map((b, i) => (
-            <View key={i} style={[styles.benefitCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <TouchableOpacity
+              key={i}
+              style={[styles.benefitCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={handleComingSoon}
+              activeOpacity={0.8}
+            >
               <View style={[styles.benefitIcon, { backgroundColor: b.color + '20' }]}>
                 <Feather name={b.icon as keyof typeof Feather.glyphMap} size={22} color={b.color} />
               </View>
@@ -116,7 +140,7 @@ export default function UnlimitedBenefitsScreen() {
                 </View>
                 <Text style={[styles.benefitDesc, { color: colors.mutedForeground }]}>{b.desc}</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
 
@@ -124,7 +148,12 @@ export default function UnlimitedBenefitsScreen() {
         <View style={styles.offersSection}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{t('exclusive_offers')}</Text>
           {EXCLUSIVE_OFFERS.map((offer, i) => (
-            <View key={i} style={[styles.offerCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <TouchableOpacity
+              key={i}
+              style={[styles.offerCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={handleComingSoon}
+              activeOpacity={0.8}
+            >
               <LinearGradient
                 colors={[colors.primary + '28', colors.secondary + '18']}
                 style={styles.offerGradient}
@@ -139,7 +168,7 @@ export default function UnlimitedBenefitsScreen() {
                   <Text style={styles.discountText}>-{offer.discount}</Text>
                 </View>
               </LinearGradient>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
 
@@ -163,12 +192,9 @@ export default function UnlimitedBenefitsScreen() {
 
         {/* CTA */}
         <View style={styles.ctaSection}>
-          {/* No subscription/payment backend exists yet (see BUGS.md — real
-              payment integration is a separate, unbuilt feature) — honest
-              "coming soon" rather than a silent dead tap. */}
           <TouchableOpacity
             style={[styles.ctaBtn, { backgroundColor: colors.primary }]}
-            onPress={() => Alert.alert('Bientôt disponible', 'BARDEC Unlimited arrive prochainement.')}
+            onPress={handleComingSoon}
           >
             <Text style={styles.ctaBtnText}>Activer BARDEC Unlimited</Text>
             <Feather name="arrow-right" size={18} color="white" />
@@ -188,7 +214,7 @@ const styles = StyleSheet.create({
   hero:                   { paddingHorizontal: 24, paddingBottom: 40, alignItems: 'center', gap: 14 },
   infinityCircleOuter:    { width: 100, height: 100, borderRadius: 50, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.3)' },
   infinityCircleInner:    { width: 76, height: 76, borderRadius: 38, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
-  infinitySymbol:         { color: 'white', fontSize: 40, fontWeight: '800' },
+  infinityLogo:           { width: 60, height: 60, borderRadius: 30 },
   heroTitle:              { color: 'white', fontSize: 28, fontWeight: '900', letterSpacing: 0.5 },
   heroSubtitle:           { color: 'rgba(255,255,255,0.8)', fontSize: 15, textAlign: 'center', lineHeight: 22 },
   memberBadge:            { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },

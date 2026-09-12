@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -23,7 +23,7 @@ import { toUserMessage } from '@/lib/errors';
 export default function LoginScreen() {
   const colors = useColors();
   const { t } = useLanguage();
-  const { login, isDemoMode } = useAuth();
+  const { login, isDemoMode, sessionExpiredMessage, clearSessionExpiredMessage } = useAuth();
   const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,6 +31,17 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [showDemoPanel, setShowDemoPanel] = useState(false);
   const [sendingReset, setSendingReset] = useState(false);
+
+  // Session expirée détectée côté client (voir AuthContext.onAuthStateChange)
+  // — le stockage local de la session est déjà nettoyé par le SDK Supabase
+  // lui-même (signOut/expiration retirent la session persistée), il ne reste
+  // qu'à informer l'utilisateur une fois arrivé sur cet écran.
+  useEffect(() => {
+    if (sessionExpiredMessage) {
+      Alert.alert('Session expirée', sessionExpiredMessage);
+      clearSessionExpiredMessage();
+    }
+  }, [sessionExpiredMessage, clearSessionExpiredMessage]);
 
   async function handleLogin() {
     if (!email || !password) {

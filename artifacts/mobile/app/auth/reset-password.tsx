@@ -47,11 +47,25 @@ export default function ResetPasswordScreen() {
     }
     setLoading(true);
     const { error } = await supabase.auth.updateUser({ password });
-    setLoading(false);
     if (error) {
+      setLoading(false);
       Alert.alert('Erreur', toUserMessage('auth:resetPassword', error, 'Impossible de mettre à jour le mot de passe. Réessaie dans un instant.'));
       return;
     }
+    // Supabase ne révoque pas automatiquement les autres sessions actives
+    // lors d'un changement de mot de passe (vérifié : updateUser() seul ne
+    // le fait pas, il faut l'appel explicite signOut({scope:'others'}) —
+    // voir docs.supabase.com/guides/auth/sessions). Un lien de
+    // réinitialisation part souvent d'un soupçon de compromission du compte,
+    // donc on ferme les autres sessions par précaution. Best-effort : une
+    // erreur ici ne doit pas bloquer un mot de passe déjà mis à jour avec
+    // succès.
+    try {
+      await supabase.auth.signOut({ scope: 'others' });
+    } catch (e) {
+      console.error('[resetPassword:signOutOthers]', e);
+    }
+    setLoading(false);
     setDone(true);
   }
 

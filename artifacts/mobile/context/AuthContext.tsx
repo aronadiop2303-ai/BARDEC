@@ -18,8 +18,10 @@ interface AuthContextType {
     name: string,
     role: UserRole,
     phone: string,
+    termsAccepted: boolean,
     company?: string,
     inviteCode?: string,
+    deviceMeta?: { deviceId?: string; osVersion?: string },
   ) => Promise<{ error?: string }>;
   logout: () => Promise<void>;
   switchDemoRole: (role: UserRole) => void;
@@ -27,6 +29,8 @@ interface AuthContextType {
   updateUserName: (name: string) => Promise<void>;
   updateUserPhone: (phone: string) => Promise<void>;
   isDemoMode: boolean;
+  sessionExpiredMessage: string | null;
+  clearSessionExpiredMessage: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -41,11 +45,14 @@ const AuthContext = createContext<AuthContextType>({
   updateUserName: async () => {},
   updateUserPhone: async () => {},
   isDemoMode: true,
+  sessionExpiredMessage: null,
+  clearSessionExpiredMessage: () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string | null>(null);
   const pathname = usePathname();
 
   const isDemoMode = !isSupabaseConfigured;
@@ -53,6 +60,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Track whether we are inside the register() flow so onAuthStateChange
   // does not race with the users-row INSERT that happens right after signUp().
   const isRegistering = useRef(false);
+  // Set right before our own logout() calls signOut() — onAuthStateChange
+  // fires the same 'SIGNED_OUT' event for an intentional logout and for the
+  // SDK discovering the refresh token is dead (session expired in the
+  // background), so this is the only way to tell the two apart. Cleared
+  // again on the next real sign-in.
+  const isLoggingOut = useRef(false);
+  // Whether a session was active the last time onAuthStateChange ran — a
+  // ref (not the `user` state) because this callback is registered once in
+  // initAuth() and would otherwise close over a stale value forever.
+  const hadSession = useRef(false);
 
   useEffect(() => {
     initAuth();
@@ -84,6 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // layout's Stack.Protected would redirect straight into the app,
       // skipping the reset form entirely.
       const { data: { session } } = await supabase!.auth.getSession();
+      hadSession.current = !!session?.user;
       if (session?.user && pathname !== '/auth/reset-password') {
         const dbUser = await fetchUserProfile(session.user.id);
         if (dbUser) setUser(dbUser);
@@ -96,9 +114,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (!session?.user) {
           // Only clear user on explicit sign-out; never during register flow.
-          if (!isRegistering.current) setUser(null);
+          if (!isRegistering.current) {
+            // A session that was active and is now gone, without our own
+            // logout() having triggered it, means the SDK gave up refreshing
+            // it (dead/expired refresh token) — not a user-initiated logout.
+            if (hadSession.current && !isLoggingOut.current) {
+              setSessionExpiredMessage('Votre session a expiré. Veuillez vous reconnecter.');
+            }
+            setUser(null);
+          }
+          hadSession.current = false;
           return;
         }
+
+        hadSession.current = true;
+        isLoggingOut.current = false;
 
         // During register() the users row does not exist yet when this fires —
         // skip the fetch; register() will call setUser() directly after INSERT.
@@ -275,8 +305,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     name: string,
     role: UserRole,
     phone: string,
+    termsAccepted: boolean,
     company?: string,
     inviteCode?: string,
+    deviceMeta?: { deviceId?: string; osVersion?: string },
   ): Promise<{ error?: string }> {
     const isB2B = role === 'BUYER' || role === 'VENDOR';
 
@@ -308,6 +340,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) return { error: toAuthMessage('auth:register:signUp', error) };
       if (!data.user) return { error: 'Erreur lors de la création du compte.' };
 
+      // ── Step 1.5: server-side invite code check — SECURITY DEFINER RPC,
+      // never trusts the client. Runs after signUp() because it needs an
+      // authenticated session to bypass `users_self` RLS via the DEFINER
+      // function (see migration add_antifraud_signup_guardrails). Leaves an
+      // auth-only orphan on rejection — same pre-existing tradeoff as the
+      // profileError path below.
+      if (inviteCode) {
+        const { data: isValidCode, error: codeErr } = await supabase!.rpc('validate_invite_code', { p_code: inviteCode });
+        if (codeErr) {
+          console.error('[register:validateInviteCode]', codeErr);
+        } else if (!isValidCode) {
+          return { error: "Code d'invitation invalide ou expiré" };
+        }
+      }
+
       // ── Step 2 (B2B only): create the company row first ──────────────────
       let companyId: string | undefined;
       if (isB2B && company) {
@@ -334,9 +381,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
       if (companyId) userRow.company_id = companyId;
       if (inviteCode) userRow.invite_code = inviteCode;
+      if (termsAccepted) userRow.terms_accepted_at = new Date().toISOString();
+      if (deviceMeta?.deviceId) userRow.device_id = deviceMeta.deviceId;
+      if (deviceMeta?.osVersion) userRow.os_version = deviceMeta.osVersion;
 
       const { error: profileError } = await supabase!.from('users').insert(userRow);
-      if (profileError) return { error: toUserMessage('auth:register:profileInsert', profileError, 'Impossible de finaliser la création du compte. Réessaie dans un instant.') };
+      if (profileError) {
+        // Defense-in-depth: the client already blocks disposable domains
+        // before reaching here (lib/validation.ts), but the DB trigger
+        // (add_antifraud_signup_guardrails) confirms it server-side and
+        // this is the one profileError case worth a specific message
+        // instead of the generic fallback.
+        if (/DISPOSABLE_EMAIL_DOMAIN/.test(profileError.message)) {
+          return { error: "Merci d'utiliser une adresse email permanente (pas une adresse jetable)." };
+        }
+        return { error: toUserMessage('auth:register:profileInsert', profileError, 'Impossible de finaliser la création du compte. Réessaie dans un instant.') };
+      }
 
       // ── Step 4: set user state immediately — do NOT wait for onAuthStateChange ──
       // This is the key fix: onAuthStateChange fires before the users row exists
@@ -389,8 +449,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       return;
     }
+    isLoggingOut.current = true;
     await supabase!.auth.signOut();
     setUser(null);
+  }
+
+  function clearSessionExpiredMessage() {
+    setSessionExpiredMessage(null);
   }
 
   // ── Role switcher (always available — needed for multi-role testing) ────────
@@ -452,6 +517,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={{
       user, isLoading, isAuthenticated: !!user,
       login, register, logout, switchDemoRole, updateUserAvatar, updateUserName, updateUserPhone, isDemoMode,
+      sessionExpiredMessage, clearSessionExpiredMessage,
     }}>
       {children}
     </AuthContext.Provider>
