@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { useFocusEffect, Redirect } from 'expo-router';
+import { router, useFocusEffect, Redirect } from 'expo-router';
 import {
   ActivityIndicator, Alert, Dimensions, KeyboardAvoidingView, Modal,
   Platform, StyleSheet, Text, TextInput, TouchableOpacity, View,
@@ -263,6 +263,31 @@ export default function ApproverDashboardScreen() {
         ))}
       </View>
 
+      {/* Chantier 2 — "Bon de Commande" et "Approbations en attente"
+          vivaient dans Profil (menu B2B) ; retirés de là pour un APPROVER
+          (voir profile.tsx) et déplacés ici, à côté des métriques Net30. */}
+      <View style={styles.quickActionsRow}>
+        <TouchableOpacity
+          style={[styles.quickActionCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={() => router.push('/(tabs)/orders' as any)}
+        >
+          <Feather name="file-text" size={20} color={colors.primary} />
+          <Text style={[styles.quickActionLabel, { color: colors.foreground }]}>Bon de Commande</Text>
+          <Text style={[styles.quickActionSub, { color: colors.mutedForeground }]}>Historique et création</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.quickActionCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={() => router.push({
+            pathname: '/(tabs)/orders',
+            params: { tab: 'pending_approval' },
+          } as any)}
+        >
+          <Feather name="check-circle" size={20} color={colors.primary} />
+          <Text style={[styles.quickActionLabel, { color: colors.foreground }]}>Approbations en attente</Text>
+          <Text style={[styles.quickActionSub, { color: colors.mutedForeground }]}>Tes propres commandes Net30</Text>
+        </TouchableOpacity>
+      </View>
+
       {companyOverLimit && (
         <View style={styles.creditWarning}>
           <Feather name="alert-triangle" size={14} color="#DC2626" />
@@ -401,6 +426,12 @@ const styles = StyleSheet.create({
   kpiIcon: { width: 34, height: 34, borderRadius: 17, justifyContent: 'center', alignItems: 'center', marginBottom: 2 },
   kpiValue: { fontSize: 14, fontWeight: '800' },
   kpiLabel: { fontSize: 10, textAlign: 'center', lineHeight: 13 },
+  quickActionsRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginBottom: 12 },
+  quickActionCard: {
+    flex: 1, borderWidth: 1, borderRadius: 14, padding: 12, gap: 4,
+  },
+  quickActionLabel: { fontSize: 13, fontWeight: '700' },
+  quickActionSub:   { fontSize: 11 },
   sectionTitle: { fontSize: 15, fontWeight: '700', paddingHorizontal: 16, marginBottom: 8 },
   list:     { paddingHorizontal: 16, gap: 12 },
   empty:    { alignItems: 'center', paddingVertical: 60, gap: 12 },

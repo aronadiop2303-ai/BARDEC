@@ -10,7 +10,7 @@ import {
   View,
   Dimensions,
 } from 'react-native';
-import { router, Redirect } from 'expo-router';
+import { router, Redirect, useFocusEffect } from 'expo-router';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
@@ -18,6 +18,7 @@ import type { TranslationKey } from '@/constants/translations';
 import { useAuth } from '@/context/AuthContext';
 import BardecLayout from '@/components/BardecLayout';
 import ProductCard from '@/components/ProductCard';
+import CategoryIcon from '@/components/CategoryIcon';
 import { SkeletonProductCard } from '@/components/SkeletonCard';
 import { CATEGORIES } from '@/constants/mockData';
 import { useProducts } from '@/hooks/useProducts';
@@ -31,7 +32,13 @@ const CARD_WIDTH = (width - 48) / 2;
 export default function HomeScreen() {
   const colors = useColors();
   const { t } = useLanguage();
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, refreshUser } = useAuth();
+
+  // AuthContext.user n'est enrichi (company/companyApproved) qu'au login —
+  // un admin qui approuve une société pendant que ce compte est déjà
+  // connecté ne le met pas à jour tout seul. Sans ça, le Tableau de Bord
+  // B2B restait masqué même après une approbation réelle en base.
+  useFocusEffect(useCallback(() => { refreshUser(); }, [refreshUser]));
   const { formatPrice } = useCurrency();
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
@@ -42,6 +49,18 @@ export default function HomeScreen() {
   const isAdmin = user?.role === 'ADMIN';
   const realPendingApprovals = usePendingApprovalsCount(isB2B);
   const pendingApprovalsValue = isSupabaseConfigured ? (realPendingApprovals ?? 0) : (user?.pendingApprovals ?? 0);
+  // Le Tableau de Bord B2B affichait des KPIs (dont une limite de crédit
+  // par défaut à 50 000 FCFA) pour n'importe quel compte BUYER/APPROVER,
+  // même non rattaché à une société ou dont la société n'est pas encore
+  // approuvée par un admin — chiffres fictifs présentés comme réels. En
+  // Supabase réel, n'affiche le bloc que si le compte est vraiment rattaché
+  // (user.company) à une société validée (user.companyApproved, enrichi
+  // dans AuthContext.enrichWithCompany). Les comptes démo (DEMO_USERS)
+  // n'ont pas ce champ peuplé : garde le comportement précédent en mode
+  // démo pour ne pas casser la prévisualisation du sélecteur de rôle.
+  const isB2BValidated = isSupabaseConfigured
+    ? isB2B && !!user?.company && user?.companyApproved === true
+    : isB2B;
 
   // ── Supabase products (falls back to MOCK_PRODUCTS in demo mode) ──────────
   const { products, loading, refetch } = useProducts();
@@ -116,7 +135,7 @@ export default function HomeScreen() {
       </View>
 
       {/* B2B Dashboard or Promo Banner */}
-      {isB2B ? (
+      {isB2BValidated ? (
         <View style={styles.dashboardSection}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Tableau de Bord B2B</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.kpiScroll}>
@@ -135,7 +154,7 @@ export default function HomeScreen() {
             <View style={[styles.kpiCard, { backgroundColor: '#7C3AED' }]}>
               <Feather name="credit-card" size={18} color="white" />
               <Text style={styles.kpiValue}>
-                {isSupabaseConfigured ? formatPrice(user?.creditLimit ?? 50000) : `$${((user?.creditLimit ?? 50000) / 1000).toFixed(0)}k`}
+                {isSupabaseConfigured ? formatPrice(user?.creditLimit ?? 0) : `$${((user?.creditLimit ?? 50000) / 1000).toFixed(0)}k`}
               </Text>
               <Text style={styles.kpiLabel}>{t('credit_limit')}</Text>
             </View>
@@ -169,8 +188,8 @@ export default function HomeScreen() {
               ]}
               onPress={() => setSelectedCategory(cat.id)}
             >
-              <Feather
-                name={cat.icon as keyof typeof Feather.glyphMap}
+              <CategoryIcon
+                category={cat}
                 size={14}
                 color={selectedCategory === cat.id ? 'white' : colors.mutedForeground}
               />

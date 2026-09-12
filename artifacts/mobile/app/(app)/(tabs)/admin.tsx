@@ -879,6 +879,97 @@ function AdminScreenInner() {
     setCreditDrafts(prev => { const next = { ...prev }; delete next[c.id]; return next; });
   }
 
+  // ── Demandes de rattachement B2B (company_join_requests) — soumises
+  // depuis l'Espace Société du Profil (profile.tsx). Distinctes des
+  // sociétés déjà créées ci-dessus : une demande approuvée crée la société
+  // (elle n'existe pas encore) puis rattache users.company_id du demandeur ;
+  // le trigger prevent_user_field_escalation autorise ce changement de
+  // company_id/is_approved uniquement pour un compte ADMIN.
+  interface CompanyJoinRequestRow {
+    id: string; user_id: string; company_name: string; tax_id: string | null;
+    contact_email: string; status: 'pending' | 'approved' | 'rejected'; created_at: string;
+  }
+  const [joinRequests,        setJoinRequests]        = useState<CompanyJoinRequestRow[]>([]);
+  const [loadingJoinRequests, setLoadingJoinRequests] = useState(isSupabaseConfigured);
+  const [joinRequestActingId, setJoinRequestActingId] = useState<string | null>(null);
+  const [joinRequestCreditDrafts, setJoinRequestCreditDrafts] = useState<Record<string, string>>({});
+
+  const fetchJoinRequests = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setLoadingJoinRequests(false); return; }
+    setLoadingJoinRequests(true);
+    const { data, error } = await supabase
+      .from('company_join_requests')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+    if (error) { console.warn('Admin join requests fetch error:', error.message); setLoadingJoinRequests(false); return; }
+    setJoinRequests((data ?? []) as CompanyJoinRequestRow[]);
+    setLoadingJoinRequests(false);
+  }, []);
+  useEffect(() => { fetchJoinRequests(); }, [fetchJoinRequests]);
+  useFocusEffect(useCallback(() => { fetchJoinRequests(); }, [fetchJoinRequests]));
+
+  async function handleApproveJoinRequest(r: CompanyJoinRequestRow) {
+    if (!supabase) return;
+    const raw = joinRequestCreditDrafts[r.id] ?? '0';
+    const creditLimit = Number(raw.replace(',', '.'));
+    if (!Number.isFinite(creditLimit) || creditLimit < 0) {
+      Alert.alert('Valeur invalide', 'La limite de crédit doit être un nombre positif (0 accepté).');
+      return;
+    }
+    setJoinRequestActingId(r.id);
+
+    const { data: newCompany, error: companyErr } = await supabase
+      .from('companies')
+      .insert({ name: r.company_name, tax_id: r.tax_id, is_approved: true, credit_limit: creditLimit })
+      .select('id')
+      .single();
+    if (companyErr || !newCompany) {
+      setJoinRequestActingId(null);
+      Alert.alert('Erreur', toUserMessage('admin:approveJoinRequest:createCompany', companyErr, 'Impossible de créer la société. Réessaie dans un instant.'));
+      return;
+    }
+
+    // users.is_approved est un champ legacy distinct (vendeurs, plus lu par
+    // aucune policy RLS — voir BUGS.md) : on n'y touche pas ici, seul
+    // companies.is_approved (déjà mis à true ci-dessus) gate le statut B2B.
+    const { error: userErr } = await supabase
+      .from('users')
+      .update({ company_id: newCompany.id })
+      .eq('id', r.user_id);
+    if (userErr) {
+      setJoinRequestActingId(null);
+      Alert.alert('Erreur', toUserMessage('admin:approveJoinRequest:attachUser', userErr, 'Société créée mais impossible de rattacher le compte demandeur. Réessaie dans un instant.'));
+      return;
+    }
+
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const { error: reqErr } = await supabase
+      .from('company_join_requests')
+      .update({ status: 'approved', reviewed_by: authUser?.id ?? null, reviewed_at: new Date().toISOString() })
+      .eq('id', r.id);
+    setJoinRequestActingId(null);
+    if (reqErr) console.warn('Admin join request status update error:', reqErr.message);
+
+    setJoinRequests(prev => prev.filter(x => x.id !== r.id));
+    setJoinRequestCreditDrafts(prev => { const next = { ...prev }; delete next[r.id]; return next; });
+    fetchCompanies();
+    Alert.alert('Société approuvée', `${r.company_name} a été créée et rattachée au demandeur.`);
+  }
+
+  async function handleRejectJoinRequest(r: CompanyJoinRequestRow) {
+    if (!supabase) return;
+    setJoinRequestActingId(r.id);
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const { error } = await supabase
+      .from('company_join_requests')
+      .update({ status: 'rejected', reviewed_by: authUser?.id ?? null, reviewed_at: new Date().toISOString() })
+      .eq('id', r.id);
+    setJoinRequestActingId(null);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:rejectJoinRequest', error, 'Impossible de rejeter cette demande. Réessaie dans un instant.')); return; }
+    setJoinRequests(prev => prev.filter(x => x.id !== r.id));
+  }
+
   // ── Partenaires — le rôle PARTNER est exclusivement géré par l'ADMIN
   // (partners_admin_manage RLS policy + trigger protect_partner_status,
   // voir docs/README_PARTNER_ROLE.md). Ne touche pas au rôle APPROVER ni à
@@ -1296,12 +1387,62 @@ function AdminScreenInner() {
   // "Crédit max Net30" retiré : c'était une valeur globale statique fictive
   // ("$500 000") — le vrai crédit est par société, géré dans l'onglet
   // "Sociétés B2B" (companies.credit_limit, réel, éditable).
-  const platformSettings = [
-    { key: 'commission_b2c', label: 'Commission B2C', value: '3.5%' },
-    { key: 'commission_b2b', label: 'Commission B2B', value: '2.0%' },
-    { key: 'kyc_required', label: 'KYC obligatoire vendeur', value: 'Oui' },
-    { key: 'min_order_b2b', label: 'Commande min B2B', value: '$500' },
-  ];
+  // ── Paramètres plateforme (platform_settings, ligne unique id=1) ──────────
+  // Table créée pour ce chantier — RLS : lecture ouverte à tout compte
+  // connecté (le dashboard vendeur doit lire kyc_required pour piloter
+  // ensureKycApprovedToPublish, déjà en dur là-bas), écriture ADMIN
+  // uniquement (platform_settings_admin_all).
+  const [psLoading, setPsLoading]           = useState(isSupabaseConfigured);
+  const [psSaving,  setPsSaving]            = useState(false);
+  const [psCommissionB2c, setPsCommissionB2c] = useState('5');
+  const [psCommissionB2b, setPsCommissionB2b] = useState('2.5');
+  const [psKycRequired,   setPsKycRequired]   = useState(true);
+  const [psB2bMinOrder,   setPsB2bMinOrder]   = useState('50000');
+
+  const fetchPlatformSettings = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) { setPsLoading(false); return; }
+    setPsLoading(true);
+    const { data, error } = await supabase.from('platform_settings').select('*').eq('id', 1).maybeSingle();
+    if (error) { console.warn('Admin platform_settings fetch error:', error.message); setPsLoading(false); return; }
+    if (data) {
+      setPsCommissionB2c(String(data.commission_b2c));
+      setPsCommissionB2b(String(data.commission_b2b));
+      setPsKycRequired(!!data.kyc_required);
+      setPsB2bMinOrder(String(data.b2b_min_order));
+    }
+    setPsLoading(false);
+  }, []);
+  useEffect(() => { fetchPlatformSettings(); }, [fetchPlatformSettings]);
+  useFocusEffect(useCallback(() => { fetchPlatformSettings(); }, [fetchPlatformSettings]));
+
+  async function handleSavePlatformSettings() {
+    if (!supabase) return;
+    const b2c = Number(psCommissionB2c.replace(',', '.'));
+    const b2b = Number(psCommissionB2b.replace(',', '.'));
+    const minOrder = Number(psB2bMinOrder.replace(',', '.'));
+    if (!Number.isFinite(b2c) || b2c < 0 || b2c > 100) {
+      Alert.alert('Valeur invalide', 'La commission B2C doit être comprise entre 0 et 100%.'); return;
+    }
+    if (!Number.isFinite(b2b) || b2b < 0 || b2b > 100) {
+      Alert.alert('Valeur invalide', 'La commission B2B doit être comprise entre 0 et 100%.'); return;
+    }
+    if (!Number.isFinite(minOrder) || minOrder <= 0) {
+      Alert.alert('Valeur invalide', 'La commande minimum B2B doit être un montant positif.'); return;
+    }
+    setPsSaving(true);
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('platform_settings').update({
+      commission_b2c: b2c,
+      commission_b2b: b2b,
+      kyc_required:   psKycRequired,
+      b2b_min_order:  minOrder,
+      updated_by:     authUser?.id ?? null,
+      updated_at:     new Date().toISOString(),
+    }).eq('id', 1);
+    setPsSaving(false);
+    if (error) { Alert.alert('Erreur', toUserMessage('admin:savePlatformSettings', error, 'Impossible d\'enregistrer les paramètres. Réessaie dans un instant.')); return; }
+    Alert.alert('Paramètres enregistrés', 'Les paramètres de la plateforme ont été mis à jour avec succès.');
+  }
 
   const [payments, setPayments] = useState<PendingPayment[]>(PENDING_PAYMENTS);
   const [rejectNotes, setRejectNotes] = useState<Record<string, string>>({});
@@ -2983,6 +3124,69 @@ function AdminScreenInner() {
             Approuve-la et fixe sa limite de crédit Net30 ici — sans les deux, Net30 reste masqué au checkout pour ses comptes.
           </Text>
 
+          {/* Demandes de rattachement soumises depuis l'Espace Société
+              (profile.tsx) — company_join_requests, en attente d'une
+              décision admin. Une société n'existe qu'après approbation ici. */}
+          {(loadingJoinRequests || joinRequests.length > 0) && (
+            <>
+              <Text style={[styles.formLabel, { color: colors.foreground, marginTop: 4 }]}>
+                Demandes de rattachement en attente
+              </Text>
+              {loadingJoinRequests && <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 8 }} />}
+              {joinRequests.map(r => {
+                const draft = joinRequestCreditDrafts[r.id] ?? '0';
+                const acting = joinRequestActingId === r.id;
+                return (
+                  <View key={r.id} style={[styles.keyCard, { backgroundColor: colors.card, borderColor: '#F59E0B' }]}>
+                    <View style={styles.keyCardHeader}>
+                      <View style={[styles.keyIconBox, { backgroundColor: '#FEF3C7' }]}>
+                        <Feather name="clock" size={16} color="#D97706" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.keyName, { color: colors.foreground }]}>{r.company_name}</Text>
+                        <Text style={[styles.keyPreview, { color: colors.mutedForeground, fontFamily: undefined }]} numberOfLines={1}>
+                          {[r.tax_id, r.contact_email].filter(Boolean).join(' · ') || '—'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.formLabel, { color: colors.foreground, marginBottom: 4 }]}>Limite de crédit Net30 initiale (FCFA)</Text>
+                        <TextInput
+                          style={[styles.formInput, { marginBottom: 0, backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                          keyboardType="numeric"
+                          value={draft}
+                          onChangeText={v => setJoinRequestCreditDrafts(prev => ({ ...prev, [r.id]: v }))}
+                        />
+                      </View>
+                    </View>
+
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TouchableOpacity
+                        style={[styles.formConfirmBtn, { flex: 1, backgroundColor: '#FEE2E2', opacity: acting ? 0.6 : 1 }]}
+                        onPress={() => handleRejectJoinRequest(r)}
+                        disabled={acting}
+                      >
+                        <Text style={[styles.formConfirmText, { color: '#DC2626' }]}>Rejeter</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.formConfirmBtn, { flex: 1, backgroundColor: '#22C55E', opacity: acting ? 0.6 : 1 }]}
+                        onPress={() => handleApproveJoinRequest(r)}
+                        disabled={acting}
+                      >
+                        {acting
+                          ? <ActivityIndicator size="small" color="white" />
+                          : <Text style={styles.formConfirmText}>Approuver</Text>}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+              <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 8 }} />
+            </>
+          )}
+
           {loadingCompanies && <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 12 }} />}
 
           {companiesAdmin.map(c => {
@@ -3672,26 +3876,75 @@ function AdminScreenInner() {
       {activeTab === 'settings' && (
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{t('platform_settings')}</Text>
-          <View style={[styles.settingsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            {platformSettings.map((s, i) => (
-              <View key={s.key}>
-                <View style={styles.settingRow}>
-                  <Text style={[styles.settingLabel, { color: colors.foreground }]}>{s.label}</Text>
-                  <View style={styles.settingValueRow}>
-                    <Text style={[styles.settingValue, { color: colors.primary }]}>{s.value}</Text>
-                    {/* No platform_settings table exists yet — these 5 values are
-                        hardcoded, not read from or writable to the database. Real
-                        editing needs a new table (DDL, needs validation) + this
-                        form wired to it. Honest placeholder instead of a dead tap. */}
-                    <TouchableOpacity onPress={() => Alert.alert('Bientôt disponible', "L'édition des paramètres de plateforme arrive prochainement.")}>
-                      <Feather name="edit-2" size={14} color={colors.mutedForeground} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                {i < platformSettings.length - 1 && <View style={[styles.divider, { backgroundColor: colors.border }]} />}
+          {psLoading ? (
+            <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 12 }} />
+          ) : (
+            <View style={[styles.settingsCard, { backgroundColor: colors.card, borderColor: colors.border, gap: 14 }]}>
+              <View>
+                <Text style={[styles.formLabel, { color: colors.foreground, marginBottom: 4 }]}>Commission B2C (%)</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 12, marginBottom: 6 }}>
+                  Taux prélevé sur les ventes grand public.
+                </Text>
+                <TextInput
+                  style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                  keyboardType="numeric"
+                  value={psCommissionB2c}
+                  onChangeText={setPsCommissionB2c}
+                />
               </View>
-            ))}
-          </View>
+
+              <View>
+                <Text style={[styles.formLabel, { color: colors.foreground, marginBottom: 4 }]}>Commission B2B (%)</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 12, marginBottom: 6 }}>
+                  Taux appliqué aux transactions entre professionnels (B2B / gros).
+                </Text>
+                <TextInput
+                  style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                  keyboardType="numeric"
+                  value={psCommissionB2b}
+                  onChangeText={setPsCommissionB2b}
+                />
+              </View>
+
+              <View style={styles.settingRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.formLabel, { color: colors.foreground }]}>KYC obligatoire vendeur</Text>
+                  <Text style={{ color: colors.mutedForeground, fontSize: 12, marginTop: 2 }}>
+                    Si activé, un vendeur doit avoir un KYC approuvé pour publier des produits (contrôlé ici, plus en dur dans le code).
+                  </Text>
+                </View>
+                <Switch
+                  value={psKycRequired}
+                  onValueChange={setPsKycRequired}
+                  trackColor={{ false: colors.muted, true: '#22C55E' }}
+                  thumbColor="white"
+                />
+              </View>
+
+              <View>
+                <Text style={[styles.formLabel, { color: colors.foreground, marginBottom: 4 }]}>Commande minimum B2B (FCFA)</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 12, marginBottom: 6 }}>
+                  Montant minimal du panier requis pour un bon de commande B2B.
+                </Text>
+                <TextInput
+                  style={[styles.formInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+                  keyboardType="numeric"
+                  value={psB2bMinOrder}
+                  onChangeText={setPsB2bMinOrder}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[styles.formConfirmBtn, { backgroundColor: colors.primary, opacity: psSaving ? 0.6 : 1 }]}
+                onPress={handleSavePlatformSettings}
+                disabled={psSaving}
+              >
+                {psSaving
+                  ? <ActivityIndicator size="small" color="white" />
+                  : <Text style={styles.formConfirmText}>Enregistrer les modifications</Text>}
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* API Keys section */}
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Clés API & Webhooks</Text>

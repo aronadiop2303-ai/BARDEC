@@ -28,6 +28,7 @@ interface AuthContextType {
   updateUserAvatar: (url: string) => Promise<void>;
   updateUserName: (name: string) => Promise<void>;
   updateUserPhone: (phone: string) => Promise<void>;
+  refreshUser: () => Promise<void>;
   isDemoMode: boolean;
   sessionExpiredMessage: string | null;
   clearSessionExpiredMessage: () => void;
@@ -44,6 +45,7 @@ const AuthContext = createContext<AuthContextType>({
   updateUserAvatar: async () => {},
   updateUserName: async () => {},
   updateUserPhone: async () => {},
+  refreshUser: async () => {},
   isDemoMode: true,
   sessionExpiredMessage: null,
   clearSessionExpiredMessage: () => {},
@@ -275,6 +277,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data: { user: authUser } } = await supabase.auth.getUser();
       if (authUser?.id) await supabase.from('users').update({ phone }).eq('id', authUser.id);
     }
+  }
+
+  // fetchUserProfile()/enrichWithCompany() only re-run on onAuthStateChange
+  // (login, token refresh) — a change made server-side by someone else (an
+  // admin approving a company_join_requests row, elsewhere in this same
+  // session) never reaches an already-logged-in user's in-memory `user`
+  // object on its own. Screens that display company/credit data (Profil,
+  // Accueil) call this on focus so they reflect it without requiring a
+  // logout/login.
+  //
+  // Merges only the company/credit fields onto the current `user` instead
+  // of replacing it outright. switchDemoRole() in real mode (ADMIN/etc.
+  // previewing BUYER/VENDOR/...) is a UI-only override of `role` that is
+  // never written to the DB (see switchDemoRole) — replacing the whole
+  // object here with the freshly-fetched DB row (real role always ADMIN)
+  // silently reverted an in-progress role preview back to the real role on
+  // the very next focus event. `role` (and PARTNER's partnerType/Status,
+  // also only ever set locally by a preview) are left untouched; only
+  // logout() actually clears a previewed role, by resetting `user` entirely.
+  async function refreshUser(): Promise<void> {
+    if (isDemoMode || !supabase || !user) return;
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) return;
+    const dbUser = await fetchUserProfile(authUser.id);
+    if (!dbUser) return;
+    setUser(prev => prev ? {
+      ...prev,
+      company:         dbUser.company,
+      companyApproved: dbUser.companyApproved,
+      creditLimit:     dbUser.creditLimit,
+      creditBalance:   dbUser.creditBalance,
+    } : dbUser);
   }
 
   // ── Login ──────────────────────────────────────────────────────────────────
@@ -516,7 +550,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, isLoading, isAuthenticated: !!user,
-      login, register, logout, switchDemoRole, updateUserAvatar, updateUserName, updateUserPhone, isDemoMode,
+      login, register, logout, switchDemoRole, updateUserAvatar, updateUserName, updateUserPhone, refreshUser, isDemoMode,
       sessionExpiredMessage, clearSessionExpiredMessage,
     }}>
       {children}

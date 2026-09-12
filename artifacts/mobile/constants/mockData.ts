@@ -120,7 +120,21 @@ export const DEMO_USERS: User[] = [
   },
 ];
 
-export const CATEGORIES = [
+// `logo` is optional and unused today — no category currently has a real
+// sponsored-brand image asset, so nothing sets it. It exists so a future
+// sponsored category can attach a real image URL without changing this
+// type or any of the rendering code (CategoryIcon.tsx already handles the
+// logo-present case: Image with a loading/error fallback to `icon`).
+export interface Category {
+  id: string;
+  name: string;
+  icon: string;
+  logo?: string;
+}
+
+export const DEFAULT_CATEGORY_ICON = 'package';
+
+export const CATEGORIES: Category[] = [
   { id: 'all', name: 'All', icon: 'grid' },
   { id: 'electronics', name: 'Electronics', icon: 'cpu' },
   { id: 'textiles', name: 'Textiles', icon: 'layers' },
@@ -141,11 +155,18 @@ export const CATEGORIES = [
   { id: 'computing',      name: 'Computing',        icon: 'code' },
   { id: 'garden_outdoor', name: 'Garden & Outdoor', icon: 'wind' },
   { id: 'baby',           name: 'Baby Products',    icon: 'smile' },
-  { id: 'sports',         name: 'Sports',           icon: 'star' },
-  { id: 'gaming',         name: 'Gaming & Consoles', icon: 'sliders' },
-  { id: 'automotive',     name: 'Automotive',       icon: 'navigation' },
+  { id: 'sports',         name: 'Sports',           icon: 'activity' },
+  { id: 'gaming',         name: 'Gaming & Consoles', icon: 'tv' },
+  { id: 'automotive',     name: 'Automotive',       icon: 'archive' },
   { id: 'supermarket',    name: 'Supermarket',      icon: 'shopping-cart' },
 ];
+
+/** Looks up a category by id, falling back to a generic icon for an id
+ * that isn't in CATEGORIES (e.g. stale/removed category on an old product)
+ * instead of leaving a blank or crashing icon lookup. */
+export function getCategory(id: string | undefined | null): Category {
+  return CATEGORIES.find(c => c.id === id) ?? { id: id ?? 'unknown', name: id ?? 'Unknown', icon: DEFAULT_CATEGORY_ICON };
+}
 
 export const MOCK_PRODUCTS: Product[] = [
   {

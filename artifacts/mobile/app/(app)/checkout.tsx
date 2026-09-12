@@ -83,7 +83,7 @@ const PAYMENT_METHODS: {
   { id: 'wave',             label: 'Wave',                   sublabel: 'Mobile Money',                icon: 'zap',              color: '#00C3E3', available: true,  b2c: true,  b2b: false },
   { id: 'orange_money',     label: 'Orange Money',           sublabel: 'Mobile Money',                icon: 'smartphone',       color: '#FF7900', available: true,  b2c: true,  b2b: false },
   { id: 'mtn_momo',         label: 'MTN MoMo',               sublabel: 'Mobile Money Afrique',        icon: 'phone',            color: '#EAB308', available: true,  b2c: true,  b2b: false },
-  { id: 'cash_on_delivery', label: 'Paiement à la livraison',sublabel: 'Cash · Aucune vérification',  icon: 'package',          color: '#22C55E', available: true,  b2c: true,  b2b: true  },
+  { id: 'cash_on_delivery', label: 'Paiement à la livraison',sublabel: 'Cash · Aucune vérification',  icon: 'dollar-sign',      color: '#10B981', available: true,  b2c: true,  b2b: true  },
   // Net30 : disponible=true depuis que le backend crédit est branché
   // (companies.credit_limit/net30_balance + triggers, voir BUGS.md), mais
   // gardé hors de la liste "disponibles" plus bas tant que la société de
@@ -144,6 +144,12 @@ export default function CheckoutScreen() {
 
   const [step, setStep]           = useState<Step>(1);
   const [submitting, setSubmitting] = useState(false);
+  // Chantier 6 — id/statut réels de la commande tout juste créée, capturés
+  // à l'insertion pour l'étape 4 (badge de statut + bouton "Suivre ma
+  // commande"). Jamais de valeur mockée : null tant que l'insert Supabase
+  // n'a pas réussi.
+  const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
+  const [createdOrderStatus, setCreatedOrderStatus] = useState<'pending' | 'pending_approval'>('pending');
   const [address, setAddress] = useState<Address>({
     fullName: user?.name ?? '', street: '', city: '', country: 'France', phone: '', zipCode: '',
   });
@@ -503,6 +509,9 @@ export default function CheckoutScreen() {
           return; // ← panier intact, on reste sur l'étape 3
         }
 
+        setCreatedOrderId(insertedOrder.id);
+        setCreatedOrderStatus(realIsB2B ? 'pending_approval' : 'pending');
+
         // Best-effort: save the manually-entered address to the customer's
         // address book if they checked the box. Never blocks order
         // confirmation — the order is already placed at this point.
@@ -562,12 +571,19 @@ export default function CheckoutScreen() {
     return m?.label ?? paymentMethod;
   }
 
+  const ORDER_STATUS_LABELS: Record<'pending' | 'pending_approval', string> = {
+    pending:          'En attente de préparation',
+    pending_approval: 'En attente d\'approbation B2B',
+  };
+
   // ── Sub-components ───────────────────────────────────────────────────────────
 
-  const OrderSummary = () => (
+  // hideItems : step 4 affiche déjà la liste complète des articles
+  // juste au-dessus (voir confirmItemsBox) — évite de les montrer deux fois.
+  const OrderSummary = ({ hideItems }: { hideItems?: boolean } = {}) => (
     <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <Text style={[styles.summaryTitle, { color: colors.foreground }]}>Récapitulatif</Text>
-      {items.slice(0, 2).map(item => (
+      {!hideItems && items.slice(0, 2).map(item => (
         <View key={item.productId} style={styles.summaryRow}>
           <Text style={[styles.summaryItemName, { color: colors.foreground }]} numberOfLines={1}>{item.productName}</Text>
           <Text style={[styles.summaryItemPrice, { color: colors.mutedForeground }]}>
@@ -575,7 +591,7 @@ export default function CheckoutScreen() {
           </Text>
         </View>
       ))}
-      {items.length > 2 && (
+      {!hideItems && items.length > 2 && (
         <Text style={[styles.moreItems, { color: colors.mutedForeground }]}>+{items.length - 2} autres produits</Text>
       )}
       <View style={[styles.divider, { backgroundColor: colors.border }]} />
@@ -641,7 +657,11 @@ export default function CheckoutScreen() {
           styles.payCard,
           {
             borderColor:       locked ? colors.border : selected ? pm.color : colors.border,
-            backgroundColor:   locked ? colors.muted  : selected ? pm.color + '10' : colors.card,
+            // "Paiement à la livraison" gets its own fixed light-emerald
+            // selection tint (#ECFDF5) instead of the generic pm.color+'10'
+            // used by every other method — Wave/Orange Money/MTN MoMo keep
+            // that exact same formula, untouched.
+            backgroundColor:   locked ? colors.muted  : selected ? (pm.id === 'cash_on_delivery' ? '#ECFDF5' : pm.color + '10') : colors.card,
             opacity:           locked ? 0.65 : 1,
           },
         ]}
@@ -1215,19 +1235,19 @@ export default function CheckoutScreen() {
 
             {/* Cash on delivery info */}
             {paymentMethod === 'cash_on_delivery' && (
-              <View style={[styles.mmPanel, { backgroundColor: '#22C55E08', borderColor: '#22C55E40' }]}>
+              <View style={[styles.mmPanel, { backgroundColor: '#ECFDF5', borderColor: '#10B98140' }]}>
                 <View style={styles.mmHeader}>
-                  <View style={[styles.mmIconCircle, { backgroundColor: '#22C55E' }]}>
-                    <Feather name="package" size={18} color="white" />
+                  <View style={[styles.mmIconCircle, { backgroundColor: '#10B981' }]}>
+                    <Feather name="dollar-sign" size={18} color="white" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.mmTitle, { color: '#22C55E' }]}>Paiement à la livraison</Text>
+                    <Text style={[styles.mmTitle, { color: '#059669' }]}>Paiement à la livraison</Text>
                     <Text style={[styles.mmSubtitle, { color: colors.mutedForeground }]}>Cash · Aucune action maintenant</Text>
                   </View>
                 </View>
-                <View style={[styles.mmAmountBox, { backgroundColor: '#22C55E15', borderColor: '#22C55E40' }]}>
+                <View style={[styles.mmAmountBox, { backgroundColor: '#10B98115', borderColor: '#10B98140' }]}>
                   <Text style={[styles.mmAmountLabel, { color: colors.mutedForeground }]}>Montant à préparer</Text>
-                  <Text style={[styles.mmAmountValue, { color: '#22C55E' }]}>{formatXOF(total)}</Text>
+                  <Text style={[styles.mmAmountValue, { color: '#059669' }]}>{formatXOF(total)}</Text>
                 </View>
                 <Text style={[styles.mmStepText, { color: colors.mutedForeground, lineHeight: 20 }]}>
                   Vous payez en espèces au moment de la réception de votre colis. Préparez le montant exact. Le livreur dispose d'un terminal de paiement si nécessaire.
@@ -1279,6 +1299,15 @@ export default function CheckoutScreen() {
             </Text>
             <Text style={[styles.confirmOrder, { color: colors.primary }]}>{orderRef}</Text>
 
+            {/* Order fulfillment status — real value captured at insertion
+                (createdOrderStatus), not a fixed placeholder string. */}
+            <View style={[styles.confirmStatusBadge, { backgroundColor: colors.accent, borderColor: colors.border }]}>
+              <Feather name="clock" size={13} color={colors.mutedForeground} />
+              <Text style={[styles.confirmStatusBadgeText, { color: colors.foreground }]}>
+                {ORDER_STATUS_LABELS[createdOrderStatus]}
+              </Text>
+            </View>
+
             {/* Payment status badge */}
             {paymentStatus === 'awaiting_verification' && (
               <View style={[styles.confirmPayStatus, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
@@ -1294,10 +1323,10 @@ export default function CheckoutScreen() {
             )}
 
             {paymentStatus === 'pending' && paymentMethod === 'cash_on_delivery' && (
-              <View style={[styles.confirmPayStatus, { backgroundColor: '#DCFCE7', borderColor: '#22C55E' }]}>
-                <Feather name="package" size={16} color="#059669" />
+              <View style={[styles.confirmPayStatus, { backgroundColor: '#ECFDF5', borderColor: '#10B981' }]}>
+                <Feather name="dollar-sign" size={16} color="#059669" />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.confirmPayStatusTitle, { color: '#166534' }]}>Paiement à la livraison</Text>
+                  <Text style={[styles.confirmPayStatusTitle, { color: '#059669' }]}>Paiement à la livraison</Text>
                   <Text style={[styles.confirmPayStatusSub, { color: '#059669' }]}>
                     Préparez {formatXOF(total)} en espèces. Le livreur collectera le paiement à la réception.
                   </Text>
@@ -1338,6 +1367,38 @@ export default function CheckoutScreen() {
                   {delivery.cost === 0 ? 'Gratuit' : formatXOF(delivery.cost)}
                 </Text>
               </View>
+              {/* Adresse réelle saisie à l'étape 1 — seule la livraison à
+                  domicile en a une (point relais/magasin affichent déjà leur
+                  propre adresse ci-dessus, drone n'en a pas). */}
+              {delivery.type === 'home' && (address.street || address.city) && (
+                <View style={[styles.confirmAddressBox, { borderTopColor: colors.border }]}>
+                  <Text style={[styles.confirmAddressName, { color: colors.foreground }]}>{address.fullName}</Text>
+                  <Text style={[styles.confirmAddressLine, { color: colors.mutedForeground }]}>
+                    {[address.street, [address.zipCode, address.city].filter(Boolean).join(' '), address.country].filter(Boolean).join(', ')}
+                  </Text>
+                  {!!address.phone && (
+                    <Text style={[styles.confirmAddressLine, { color: colors.mutedForeground }]}>{address.phone}</Text>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Articles commandés — liste complète (nom, quantité, prix
+                unitaire), contrairement à OrderSummary ci-dessous qui reste
+                tronquée pour les étapes précédentes du checkout. */}
+            <View style={[styles.confirmItemsBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.summaryTitle, { color: colors.foreground }]}>Articles commandés</Text>
+              {items.map(item => (
+                <View key={item.productId} style={styles.confirmItemRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.confirmItemName, { color: colors.foreground }]} numberOfLines={2}>{item.productName}</Text>
+                    <Text style={[styles.confirmItemUnit, { color: colors.mutedForeground }]}>
+                      {formatXOF(item.price)} × {item.quantity}
+                    </Text>
+                  </View>
+                  <Text style={[styles.confirmItemTotal, { color: colors.foreground }]}>{formatXOF(item.price * item.quantity)}</Text>
+                </View>
+              ))}
             </View>
 
             {/* Toute commande B2B passe par pending_approval côté serveur,
@@ -1353,48 +1414,68 @@ export default function CheckoutScreen() {
               </View>
             )}
 
-            <OrderSummary />
+            <OrderSummary hideItems />
           </View>
         )}
       </ScrollView>
 
       {/* Bottom action bar */}
       <View style={[styles.actionBar, { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: insets.bottom + 12 }]}>
-        <TouchableOpacity
-          style={[
-            styles.nextBtn,
-            {
-              backgroundColor: step === 3 && isMobileMoney
-                ? PAYMENT_METHODS.find(p => p.id === paymentMethod)?.color ?? colors.primary
-                : colors.primary,
-              opacity: submitting ? 0.7 : 1,
-            },
-          ]}
-          onPress={handleNext}
-          disabled={submitting}
-        >
-          {submitting ? (
-            <>
-              <ActivityIndicator size="small" color="white" />
-              <Text style={styles.nextBtnText}>{isMobileMoney ? 'Ouverture du paiement…' : 'Enregistrement…'}</Text>
-            </>
-          ) : step === 3 ? (
-            <>
-              <Feather name={isMobileMoney ? 'shield' : paymentMethod === 'cash_on_delivery' ? 'package' : 'lock'} size={18} color="white" />
-              <Text style={styles.nextBtnText}>{ctaLabel()}</Text>
-            </>
-          ) : step === 4 ? (
-            <>
-              <Feather name="home" size={18} color="white" />
-              <Text style={styles.nextBtnText}>Retour à l'accueil</Text>
-            </>
-          ) : (
-            <>
-              <Text style={styles.nextBtnText}>{t('continue')}</Text>
-              <Feather name="arrow-right" size={18} color="white" />
-            </>
-          )}
-        </TouchableOpacity>
+        {step === 4 ? (
+          // Bouton principal "Suivre ma commande" + secondaire "Retour à
+          // l'accueil" — handleNext (Retour à l'accueil) reste inchangé,
+          // vide le panier et redirige, comme avant ce chantier.
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity
+              style={[styles.nextBtn, styles.confirmSecondaryBtn, { borderColor: colors.border, flex: 1 }]}
+              onPress={handleNext}
+            >
+              <Feather name="home" size={18} color={colors.foreground} />
+              <Text style={[styles.nextBtnText, { color: colors.foreground }]}>Retour à l'accueil</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.nextBtn, { backgroundColor: colors.primary, flex: 2 }]}
+              onPress={() => {
+                if (createdOrderId) router.push(`/order/${createdOrderId}` as any);
+              }}
+              disabled={!createdOrderId}
+            >
+              <Feather name="truck" size={18} color="white" />
+              <Text style={styles.nextBtnText}>{t('track_order')}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[
+              styles.nextBtn,
+              {
+                backgroundColor: step === 3 && (isMobileMoney || paymentMethod === 'cash_on_delivery')
+                  ? PAYMENT_METHODS.find(p => p.id === paymentMethod)?.color ?? colors.primary
+                  : colors.primary,
+                opacity: submitting ? 0.7 : 1,
+              },
+            ]}
+            onPress={handleNext}
+            disabled={submitting}
+          >
+            {submitting ? (
+              <>
+                <ActivityIndicator size="small" color="white" />
+                <Text style={styles.nextBtnText}>{isMobileMoney ? 'Ouverture du paiement…' : 'Enregistrement…'}</Text>
+              </>
+            ) : step === 3 ? (
+              <>
+                <Feather name={isMobileMoney ? 'shield' : paymentMethod === 'cash_on_delivery' ? 'dollar-sign' : 'lock'} size={18} color="white" />
+                <Text style={styles.nextBtnText}>{ctaLabel()}</Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.nextBtnText}>{t('continue')}</Text>
+                <Feather name="arrow-right" size={18} color="white" />
+              </>
+            )}
+          </TouchableOpacity>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -1548,6 +1629,8 @@ const styles = StyleSheet.create({
   confirmTitle:          { fontSize: 24, fontWeight: '800' },
   confirmSubtitle:       { fontSize: 16, textAlign: 'center' },
   confirmOrder:          { fontSize: 18, fontWeight: '700', fontFamily: 'monospace' },
+  confirmStatusBadge:    { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
+  confirmStatusBadgeText:{ fontSize: 12, fontWeight: '700' },
   confirmPayStatus:      { width: '100%', borderRadius: 12, borderWidth: 1, padding: 14, flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   confirmPayStatusTitle: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
   confirmPayStatusSub:   { fontSize: 13, lineHeight: 18 },
@@ -1557,12 +1640,21 @@ const styles = StyleSheet.create({
   confirmDeliveryLabel:  { fontSize: 14, fontWeight: '700' },
   confirmDeliveryDetail: { fontSize: 12, marginTop: 2 },
   confirmDeliveryCost:   { fontSize: 14, fontWeight: '700' },
+  confirmAddressBox:     { marginTop: 12, paddingTop: 12, borderTopWidth: 1, width: '100%' },
+  confirmAddressName:    { fontSize: 13, fontWeight: '700' },
+  confirmAddressLine:    { fontSize: 12, marginTop: 2 },
+  confirmItemsBox:       { width: '100%', borderRadius: 12, borderWidth: 1, padding: 14, gap: 10 },
+  confirmItemRow:        { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  confirmItemName:       { fontSize: 13, fontWeight: '600' },
+  confirmItemUnit:       { fontSize: 12, marginTop: 2 },
+  confirmItemTotal:      { fontSize: 13, fontWeight: '700' },
   approvalNote:          { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 12, borderWidth: 1, width: '100%' },
   approvalNoteText:      { flex: 1, fontSize: 13, lineHeight: 18 },
 
   // Action bar
   actionBar:         { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingTop: 14, borderTopWidth: 1, shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 5 },
   nextBtn:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 15, borderRadius: 14, shadowColor: '#1A56DB', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
+  confirmSecondaryBtn: { backgroundColor: 'transparent', borderWidth: 1.5, shadowOpacity: 0, elevation: 0 },
   nextBtnText:       { color: 'white', fontSize: 16, fontWeight: '700' },
 
   // Payment-proof confirmation modal

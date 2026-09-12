@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator, Alert, Image, Modal, ScrollView,
   StyleSheet, Switch, Text, TextInput, TouchableOpacity, View,
@@ -8,7 +8,7 @@ import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Feather } from '@/components/Icon';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
@@ -16,14 +16,40 @@ import { useAuth } from '@/context/AuthContext';
 import { useCurrency } from '@/context/CurrencyContext';
 import { CURRENCIES } from '@/lib/currency';
 import { LANGUAGES } from '@/constants/languages';
-import { DEMO_USERS, UserRole } from '@/constants/mockData';
+import { DEMO_USERS, Order, STATUS_COLORS, UserRole } from '@/constants/mockData';
 import RoleBadge from '@/components/RoleBadge';
 import BardecLayout from '@/components/BardecLayout';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toUserMessage } from '@/lib/errors';
 import { readLocalImageBytes } from '@/lib/imageUpload';
+import { mapDbOrder } from '@/lib/orders';
 import { usePendingApprovalsCount } from '@/hooks/usePendingApprovalsCount';
 import { PhoneInput, PhoneInputValue } from '@/components/PhoneInput';
+
+// Chantier 7 (fusionné dans Profil suite correction d'architecture) — un
+// "bon de commande" est une ligne `orders` avec company_id renseigné ; pas
+// de table dédiée (b2b_profiles/purchase_orders n'existent pas, vérifié
+// via information_schema en production avant d'écrire ce bloc).
+interface B2BCompanyInfo {
+  id: string;
+  name: string;
+  tax_id: string | null;
+  country: string;
+  credit_limit: number;
+  net30_balance: number;
+  payment_terms: string | null;
+  is_approved: boolean;
+}
+const B2B_ORDER_STATUS_LABELS: Record<string, string> = {
+  pending:            'En attente de validation',
+  pending_approval:   'En attente d\'approbation',
+  approved:           'Approuvé',
+  shipped:            'Expédié',
+  ready_for_delivery: 'Prêt pour livraison',
+  out_for_delivery:   'En livraison',
+  completed:          'Livré',
+  cancelled:          'Refusé / Annulé',
+};
 
 // Masque l'e-mail affiché dans la bannière d'en-tête (Confidentialité) —
 // garde le premier et le dernier caractère de la partie locale, le domaine
@@ -50,7 +76,7 @@ const TEST_ACCOUNT_EMAILS = [
 export default function ProfileScreen() {
   const colors = useColors();
   const { t, language } = useLanguage();
-  const { user, logout, switchDemoRole, isDemoMode, updateUserAvatar, updateUserName, updateUserPhone } = useAuth();
+  const { user, logout, switchDemoRole, isDemoMode, updateUserAvatar, updateUserName, updateUserPhone, refreshUser } = useAuth();
   const { currency, setCurrency } = useCurrency();
   const canSwitchRole = isDemoMode || TEST_ACCOUNT_EMAILS.includes(user?.email ?? '');
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -302,9 +328,139 @@ export default function ProfileScreen() {
 
   const currentLang = LANGUAGES.find(l => l.code === language);
   const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
+  // Chantier 2 — un APPROVER a son propre Dashboard dédié (Espace
+  // Approbateur, approver-dashboard.tsx) pour Bon de Commande / Approbations
+  // en attente. BUYER n'a pas cet écran séparé : depuis la correction
+  // d'architecture Chantier 7, tout son suivi B2B (métriques, accès
+  // rapides, bons de commande) est intégré directement ci-dessous dans la
+  // carte "Espace Société" plutôt que dans un onglet séparé.
+  const isBuyer = user?.role === 'BUYER';
 
   const realPendingApprovals = usePendingApprovalsCount(isB2B);
   const pendingApprovalsValue = isSupabaseConfigured ? (realPendingApprovals ?? 0) : user?.pendingApprovals;
+
+  // AuthContext.user (company/companyApproved) n'est enrichi qu'au login —
+  // rien ne le rafraîchit tant qu'un admin approuve une demande de
+  // rattachement pendant que ce compte est déjà connecté. Sans ça, le
+  // bandeau "non rattaché" restait affiché même après une approbation
+  // réelle en base. Refait à chaque prise de focus de l'écran.
+  useFocusEffect(React.useCallback(() => { refreshUser(); }, [refreshUser]));
+
+  // ── B2B (BUYER) — société, encours Net30, bons de commande ─────────────────
+  const [b2bCompany, setB2bCompany] = useState<B2BCompanyInfo | null>(null);
+  const [b2bOrders,  setB2bOrders]  = useState<Order[]>([]);
+  const [loadingB2b, setLoadingB2b] = useState(false);
+
+  const fetchB2bData = React.useCallback(async () => {
+    if (!isBuyer || !user?.company || !isSupabaseConfigured || !supabase) {
+      setB2bCompany(null);
+      setB2bOrders([]);
+      return;
+    }
+    setLoadingB2b(true);
+    const [companyRes, ordersRes] = await Promise.all([
+      supabase
+        .from('companies')
+        .select('id, name, tax_id, country, credit_limit, net30_balance, payment_terms, is_approved')
+        .eq('id', user.company)
+        .maybeSingle(),
+      supabase
+        .from('orders')
+        .select('*')
+        .eq('company_id', user.company)
+        .order('created_at', { ascending: false })
+        .limit(50),
+    ]);
+    if (companyRes.error) console.error('[profile:b2bCompany]', companyRes.error.message, companyRes.error.details, companyRes.error.hint);
+    if (ordersRes.error)  console.error('[profile:b2bOrders]',  ordersRes.error.message,  ordersRes.error.details,  ordersRes.error.hint);
+    setB2bCompany(companyRes.data ?? null);
+    setB2bOrders((ordersRes.data ?? []).map(mapDbOrder));
+    setLoadingB2b(false);
+  }, [isBuyer, user?.company]);
+
+  useEffect(() => { fetchB2bData(); }, [fetchB2bData]);
+  useFocusEffect(React.useCallback(() => { fetchB2bData(); }, [fetchB2bData]));
+
+  const b2bCreditLimit     = b2bCompany?.credit_limit ?? 0;
+  const b2bCreditBalance   = b2bCompany?.net30_balance ?? 0;
+  const b2bCreditAvailable = b2bCreditLimit - b2bCreditBalance;
+  const b2bOverLimit       = b2bCreditBalance > b2bCreditLimit && b2bCreditLimit > 0;
+  const b2bCreditRatio     = b2bCreditLimit > 0 ? Math.min(b2bCreditBalance / b2bCreditLimit, 1) : 0;
+  const b2bPendingCount    = b2bOrders.filter(o => o.status === 'pending' || o.status === 'pending_approval').length;
+
+  // ── Demande de rattachement B2B (company_join_requests) ─────────────────
+  // Table dédiée créée pour ce chantier — pas de policy d'insert sur
+  // `companies` pour un compte normal (companies_own est en lecture seule),
+  // donc une société ne peut pas se créer elle-même : on enregistre une
+  // demande, un ADMIN la traite ensuite (rattache réellement via
+  // users.company_id, hors scope de cet écran).
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [joinCompanyName, setJoinCompanyName] = useState('');
+  const [joinTaxId, setJoinTaxId] = useState('');
+  const [joinContactEmail, setJoinContactEmail] = useState('');
+  const [submittingJoin, setSubmittingJoin] = useState(false);
+  const [joinRequestStatus, setJoinRequestStatus] = useState<'pending' | 'approved' | 'rejected' | null>(null);
+
+  const fetchJoinRequestStatus = React.useCallback(async () => {
+    if (!isBuyer || user?.company || !isSupabaseConfigured || !supabase) {
+      setJoinRequestStatus(null);
+      return;
+    }
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) { setJoinRequestStatus(null); return; }
+    const { data, error } = await supabase
+      .from('company_join_requests')
+      .select('status')
+      .eq('user_id', authUser.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) console.error('[profile:joinRequestStatus]', error.message, error.details, error.hint);
+    setJoinRequestStatus((data?.status as any) ?? null);
+  }, [isBuyer, user?.company]);
+
+  useEffect(() => { fetchJoinRequestStatus(); }, [fetchJoinRequestStatus]);
+  useFocusEffect(React.useCallback(() => { fetchJoinRequestStatus(); }, [fetchJoinRequestStatus]));
+
+  function openJoinModal() {
+    setJoinCompanyName('');
+    setJoinTaxId('');
+    setJoinContactEmail(user?.email ?? '');
+    setShowJoinModal(true);
+  }
+
+  async function handleSubmitJoinRequest() {
+    const name  = joinCompanyName.trim();
+    const email = joinContactEmail.trim();
+    if (!name)  { Alert.alert('Champ requis', 'Indique le nom de l\'entreprise.'); return; }
+    if (!email) { Alert.alert('Champ requis', 'Indique un email professionnel.'); return; }
+    if (!isSupabaseConfigured || !supabase) {
+      Alert.alert('Indisponible', 'Cette action nécessite une connexion à Supabase.');
+      return;
+    }
+    setSubmittingJoin(true);
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) {
+      setSubmittingJoin(false);
+      Alert.alert('Session expirée', 'Reconnecte-toi et réessaie.');
+      return;
+    }
+    const { error } = await supabase.from('company_join_requests').insert({
+      user_id:       authUser.id,
+      company_name:  name,
+      tax_id:        joinTaxId.trim() || null,
+      contact_email: email,
+    });
+    setSubmittingJoin(false);
+    if (error) {
+      console.error('Erreur demande de rattachement :', error.message, error.details, error.hint);
+      Alert.alert('Erreur', toUserMessage('profile:joinRequest', error, 'Impossible d\'envoyer ta demande. Réessaie dans un instant.'));
+      return;
+    }
+    setShowJoinModal(false);
+    setJoinRequestStatus('pending');
+    Alert.alert('Demande envoyée', 'Ta demande de rattachement a été transmise. Un administrateur BARDEC va l\'examiner.');
+  }
 
   const handleLogout = () => {
     Alert.alert(t('logout'), 'Voulez-vous vous déconnecter?', [
@@ -437,6 +593,73 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
+      {/* Demande de rattachement B2B — enregistrée dans company_join_requests,
+          statut "pending" pour qu'un ADMIN la traite (rattachement réel via
+          users.company_id hors scope de cet écran). */}
+      <Modal
+        visible={showJoinModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowJoinModal(false)}
+      >
+        <View style={styles.avatarModalOverlay}>
+          <View style={[styles.avatarModalCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.avatarModalTitle, { color: colors.foreground }]}>
+              Demande de rattachement B2B
+            </Text>
+
+            <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Nom de l'entreprise *</Text>
+            <TextInput
+              value={joinCompanyName}
+              onChangeText={setJoinCompanyName}
+              placeholder="Ex : BARDEC Import-Export SARL"
+              placeholderTextColor={colors.mutedForeground}
+              style={[styles.editNameInput, { borderColor: colors.border, color: colors.foreground, marginTop: 0 }]}
+              autoFocus
+            />
+
+            <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Numéro NINEA / Registre du commerce</Text>
+            <TextInput
+              value={joinTaxId}
+              onChangeText={setJoinTaxId}
+              placeholder="Ex : SN-DKR-2024-B-12345"
+              placeholderTextColor={colors.mutedForeground}
+              style={[styles.editNameInput, { borderColor: colors.border, color: colors.foreground, marginTop: 0 }]}
+            />
+
+            <Text style={[styles.fieldLabel, { color: colors.foreground }]}>Email professionnel *</Text>
+            <TextInput
+              value={joinContactEmail}
+              onChangeText={setJoinContactEmail}
+              placeholder="contact@entreprise.com"
+              placeholderTextColor={colors.mutedForeground}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              style={[styles.editNameInput, { borderColor: colors.border, color: colors.foreground, marginTop: 0 }]}
+            />
+
+            <View style={styles.avatarModalActions}>
+              <TouchableOpacity
+                style={[styles.avatarModalBtn, styles.avatarModalBtnCancel, { borderColor: colors.border }]}
+                onPress={() => setShowJoinModal(false)}
+                disabled={submittingJoin}
+              >
+                <Text style={[styles.avatarModalBtnText, { color: colors.mutedForeground }]}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.avatarModalBtn, styles.avatarModalBtnConfirm, { backgroundColor: colors.primary }]}
+                onPress={handleSubmitJoinRequest}
+                disabled={submittingJoin}
+              >
+                {submittingJoin
+                  ? <ActivityIndicator size="small" color="white" />
+                  : <Text style={[styles.avatarModalBtnText, { color: 'white' }]}>Soumettre la demande</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Delete account confirmation modal — double confirmation: the Alert
           in handleDeleteAccountPress warns about irreversibility first, this
           modal then requires typing SUPPRIMER before the button unlocks. */}
@@ -513,10 +736,13 @@ export default function ProfileScreen() {
         {user?.role && <RoleBadge role={user.role} />}
       </View>
 
-      {/* B2B info */}
-      {isB2B && user && (
+      {/* B2B info — APPROVER garde la version minimale (son vrai tableau de
+          bord vit sur l'onglet Espace Approbateur) ; BUYER, qui n'a pas
+          d'écran séparé, reçoit ici la version complète (métriques Net30,
+          accès rapides, bons de commande) suite à la fusion Chantier 7. */}
+      {isB2B && user && !isBuyer && (
         <View style={[styles.b2bCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.b2bTitle, { color: colors.foreground }]}>Informations B2B</Text>
+          <Text style={[styles.b2bTitle, { color: colors.foreground }]}>Espace Société</Text>
           {user.company && (
             <View style={styles.b2bRow}>
               <Feather name="briefcase" size={16} color={colors.mutedForeground} />
@@ -540,6 +766,165 @@ export default function ProfileScreen() {
               <Text style={[styles.b2bRowText, { color: '#D97706' }]}>
                 {pendingApprovalsValue} commande(s) {t('pending_approval')}
               </Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {isBuyer && user && (
+        <View style={[styles.b2bCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.b2bTitle, { color: colors.foreground }]}>Espace Société</Text>
+
+          {!user.company && (
+            <View style={styles.warnBanner}>
+              <Feather name={joinRequestStatus === 'pending' ? 'clock' : 'alert-circle'} size={16} color="#D97706" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.warnBannerText}>
+                  {joinRequestStatus === 'pending'
+                    ? 'Ta demande de rattachement a été envoyée et est en attente de validation par un administrateur BARDEC.'
+                    : joinRequestStatus === 'rejected'
+                    ? 'Ta précédente demande de rattachement a été refusée. Tu peux en soumettre une nouvelle.'
+                    : 'Ton compte n\'est rattaché à aucune société B2B. Fais une demande de rattachement pour activer le crédit Net30.'}
+                </Text>
+                {joinRequestStatus !== 'pending' && (
+                  <TouchableOpacity style={styles.joinRequestBtn} onPress={openJoinModal}>
+                    <Feather name="plus-circle" size={14} color="white" />
+                    <Text style={styles.joinRequestBtnText}>Faire une demande de rattachement</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          )}
+
+          {!!user.company && b2bCompany && !b2bCompany.is_approved && (
+            <View style={styles.warnBanner}>
+              <Feather name="clock" size={16} color="#D97706" />
+              <Text style={styles.warnBannerText}>
+                La société {b2bCompany.name} est en attente d'approbation par un administrateur BARDEC. La limite de crédit Net30 sera activée une fois la société validée.
+              </Text>
+            </View>
+          )}
+
+          {!!user.company && b2bCompany && (
+            <View style={styles.b2bCompanyRow}>
+              <View style={[styles.companyAvatar, { backgroundColor: colors.primary }]}>
+                <Text style={styles.companyAvatarText}>{b2bCompany.name?.[0]?.toUpperCase() ?? 'S'}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={styles.companyNameRow}>
+                  <Text style={[styles.companyName, { color: colors.foreground }]} numberOfLines={1}>{b2bCompany.name}</Text>
+                  {b2bCompany.is_approved && (
+                    <View style={styles.approvedBadge}>
+                      <Feather name="check-circle" size={11} color="white" />
+                      <Text style={styles.approvedBadgeText}>Approuvée</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={[styles.companyMeta, { color: colors.mutedForeground }]} numberOfLines={1}>
+                  {[b2bCompany.tax_id, b2bCompany.country, b2bCompany.payment_terms].filter(Boolean).join(' · ') || '—'}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          <View style={styles.kpiGrid}>
+            <View style={[styles.kpiCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              <Text style={[styles.kpiValue, { color: colors.foreground }]} numberOfLines={1} adjustsFontSizeToFit>
+                {b2bCreditLimit.toLocaleString('fr-FR')} FCFA
+              </Text>
+              <Text style={[styles.kpiLabel, { color: colors.mutedForeground }]}>Limite Net30</Text>
+            </View>
+            <View style={[styles.kpiCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              <Text style={[styles.kpiValue, { color: b2bOverLimit ? '#DC2626' : colors.foreground }]} numberOfLines={1} adjustsFontSizeToFit>
+                {b2bCreditBalance.toLocaleString('fr-FR')} FCFA
+              </Text>
+              <Text style={[styles.kpiLabel, { color: colors.mutedForeground }]}>Encours utilisé</Text>
+            </View>
+            <View style={[styles.kpiCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              <Text style={[styles.kpiValue, { color: '#22C55E' }]} numberOfLines={1} adjustsFontSizeToFit>
+                {b2bCreditAvailable.toLocaleString('fr-FR')} FCFA
+              </Text>
+              <Text style={[styles.kpiLabel, { color: colors.mutedForeground }]}>Solde disponible</Text>
+            </View>
+          </View>
+
+          {b2bCreditLimit > 0 && (
+            <View style={styles.gaugeWrap}>
+              <View style={[styles.gaugeTrack, { backgroundColor: colors.border }]}>
+                <View style={[styles.gaugeFill, { width: `${b2bCreditRatio * 100}%`, backgroundColor: b2bOverLimit ? '#DC2626' : '#7C3AED' }]} />
+              </View>
+              <Text style={[styles.gaugeText, { color: colors.mutedForeground }]}>
+                {Math.round(b2bCreditRatio * 100)}% de la limite Net30 utilisée
+              </Text>
+            </View>
+          )}
+          {b2bOverLimit && (
+            <View style={[styles.b2bRow, styles.pendingRow, { backgroundColor: '#FEE2E2' }]}>
+              <Feather name="alert-triangle" size={14} color="#DC2626" />
+              <Text style={[styles.b2bRowText, { color: '#991B1B' }]}>Encours au-delà de la limite de crédit accordée.</Text>
+            </View>
+          )}
+
+          <Text style={[styles.b2bSubTitle, { color: colors.foreground }]}>Accès rapides</Text>
+          <View style={styles.quickActionsRow}>
+            <TouchableOpacity
+              style={[styles.quickActionCard, { backgroundColor: colors.background, borderColor: colors.border }]}
+              onPress={() => router.push('/(app)/(tabs)' as any)}
+            >
+              <Feather name="plus-circle" size={18} color={colors.primary} />
+              <Text style={[styles.quickActionLabel, { color: colors.foreground }]}>Nouveau BDC</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.quickActionCard, { backgroundColor: colors.background, borderColor: colors.border }]}
+              onPress={() => router.push({ pathname: '/(tabs)/orders', params: { tab: 'pending_approval' } } as any)}
+            >
+              <Feather name="check-circle" size={18} color={colors.primary} />
+              <Text style={[styles.quickActionLabel, { color: colors.foreground }]}>Approbations</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.quickActionCard, { backgroundColor: colors.background, borderColor: colors.border }]}
+              onPress={() => router.push('/addresses' as any)}
+            >
+              <Feather name="map-pin" size={18} color={colors.primary} />
+              <Text style={[styles.quickActionLabel, { color: colors.foreground }]}>Adresses</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.b2bSubTitle, { color: colors.foreground }]}>
+            Bons de commande {b2bPendingCount > 0 ? `· ${b2bPendingCount} en attente` : ''}
+          </Text>
+          {loadingB2b ? (
+            <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 12 }} />
+          ) : !user.company || b2bOrders.length === 0 ? (
+            <Text style={[styles.b2bRowText, { color: colors.mutedForeground, marginBottom: 4 }]}>
+              Aucun bon de commande pour l'instant.
+            </Text>
+          ) : (
+            <View style={{ gap: 8 }}>
+              {b2bOrders.map(order => (
+                <TouchableOpacity
+                  key={order.id}
+                  style={[styles.b2bOrderCard, { backgroundColor: colors.background, borderColor: colors.border }]}
+                  onPress={() => router.push(`/order/${order.id}` as any)}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.b2bOrderNumber, { color: colors.foreground }]}>
+                      {order.purchaseOrderNumber || order.orderNumber}
+                    </Text>
+                    <Text style={[styles.b2bOrderDate, { color: colors.mutedForeground }]}>{order.date}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                    <Text style={[styles.b2bOrderAmount, { color: colors.foreground }]}>
+                      {order.total.toLocaleString('fr-FR')} FCFA
+                    </Text>
+                    <View style={[styles.statusBadge, { backgroundColor: (STATUS_COLORS[order.status] ?? colors.muted) + '20' }]}>
+                      <Text style={[styles.statusBadgeText, { color: STATUS_COLORS[order.status] ?? colors.mutedForeground }]}>
+                        {B2B_ORDER_STATUS_LABELS[order.status] ?? order.status}
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))}
             </View>
           )}
         </View>
@@ -590,29 +975,6 @@ export default function ProfileScreen() {
             a silent dead tap, until that backend work is scoped. */}
         <MenuItem icon="heart" label={t('wishlist')} colors={colors} onPress={() => Alert.alert('Bientôt disponible', 'La liste de souhaits arrive prochainement.')} />
         <MenuItem icon="star" label={t('my_reviews')} colors={colors} onPress={() => Alert.alert('Bientôt disponible', 'Tes avis arrivent prochainement.')} />
-
-        {isB2B && (
-          <>
-            <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-            <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>B2B</Text>
-            <MenuItem
-              icon="file-text"
-              label={t('purchase_order')}
-              colors={colors}
-              onPress={() => router.push('/(tabs)/orders' as any)}
-            />
-            <MenuItem
-              icon="check-circle"
-              label="Approbations en attente"
-              colors={colors}
-              badge={pendingApprovalsValue}
-              onPress={() => router.push({
-                pathname: '/(tabs)/orders',
-                params: { tab: 'pending_approval' },
-              } as any)}
-            />
-          </>
-        )}
 
         <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
         <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>{t('settings')}</Text>
@@ -703,8 +1065,8 @@ export default function ProfileScreen() {
         <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
         <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>Application</Text>
 
-        <MenuItem icon="headphones" label={t('support')} colors={colors} onPress={handleSupport} />
-        <MenuItem icon="info" label={t('app_info')} colors={colors} onPress={handleAppInfo} />
+        <MenuItem icon="headphones" label={t('support')} colors={colors} onPress={handleSupport} iconColor="#2563EB" />
+        <MenuItem icon="info" label={t('app_info')} colors={colors} onPress={handleAppInfo} iconColor="#64748B" />
         <MenuItem icon="trash-2" label={t('clear_cache')} colors={colors} onPress={handleClearCache} />
       </View>
 
@@ -720,16 +1082,17 @@ export default function ProfileScreen() {
   );
 }
 
-function MenuItem({ icon, label, colors, onPress, badge }: {
+function MenuItem({ icon, label, colors, onPress, badge, iconColor }: {
   icon: string;
   label: string;
   colors: any;
   onPress?: () => void;
   badge?: number;
+  iconColor?: string;
 }) {
   return (
     <TouchableOpacity style={styles.menuRow} onPress={onPress ?? (() => {})}>
-      <Feather name={icon as any} size={18} color={colors.primary} />
+      <Feather name={icon as any} size={18} color={iconColor ?? colors.primary} />
       <Text style={[styles.menuLabel, { color: colors.foreground, flex: 1 }]}>{label}</Text>
       {badge !== undefined && badge > 0 && (
         <View style={[styles.badge, { backgroundColor: colors.destructive }]}>
@@ -786,6 +1149,51 @@ const styles = StyleSheet.create({
   b2bRowLabel: { fontSize: 11 },
   b2bRowValue: { fontSize: 14, fontWeight: '700' },
   pendingRow: { padding: 10, borderRadius: 10 },
+
+  // B2B (BUYER) — fusion Chantier 7
+  warnBanner: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    padding: 10, borderRadius: 10, backgroundColor: '#FEF3C7',
+  },
+  warnBannerText: { color: '#92400E', fontSize: 12, fontWeight: '600', flex: 1, lineHeight: 17 },
+  joinRequestBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: '#D97706', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12, marginTop: 8, alignSelf: 'flex-start',
+  },
+  joinRequestBtnText: { color: 'white', fontSize: 12, fontWeight: '700' },
+  b2bCompanyRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  companyAvatar: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  companyAvatarText: { color: 'white', fontSize: 16, fontWeight: '800' },
+  companyNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  companyName: { fontSize: 15, fontWeight: '800', flexShrink: 1 },
+  companyMeta: { fontSize: 12, marginTop: 2 },
+  approvedBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#22C55E', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3,
+  },
+  approvedBadgeText: { color: 'white', fontSize: 10, fontWeight: '700' },
+  kpiGrid: { flexDirection: 'row', gap: 8 },
+  kpiCard: { flex: 1, borderRadius: 12, borderWidth: 1, padding: 10, alignItems: 'center', gap: 4 },
+  kpiValue: { fontSize: 13, fontWeight: '800' },
+  kpiLabel: { fontSize: 10, textAlign: 'center' },
+  gaugeWrap:  { gap: 6 },
+  gaugeTrack: { height: 8, borderRadius: 4, overflow: 'hidden' },
+  gaugeFill:  { height: '100%', borderRadius: 4 },
+  gaugeText:  { fontSize: 11 },
+  b2bSubTitle: { fontSize: 13, fontWeight: '700', marginTop: 4 },
+  quickActionsRow: { flexDirection: 'row', gap: 8 },
+  quickActionCard: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 10, alignItems: 'center', gap: 4 },
+  quickActionLabel: { fontSize: 11, fontWeight: '700', textAlign: 'center' },
+  b2bOrderCard: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderRadius: 12, padding: 12, gap: 8,
+  },
+  b2bOrderNumber: { fontSize: 13, fontWeight: '700' },
+  b2bOrderDate:   { fontSize: 11, marginTop: 2 },
+  b2bOrderAmount: { fontSize: 13, fontWeight: '800' },
+  statusBadge: { borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
+  statusBadgeText: { fontSize: 10, fontWeight: '700' },
+
   section: {
     marginHorizontal: 16,
     marginBottom: 12,

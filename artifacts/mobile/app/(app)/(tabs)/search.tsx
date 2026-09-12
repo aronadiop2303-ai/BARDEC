@@ -16,6 +16,7 @@ import { useLanguage } from '@/context/LanguageContext';
 import type { TranslationKey } from '@/constants/translations';
 import BardecLayout from '@/components/BardecLayout';
 import ProductCard from '@/components/ProductCard';
+import CategoryIcon from '@/components/CategoryIcon';
 import { SkeletonProductCard } from '@/components/SkeletonCard';
 import { CATEGORIES } from '@/constants/mockData';
 import { useProducts } from '@/hooks/useProducts';
@@ -147,6 +148,11 @@ export default function SearchScreen() {
             style={[styles.catChip, { backgroundColor: selectedCategory === cat.id ? colors.accent : 'transparent', borderColor: selectedCategory === cat.id ? colors.primary : colors.border }]}
             onPress={() => setSelectedCategory(cat.id)}
           >
+            <CategoryIcon
+              category={cat}
+              size={13}
+              color={selectedCategory === cat.id ? colors.primary : colors.mutedForeground}
+            />
             <Text style={[styles.catChipText, { color: selectedCategory === cat.id ? colors.primary : colors.mutedForeground }]}>{t(`cat_${cat.id}` as TranslationKey)}</Text>
           </TouchableOpacity>
         ))}
@@ -249,6 +255,9 @@ const styles = StyleSheet.create({
   sortChipText: { fontSize: 12, fontWeight: '600' },
   catScroll: { marginTop: 8 },
   catChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,

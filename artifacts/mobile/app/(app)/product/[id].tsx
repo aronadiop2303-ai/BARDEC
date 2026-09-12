@@ -32,6 +32,7 @@ type ProductTab = 'description' | 'specifications' | 'reviews' | 'trade_assuranc
 const TRADE_ASSURANCE_ITEMS = [
   {
     icon: 'shield', title: 'Paiement sécurisé',
+    color: '#10B981', bg: '#ECFDF5',
     desc: 'Votre paiement est protégé jusqu\'à la livraison confirmée.',
     details: 'BARDEC ne verse le paiement au vendeur qu\'une fois la livraison confirmée. ' +
       'Tant que vous n\'avez pas reçu votre commande conforme à la description, votre argent reste ' +
@@ -39,7 +40,8 @@ const TRADE_ASSURANCE_ITEMS = [
       'vendeur n\'est nécessaire en dehors du checkout BARDEC.',
   },
   {
-    icon: 'package', title: 'Garantie de qualité',
+    icon: 'award', title: 'Garantie de qualité',
+    color: '#F59E0B', bg: '#FEF3C7',
     desc: 'Produit conforme à la description ou remboursement intégral.',
     details: 'Si le produit reçu ne correspond pas à la description, aux photos ou aux spécifications ' +
       'annoncées par le vendeur, vous pouvez ouvrir un litige depuis votre commande. Après vérification, ' +
@@ -47,6 +49,7 @@ const TRADE_ASSURANCE_ITEMS = [
   },
   {
     icon: 'truck', title: 'Livraison garantie',
+    color: '#2563EB', bg: '#EFF6FF',
     desc: 'Dédommagement en cas de retard ou de perte.',
     details: 'Chaque commande est suivie de bout en bout. En cas de retard important, de colis perdu ' +
       'ou endommagé pendant le transport, vous êtes dédommagé — remboursement total ou partiel selon ' +
@@ -54,6 +57,7 @@ const TRADE_ASSURANCE_ITEMS = [
   },
   {
     icon: 'refresh-cw', title: 'Politique de retour',
+    color: '#7C3AED', bg: '#F3E8FF',
     desc: 'Retour facile sous 30 jours pour produits défectueux.',
     details: 'Vous disposez de 30 jours après réception pour signaler un défaut et demander un retour. ' +
       'Les frais de retour pour un produit défectueux ou non conforme sont pris en charge par le vendeur. ' +
@@ -321,12 +325,12 @@ export default function ProductDetailScreen() {
             <View style={[styles.vendorAvatar, { backgroundColor: colors.primary }]}>
               <Text style={styles.vendorAvatarText}>{product.vendorName[0]}</Text>
             </View>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
               <View style={styles.vendorNameRow}>
-                <Text style={[styles.vendorName, { color: colors.foreground }]}>{product.vendorName}</Text>
+                <Text style={[styles.vendorName, { color: colors.foreground }]} numberOfLines={1}>{product.vendorName}</Text>
                 <Feather name="check-circle" size={14} color={colors.primary} />
               </View>
-              <Text style={[styles.vendorMeta, { color: colors.mutedForeground }]}>Taux de réponse 98% · Dakar, Sénégal</Text>
+              <Text style={[styles.vendorMeta, { color: colors.mutedForeground }]} numberOfLines={1}>Taux de réponse 98% · Dakar, Sénégal</Text>
             </View>
             {/* /chat is a static mock screen (MOCK_CONVERSATIONS, scripted fake
                 replies) — never wired to the real conversations/messages
@@ -466,11 +470,11 @@ export default function ProductDetailScreen() {
                   onPress={() => setTradeDetail(item)}
                   activeOpacity={0.7}
                 >
-                  <View style={[styles.tradeIcon, { backgroundColor: colors.accent }]}>
-                    <Feather name={item.icon as any} size={20} color={colors.primary} />
+                  <View style={[styles.tradeIcon, { backgroundColor: item.bg }]}>
+                    <Feather name={item.icon as any} size={20} color={item.color} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.tradeTitle, { color: colors.foreground }]}>{item.title}</Text>
+                    <Text style={[styles.tradeTitle, { color: item.color }]}>{item.title}</Text>
                     <Text style={[styles.tradeDesc, { color: colors.mutedForeground }]}>{item.desc}</Text>
                   </View>
                   <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
@@ -540,10 +544,10 @@ export default function ProductDetailScreen() {
             {tradeDetail && (
               <>
                 <View style={styles.tradeSheetHeader}>
-                  <View style={[styles.tradeIcon, { backgroundColor: colors.accent }]}>
-                    <Feather name={tradeDetail.icon as any} size={22} color={colors.primary} />
+                  <View style={[styles.tradeIcon, { backgroundColor: tradeDetail.bg }]}>
+                    <Feather name={tradeDetail.icon as any} size={22} color={tradeDetail.color} />
                   </View>
-                  <Text style={[styles.tradeSheetTitle, { color: colors.foreground }]}>{tradeDetail.title}</Text>
+                  <Text style={[styles.tradeSheetTitle, { color: tradeDetail.color }]}>{tradeDetail.title}</Text>
                 </View>
                 <Text style={[styles.tradeSheetDetails, { color: colors.mutedForeground }]}>
                   {tradeDetail.details}

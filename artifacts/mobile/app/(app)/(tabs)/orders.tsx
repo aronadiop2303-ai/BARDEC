@@ -161,6 +161,7 @@ export default function OrdersScreen() {
   // ── Submit review ──────────────────────────────────────────────────────────
   const handleSubmitReview = async () => {
     if (!reviewOrder || !user) return;
+    if (reviewRating < 1) { Alert.alert('Note requise', 'Choisis au moins une étoile avant d\'envoyer ton avis.'); return; }
     const productId = reviewOrder.items[0]?.productId;
     if (!productId) { Alert.alert('Erreur', 'Produit introuvable.'); return; }
 
@@ -182,7 +183,11 @@ export default function OrdersScreen() {
         verified:   true,
       });
       setSubmittingReview(false);
-      if (error) { Alert.alert('Erreur', toUserMessage('orders:submitReview', error, 'Impossible d\'envoyer votre avis. Réessaie dans un instant.')); return; }
+      if (error) {
+        console.error('Erreur avis :', error.message, error.details, error.hint);
+        Alert.alert('Erreur', toUserMessage('orders:submitReview', error, 'Impossible d\'envoyer votre avis. Réessaie dans un instant.'));
+        return;
+      }
     } else {
       setSubmittingReview(false);
     }

@@ -55,11 +55,14 @@ export default function OrderDetailScreen() {
 
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase.from('orders').select('*').eq('id', id).maybeSingle();
-      if (error || !data) {
-        setOrder(MOCK_ORDERS.find(o => o.id === id) ?? null);
-      } else {
-        setOrder(mapDbOrder(data));
-      }
+      if (error) console.error('[orderDetail:fetch]', error.message, error.details, error.hint);
+      // Never substitute a MOCK_ORDERS entry here when Supabase is configured
+      // — mock ids ('o1'…) aren't real UUIDs, so leaking one into `order`
+      // would later crash any write on this order (confirm receipt, review
+      // submission) with "invalid input syntax for type uuid" instead of a
+      // clean "commande introuvable" state. Mock fallback stays demo-only
+      // (the `else` branch below), matching orders.tsx's equivalent fetch.
+      setOrder(data ? mapDbOrder(data) : null);
     } else {
       setOrder(MOCK_ORDERS.find(o => o.id === id) ?? null);
     }
@@ -116,6 +119,7 @@ export default function OrderDetailScreen() {
 
   const handleSubmitReview = async () => {
     if (!order || !user) return;
+    if (reviewRating < 1) { Alert.alert('Note requise', 'Choisis au moins une étoile avant d\'envoyer ton avis.'); return; }
     const productId = order.items[0]?.productId;
     if (!productId) { Alert.alert('Erreur', 'Produit introuvable.'); return; }
 
@@ -137,7 +141,11 @@ export default function OrderDetailScreen() {
         verified:   true,
       });
       setSubmittingReview(false);
-      if (error) { Alert.alert('Erreur', toUserMessage('orderDetail:submitReview', error, 'Impossible d\'envoyer votre avis. Réessaie dans un instant.')); return; }
+      if (error) {
+        console.error('Erreur avis :', error.message, error.details, error.hint);
+        Alert.alert('Erreur', toUserMessage('orderDetail:submitReview', error, 'Impossible d\'envoyer votre avis. Réessaie dans un instant.'));
+        return;
+      }
     } else {
       setSubmittingReview(false);
     }

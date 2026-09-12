@@ -9,6 +9,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { Feather } from '@/components/Icon';
+import CategoryIcon from '@/components/CategoryIcon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useColors } from '@/hooks/useColors';
 import { useLanguage } from '@/context/LanguageContext';
@@ -125,6 +126,19 @@ function escapeCSV(v: string): string {
   if (v.includes(',') || v.includes('"') || v.includes('\n'))
     return `"${v.replace(/"/g, '""')}"`;
   return v;
+}
+
+// ─── CSV column alias lookup ─────────────────────────────────────────────────
+// parseCSV lowercases headers and turns spaces into "_" but keeps accents, so
+// a header like "Pays d'origine" ends up stored as "pays_d'origine". Vendors
+// export from all kinds of spreadsheet tools, so accept both the English
+// field name and common French variants for the same logical column.
+function pick(row: Record<string, string>, keys: string[]): string {
+  for (const k of keys) {
+    const v = row[k];
+    if (v) return v;
+  }
+  return '';
 }
 
 // ─── CSV category resolver ────────────────────────────────────────────────────
@@ -254,6 +268,9 @@ export default function VendorDashboardScreen() {
 
   // Loading states
   const [isImporting, setIsImporting] = useState(false);
+  const [showCsvHelpModal, setShowCsvHelpModal] = useState(false);
+  const [showCsvColumnGuide, setShowCsvColumnGuide] = useState(false);
+  const [isDownloadingCsvTemplate, setIsDownloadingCsvTemplate] = useState(false);
   // TEMPORARY diagnostic for the "Importer CSV" bug report (no visible
   // action on tap) — on-screen log since console.log isn't reachable from a
   // standalone Expo Go device. Remove once the real blocking point is found.
@@ -305,10 +322,25 @@ export default function VendorDashboardScreen() {
   useEffect(() => { fetchVendorKyc(); }, [fetchVendorKyc]);
   useFocusEffect(useCallback(() => { fetchVendorKyc(); }, [fetchVendorKyc]));
 
+  // Chantier 8 — platform_settings.kyc_required pilote désormais le
+  // garde-fou ensureKycApprovedToPublish() ci-dessous, qui exigeait un KYC
+  // approuvé inconditionnellement. Défaut à `true` (comportement historique)
+  // tant que le fetch n'a pas répondu ou si Supabase n'est pas configuré.
+  const [kycRequiredSetting, setKycRequiredSetting] = useState(true);
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    supabase.from('platform_settings').select('kyc_required').eq('id', 1).maybeSingle()
+      .then(({ data, error }) => {
+        if (error) { console.warn('platform_settings fetch error:', error.message); return; }
+        if (data) setKycRequiredSetting(!!data.kyc_required);
+      });
+  }, []);
+
   // Gate: a vendor can register and even upload KYC docs freely, but cannot
   // publish products (manual add or CSV import) until an admin approves them.
   function ensureKycApprovedToPublish(): boolean {
     if (!isSupabaseConfigured) return true; // demo mode has no real KYC data
+    if (!kycRequiredSetting) return true; // désactivé par un admin (Paramètres plateforme)
     if (vendorKyc?.kyc_status === 'approved') return true;
     Alert.alert(
       'Vérification KYC requise',
@@ -945,15 +977,86 @@ export default function VendorDashboardScreen() {
       const file = picked.assets[0];
       dbgCsv(`5. fichier sélectionné : ${file.name ?? '?'} (${file.uri.slice(0, 40)}…)`);
 
-      // Read content — base64 first so we can sniff the BOM ourselves
-      // (UTF-8, UTF-16 LE/BE) instead of assuming UTF-8 blindly.
+      // Re-copy to a fresh, guaranteed-.csv cache path before reading.
+      // copyToCacheDirectory: true above already gives us a local file:// URI
+      // in the common case, but on some Android devices/providers that step
+      // is unreliable (still content://, or a cache name with no extension) —
+      // both of which can make the native reader below misbehave. Cheap
+      // extra copy, so we do it unconditionally rather than trying to detect
+      // which case we're in.
+      let readUri = file.uri;
+      try {
+        const localUri = `${FileSystem.cacheDirectory}import_temp_${Date.now()}.csv`;
+        await FileSystem.copyAsync({ from: file.uri, to: localUri });
+        readUri = localUri;
+        dbgCsv(`5b. copié vers ${localUri.slice(0, 50)}…`);
+      } catch (copyErr: any) {
+        dbgCsv(`5b. échec copie vers le cache, lecture directe depuis l'URI d'origine : ${copyErr?.message ?? copyErr}`);
+      }
+
+      // Read content. Reading the WHOLE file as base64 (previous approach,
+      // just to sniff the BOM ourselves) crashes the app natively past a
+      // few hundred KB — atob()/escape()/decodeURIComponent() over a huge
+      // string, plus the inflated base64 payload, blows past the RN
+      // bridge's message-size limit. That's a native-level crash (full
+      // Metro reload, no redbox), not a JS exception — try/catch can't stop
+      // it, so the fix is to move less data across the bridge, not to wrap
+      // more code. We now only read the first 4 bytes as base64 to detect a
+      // UTF-16 BOM (rare — Excel "Unicode Text" export); everything else
+      // reads as plain UTF8 text directly, which is what actually needs to
+      // handle the common/large-file case safely.
       let content: string;
       try {
-        const base64 = await FileSystem.readAsStringAsync(file.uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        content = decodeCsvBase64(base64);
-        if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1); // belt-and-suspenders BOM strip
+        let isUtf16 = false;
+        try {
+          const head = await FileSystem.readAsStringAsync(readUri, {
+            encoding: FileSystem.EncodingType.Base64,
+            position: 0,
+            length: 4,
+          });
+          const headBytes = atob(head);
+          isUtf16 =
+            (headBytes.charCodeAt(0) === 0xFF && headBytes.charCodeAt(1) === 0xFE) ||
+            (headBytes.charCodeAt(0) === 0xFE && headBytes.charCodeAt(1) === 0xFF);
+        } catch {
+          isUtf16 = false; // ranged read unsupported on this URI — fall back to plain text below
+        }
+
+        if (isUtf16) {
+          // Rare, and these exports are typically small — a full base64
+          // read + manual decode is acceptable here.
+          const base64 = await FileSystem.readAsStringAsync(readUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          content = decodeCsvBase64(base64);
+        } else {
+          try {
+            // Tentative 1 : lecture directe UTF-8 — rapide, sûre pour les
+            // gros fichiers (voir note ci-dessus).
+            content = await FileSystem.readAsStringAsync(readUri, {
+              encoding: FileSystem.EncodingType.UTF8,
+            });
+          } catch (utf8Err) {
+            // Tentative 2 (secours) : le décodeur UTF-8 natif d'Android peut
+            // lever une exception sur certains URI content:// ou sur un
+            // fichier dans un encodage non-UTF8 sans BOM (ex: Windows-1252,
+            // courant depuis un export Excel FR avec des accents). On relit
+            // en base64 et on décode nous-mêmes — decodeCsvBase64 gère aussi
+            // le cas BOM UTF-8/UTF-16 s'il est finalement présent.
+            console.log('[csvImport] échec lecture UTF-8 directe, tentative via Base64…', utf8Err);
+            const base64 = await FileSystem.readAsStringAsync(readUri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            content = decodeCsvBase64(base64);
+          }
+        }
+        if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1); // strip BOM
+        content = content.replace(/\r\n/g, '\n');
+        if (!content) {
+          dbgCsv('6. fichier vide après lecture (deux tentatives)');
+          Alert.alert('Fichier vide', 'Le fichier CSV ne contient aucune ligne de données.');
+          return;
+        }
         dbgCsv(`6. fichier lu, ${content.length} caractères`);
       } catch (readErr: any) {
         dbgCsv(`6. échec lecture fichier : ${readErr?.message ?? readErr}`);
@@ -979,7 +1082,8 @@ export default function VendorDashboardScreen() {
           'Colonnes manquantes',
           `Colonnes requises introuvables : ${missing.join(', ')}\n\n` +
           `Colonnes détectées : ${headers.join(', ')}\n\n` +
-          `Colonnes attendues : name, price_public, price_wholesale, stock_quantity, category, min_order_quantity${categoryHint}`,
+          `Colonnes attendues : name, price_public, price_wholesale, stock_quantity, category, min_order_quantity, ` +
+          `description, reference, poids_net, dimensions, pays_origine, hs_code, images (optionnelles)${categoryHint}`,
         );
         return;
       }
@@ -1033,17 +1137,36 @@ export default function VendorDashboardScreen() {
           continue;
         }
 
+        // ── Optional columns (new) — description, specifications, images ──
+        const description = pick(row, ['description']);
+
+        // Specifications (JSONB) — free-text logistics fields, all optional.
+        const specifications: Record<string, string> = {
+          reference:    pick(row, ['reference', 'référence']),
+          poids_net:    pick(row, ['poids_net', 'poids']),
+          dimensions:   pick(row, ['dimensions']),
+          pays_origine: pick(row, ['pays_origine', "pays_d'origine", 'pays']),
+          hs_code:      pick(row, ['hs_code']),
+        };
+        const hasSpecs = Object.values(specifications).some(v => v);
+
+        // Images — comma-separated URLs in "images" (or "image_url"/"photos").
+        const imagesRaw = pick(row, ['images', 'image_url', 'photos']);
+        const images    = imagesRaw ? imagesRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+
         if (isSupabaseConfigured && supabase && realVendorIdForImport) {
           const { error } = await supabase.from('products').insert({
             vendor_id:         realVendorIdForImport,
             name_i18n:         { fr: name },
-            description_i18n:  { fr: '' },
+            description_i18n:  description ? { fr: description } : {},
             price_public:      pricePublic,
             price_wholesale:   priceWholesale,
             min_order_quantity: minOrderQty,
             stock_quantity:    stockQty,
             category,
             is_active:         true,
+            ...(hasSpecs ? { specifications } : {}),
+            ...(images.length > 0 ? { images } : {}),
           });
           if (error) {
             console.error('[vendor:csvImportRow]', line, error);
@@ -1055,12 +1178,14 @@ export default function VendorDashboardScreen() {
           newLocal.push({
             id:            `imp-${Date.now()}-${i}`,
             name,
+            description:   description || undefined,
             stock:         stockQty,
             pricePublic:   pricePublic,
             priceWholesale,
             category,
-            images:        [],
+            images,
             vendorId:      'v1',
+            specifications: hasSpecs ? specifications : undefined,
             _imported:     true,
           });
         }
@@ -1095,6 +1220,41 @@ export default function VendorDashboardScreen() {
       Alert.alert('Erreur', toUserMessage('vendor:csvImport', e, 'Impossible d\'importer ce fichier. Vérifie son format et réessaie.'));
     } finally {
       setIsImporting(false);
+    }
+  };
+
+  // ─── CSV IMPORT — template download ────────────────────────────────────────
+  const handleDownloadCsvTemplate = async () => {
+    setIsDownloadingCsvTemplate(true);
+    try {
+      const csvRows: string[][] = [
+        ['name', 'price_public', 'price_wholesale', 'stock_quantity', 'category', 'min_order_quantity', 'description', 'reference', 'poids_net', 'dimensions', 'pays_origine', 'hs_code', 'images'],
+        ['Riz Parfumé 25kg', '17500', '16200', '50', 'food', '1', 'Sac de riz parfumé brisé 100%', 'BDC-RIZ-25', '25 kg', '60x40x15 cm', 'Sénégal', '1006.30', 'https://images.unsplash.com/photo-1586201375761-83865001e31c'],
+        ['Huile Végétale 5L', '6500', '5800', '30', 'food', '1', 'Bidon d\'huile raffinée', 'BDC-HUI-05', '4.5 kg', '20x15x30 cm', 'Sénégal', '1507.90', 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5'],
+      ];
+      const BOM = String.fromCharCode(0xFEFF);
+      const csvContent = BOM + csvRows.map(row => row.map(escapeCSV).join(',')).join('\n');
+
+      const fileName = 'template_import_produits.csv';
+      const fileUri  = (FileSystem.documentDirectory ?? FileSystem.cacheDirectory ?? '') + fileName;
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType:    'text/csv',
+          dialogTitle: 'Modèle CSV import produits BARDEC',
+          UTI:         'public.comma-separated-values-text',
+        });
+      } else {
+        Alert.alert('Fichier enregistré', `${fileName} a été enregistré dans le stockage de l'application.`);
+      }
+    } catch (e: any) {
+      Alert.alert('Erreur', toUserMessage('vendor:csvTemplateDownload', e, 'Impossible de générer le modèle CSV. Réessaie dans un instant.'));
+    } finally {
+      setIsDownloadingCsvTemplate(false);
     }
   };
 
@@ -1392,7 +1552,7 @@ export default function VendorDashboardScreen() {
             {/* Importer CSV */}
             <TouchableOpacity
               style={[styles.actionCard, { backgroundColor: colors.accent, borderColor: colors.border, opacity: isImporting ? 0.6 : 1 }]}
-              onPress={handleImportCSV}
+              onPress={() => setShowCsvHelpModal(true)}
               disabled={isImporting}
             >
               {isImporting
@@ -1724,8 +1884,8 @@ export default function VendorDashboardScreen() {
                     ]}
                     onPress={() => setAddForm(prev => ({ ...prev, category: cat.id }))}
                   >
-                    <Feather
-                      name={cat.icon as any}
+                    <CategoryIcon
+                      category={cat}
                       size={14}
                       color={addForm.category === cat.id ? 'white' : colors.mutedForeground}
                     />
@@ -1957,6 +2117,98 @@ export default function VendorDashboardScreen() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Modal aide import CSV ─────────────────────────────────────────── */}
+      <Modal
+        visible={showCsvHelpModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowCsvHelpModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border, maxHeight: '85%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.foreground }]}>Importer des produits (CSV)</Text>
+              <TouchableOpacity onPress={() => setShowCsvHelpModal(false)}>
+                <Feather name="x" size={22} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ gap: 14, paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 13, lineHeight: 19 }}>
+                Un seul fichier CSV suffit pour importer tes produits en une fois : informations de base, spécifications et images.
+              </Text>
+
+              {/* Guide des colonnes/catégories — replié par défaut pour laisser
+                  les deux actions principales visibles sans défiler. */}
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 }}
+                onPress={() => setShowCsvColumnGuide(v => !v)}
+              >
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>
+                  Consulter le guide des colonnes et catégories
+                </Text>
+                <Feather name={showCsvColumnGuide ? 'chevron-up' : 'chevron-down'} size={18} color={colors.primary} />
+              </TouchableOpacity>
+
+              {showCsvColumnGuide && (
+                <View style={{ backgroundColor: colors.background, borderRadius: 10, borderWidth: 1, borderColor: colors.border, padding: 12, gap: 6 }}>
+                  <Text style={{ color: colors.foreground, fontWeight: '700', fontSize: 13 }}>Colonnes du fichier</Text>
+                  {[
+                    ['name *', 'Nom du produit'],
+                    ['price_public *', 'Prix de vente au détail (FCFA)'],
+                    ['price_wholesale', 'Prix de gros (FCFA), calculé automatiquement sinon'],
+                    ['stock_quantity *', 'Quantité en stock'],
+                    ['category *', CATEGORIES.filter(c => c.id !== 'all').map(c => c.id).join(', ')],
+                    ['min_order_quantity', 'Quantité minimum de commande (défaut : 1)'],
+                    ['description', 'Description du produit'],
+                    ['reference', 'Référence interne du produit'],
+                    ['poids_net', 'Poids net (ex: 25 kg)'],
+                    ['dimensions', 'Ex: 60x40x15 cm'],
+                    ['pays_origine', 'Pays d\'origine'],
+                    ['hs_code', 'Code de nomenclature douanière'],
+                    ['images', 'URLs séparées par des virgules'],
+                  ].map(([col, desc]) => (
+                    <View key={col} style={{ flexDirection: 'row', gap: 6 }}>
+                      <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12, width: 116 }}>{col}</Text>
+                      <Text style={{ color: colors.mutedForeground, fontSize: 12, flex: 1 }}>{desc}</Text>
+                    </View>
+                  ))}
+                  <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 4, fontStyle: 'italic' }}>
+                    * obligatoire — les autres colonnes sont optionnelles.
+                  </Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[styles.actionCard, { backgroundColor: colors.accent, borderColor: colors.border, width: '100%', opacity: isDownloadingCsvTemplate ? 0.6 : 1 }]}
+                onPress={handleDownloadCsvTemplate}
+                disabled={isDownloadingCsvTemplate}
+              >
+                {isDownloadingCsvTemplate
+                  ? <ActivityIndicator size="small" color={colors.primary} />
+                  : <Feather name="download" size={20} color={colors.primary} />}
+                <Text style={[styles.actionLabel, { color: colors.foreground }]}>
+                  {isDownloadingCsvTemplate ? 'Génération…' : 'Télécharger le modèle CSV exemple'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalSaveBtn, { backgroundColor: colors.primary, opacity: isImporting ? 0.7 : 1 }]}
+                onPress={() => { setShowCsvHelpModal(false); handleImportCSV(); }}
+                disabled={isImporting}
+              >
+                {isImporting
+                  ? <ActivityIndicator size="small" color="white" />
+                  : <Feather name="upload" size={18} color="white" />}
+                <Text style={styles.modalSaveTxt}>
+                  {isImporting ? 'Import en cours…' : 'Choisir mon fichier CSV'}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
 
     </BardecLayout>
