@@ -80,9 +80,22 @@ export default function OrderDetailScreen() {
           onPress: async () => {
             setConfirming(true);
             if (isSupabaseConfigured && supabase) {
-              const { error } = await supabase.from('orders').update({ status: 'completed' }).eq('id', order.id);
+              // .select('id') pour détecter un blocage RLS silencieux (0 ligne
+              // affectée, pas d'erreur) — sans ça, un update bloqué affichait
+              // quand même "Réception confirmée" alors que rien n'avait changé
+              // en base (voir la policy orders_customer_confirm_receipt ajoutée
+              // pour que cette action fonctionne réellement).
+              const { data: updated, error } = await supabase
+                .from('orders')
+                .update({ status: 'completed' })
+                .eq('id', order.id)
+                .select('id');
               setConfirming(false);
               if (error) { Alert.alert('Erreur', toUserMessage('orderDetail:confirmReceipt', error, 'Impossible de confirmer la réception. Réessaie dans un instant.')); return; }
+              if (!updated || updated.length === 0) {
+                Alert.alert('Permission refusée', "Tu n'as pas les droits pour confirmer la réception de cette commande.");
+                return;
+              }
             } else {
               setConfirming(false);
             }
