@@ -46,6 +46,15 @@ function moduleFeaturesFor(type: PartnerType | undefined): string[] {
   return [...DEFAULT_UPCOMING, ...(specific ?? [])];
 }
 
+// Chantier 2 — Espace Partenaire : 4 sous-modules logistiques cliquables.
+// Chaque carte ouvre l'écran dédié sous app/(app)/partner/*.
+const LOGISTICS_MODULES: { key: string; label: string; icon: string; route: string }[] = [
+  { key: 'missions',      label: 'Missions & Commandes',        icon: 'truck',      route: '/partner/missions' },
+  { key: 'documents',     label: 'Documents & Contrat',         icon: 'file-text',  route: '/partner/documents' },
+  { key: 'fleet',         label: 'Suivi de flotte en temps réel', icon: 'map',      route: '/partner/fleet-tracking' },
+  { key: 'routes',        label: 'Affectation de tournées',     icon: 'navigation', route: '/partner/routes' },
+];
+
 export default function PartnerDashboardScreen() {
   const colors = useColors();
   const { user, isDemoMode } = useAuth();
@@ -204,14 +213,20 @@ export default function PartnerDashboardScreen() {
         </TouchableOpacity>
       </View>
 
-      <Text style={[styles.sectionTitle, { color: colors.foreground }]}>À venir</Text>
-      {moduleFeaturesFor(user?.partnerType).map(feature => (
-        <View key={feature} style={styles.upcomingRow}>
-          <Text style={[styles.upcomingLabel, { color: colors.mutedForeground, flex: 1 }]}>{feature}</Text>
-          <View style={[styles.soonBadge, { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' }]}>
-            <Text style={styles.soonBadgeText}>Bientôt disponible</Text>
+      <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Modules logistiques</Text>
+      {LOGISTICS_MODULES.map(mod => (
+        <TouchableOpacity
+          key={mod.key}
+          style={[styles.moduleCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={() => router.push(mod.route as any)}
+          activeOpacity={0.8}
+        >
+          <View style={[styles.moduleIcon, { backgroundColor: colors.accent }]}>
+            <Feather name={mod.icon} size={20} color={colors.primary} />
           </View>
-        </View>
+          <Text style={[styles.moduleLabel, { color: colors.foreground }]}>{mod.label}</Text>
+          <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+        </TouchableOpacity>
       ))}
     </BardecLayout>
   );
@@ -247,6 +262,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderRadius: 12, paddingVertical: 10, marginTop: 10,
   },
   supportBtnText: { fontSize: 14, fontWeight: '700' },
+  moduleCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    marginHorizontal: 16, marginBottom: 10, borderWidth: 1, borderRadius: 14, padding: 14,
+  },
+  moduleIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  moduleLabel: { fontSize: 14, fontWeight: '700', flex: 1 },
   upcomingRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingHorizontal: 16, paddingVertical: 10,

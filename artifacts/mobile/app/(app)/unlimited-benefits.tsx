@@ -21,6 +21,12 @@ function handleComingSoon() {
   Alert.alert('Bientôt disponible', 'BARDEC Unlimited arrive prochainement.');
 }
 
+// Chantier 6 — toast dédié aux cartes d'avantages : "Fonctionnalité
+// disponible bientôt pour les membres Unlimited".
+function handleBenefitComingSoon() {
+  Alert.alert('Bientôt disponible', 'Fonctionnalité disponible bientôt pour les membres Unlimited.');
+}
+
 const BENEFIT_DEFINITIONS = [
   { icon: 'zap',        title: 'Accès Prioritaire',   desc: 'Accédez aux nouvelles offres 24h avant tout le monde.', color: '#F59E0B', tag: 'Exclusif' },
   { icon: 'shield',     title: 'Protection Totale',    desc: 'Trade Assurance renforcée. Remboursement garanti sous 48h.', color: '#22C55E', tag: 'Garanti' },
@@ -28,6 +34,11 @@ const BENEFIT_DEFINITIONS = [
   { icon: 'award',      title: 'Récompenses Premium',  desc: 'Gagnez 3× plus de points. Cashback 2% sur toutes les commandes.', color: '#EC4899', tag: 'Loyalty' },
   { icon: 'trending-up',title: 'Analytics Avancés',    desc: 'Rapports détaillés, tendances marché, prévisions automatiques.', color: '#0EA5E9', tag: 'Données' },
   { icon: 'globe',      title: 'Sourcing Mondial',     desc: '50 000+ fournisseurs vérifiés dans 80 pays.', color: '#1A56DB', tag: 'Global' },
+  // Chantier 6 — trois nouvelles cartes d'avantages, cliquables comme les
+  // autres (toast "Bientôt disponible" pour les membres Unlimited).
+  { icon: 'cpu',        title: 'Assistant IA OMNI Avancé',         desc: 'Prévision de stock, devis B2B et support 24/7.', color: '#7C3AED', tag: 'IA OMNI' },
+  { icon: 'users',      title: 'Achat Groupé & Négociation B2B',   desc: 'Tarifs de gros négociés en groupe.', color: '#0EA5E9', tag: 'B2B Pro' },
+  { icon: 'truck',      title: 'Logistique & Transport Prioritaire', desc: 'Expédition express et routing intelligent.', color: '#22C55E', tag: 'Express' },
 ];
 
 const EXCLUSIVE_OFFERS = [
@@ -125,11 +136,11 @@ export default function UnlimitedBenefitsScreen() {
             <TouchableOpacity
               key={i}
               style={[styles.benefitCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={handleComingSoon}
+              onPress={handleBenefitComingSoon}
               activeOpacity={0.8}
             >
               <View style={[styles.benefitIcon, { backgroundColor: b.color + '20' }]}>
-                <Feather name={b.icon as keyof typeof Feather.glyphMap} size={22} color={b.color} />
+                <Feather name={b.icon} size={22} color={b.color} />
               </View>
               <View style={{ flex: 1 }}>
                 <View style={styles.benefitTitleRow}>

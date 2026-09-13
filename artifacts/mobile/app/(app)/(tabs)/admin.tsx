@@ -3363,6 +3363,37 @@ function AdminScreenInner() {
                   </View>
                 )}
 
+                {isActive && (
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={{ color: colors.mutedForeground, fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
+                      Gestion logistique
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TouchableOpacity
+                        style={[styles.pmtActionBtn, { backgroundColor: colors.accent, borderColor: colors.border, flex: 1 }]}
+                        onPress={() => Alert.alert('Bientôt disponible', 'La gestion avancée des documents/tournées arrive prochainement dans la fiche partenaire.')}
+                      >
+                        <Feather name="file-text" size={15} color={colors.primary} />
+                        <Text style={[styles.pmtActionText, { color: colors.primary }]}>Documents</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.pmtActionBtn, { backgroundColor: colors.accent, borderColor: colors.border, flex: 1 }]}
+                        onPress={() => Alert.alert('Bientôt disponible', 'La gestion avancée des documents/tournées arrive prochainement dans la fiche partenaire.')}
+                      >
+                        <Feather name="navigation" size={15} color={colors.primary} />
+                        <Text style={[styles.pmtActionText, { color: colors.primary }]}>Tournées</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.pmtActionBtn, { backgroundColor: colors.accent, borderColor: colors.border, flex: 1 }]}
+                        onPress={() => Alert.alert('Bientôt disponible', 'La gestion avancée des documents/tournées arrive prochainement dans la fiche partenaire.')}
+                      >
+                        <Feather name="map" size={15} color={colors.primary} />
+                        <Text style={[styles.pmtActionText, { color: colors.primary }]}>Flotte</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
                 {isSuspendedLike && (
                   <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
                     <TouchableOpacity

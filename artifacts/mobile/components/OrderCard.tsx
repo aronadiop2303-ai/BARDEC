@@ -27,7 +27,7 @@ export default function OrderCard({ order }: Props) {
   const { t } = useLanguage();
 
   const statusColor = STATUS_COLORS[order.status] ?? colors.mutedForeground;
-  const statusIcon = (STATUS_ICONS[order.status] ?? 'circle') as keyof typeof Feather.glyphMap;
+  const statusIcon: string = STATUS_ICONS[order.status] ?? 'circle';
   const statusKey = order.status as TranslationKey;
 
   return (
@@ -77,20 +77,31 @@ export default function OrderCard({ order }: Props) {
       )}
 
       <View style={styles.actions}>
-        <TouchableOpacity style={[styles.actionBtn, { borderColor: colors.border }]}>
+        <TouchableOpacity
+          style={[styles.actionBtn, { borderColor: colors.border }]}
+          onPress={() => router.push(`/order/${order.id}` as any)}
+        >
           <Feather name="eye" size={14} color={colors.mutedForeground} />
           <Text style={[styles.actionText, { color: colors.mutedForeground }]}>{t('order_details')}</Text>
         </TouchableOpacity>
         {order.status === 'shipped' || order.status === 'out_for_delivery' ? (
-          <TouchableOpacity style={[styles.actionBtn, { borderColor: colors.primary, backgroundColor: colors.accent }]}>
+          <TouchableOpacity
+            style={[styles.actionBtn, { borderColor: colors.primary, backgroundColor: colors.accent }]}
+            onPress={() => router.push(`/tracking/${order.id}` as any)}
+          >
             <Feather name="navigation" size={14} color={colors.primary} />
             <Text style={[styles.actionText, { color: colors.primary }]}>{t('track_order')}</Text>
           </TouchableOpacity>
         ) : null}
+        {/* Bouton d'évaluation — visible uniquement pour une commande livrée
+            (DELIVERED/COMPLETED). Masqué pour shipped / in_delivery / etc. */}
         {order.status === 'completed' && (
-          <TouchableOpacity style={[styles.actionBtn, { borderColor: colors.border }]}>
-            <Feather name="refresh-cw" size={14} color={colors.mutedForeground} />
-            <Text style={[styles.actionText, { color: colors.mutedForeground }]}>{t('reorder')}</Text>
+          <TouchableOpacity
+            style={[styles.actionBtn, { borderColor: '#F59E0B', backgroundColor: '#F59E0B18' }]}
+            onPress={() => router.push(`/order/${order.id}?review=1` as any)}
+          >
+            <Feather name="star" size={14} color="#F59E0B" />
+            <Text style={[styles.actionText, { color: '#F59E0B' }]}>Donner mon avis</Text>
           </TouchableOpacity>
         )}
       </View>

@@ -121,6 +121,20 @@ Deno.serve(async (req) => {
     const mode = modeRaw === 'live' ? 'live' : 'test';
     const baseUrl = paydunyaBaseUrl(mode);
 
+    // ── Redirection après paiement (Chantier 8) ─────────────────────────────
+    // callback_url reste le webhook IPN backend→backend (source de vérité de
+    // l'état "paid"). return_url / cancel_url sont les URLs de redirection
+    // côté utilisateur, injectées via les secrets Edge Function :
+    //   - BARDEC_RETURN_URL : deep link `bardec://checkout/success` (iOS/Android)
+    //     ou `https://…/app/checkout/success` (web) — vers l'écran de succès.
+    //   - BARDEC_CANCEL_URL : deep link retour au checkout en cas d'abandon.
+    // En production (`PAYDUNYA_MODE=live`), ces deep links déclenchent la
+    // redirection automatique vers les applications mobiles tierces (Wave,
+    // Orange Money) sur iOS/Android. Absents, ils restent omis (aucun impact
+    // sur le flux sandbox historique).
+    const returnUrl = (Deno.env.get('BARDEC_RETURN_URL') ?? '').trim();
+    const cancelUrl = (Deno.env.get('BARDEC_CANCEL_URL') ?? '').trim();
+
     const invoiceBody = {
       invoice: {
         total_amount: amount,
@@ -134,6 +148,8 @@ Deno.serve(async (req) => {
       },
       actions: {
         callback_url: `${supabaseUrl}/functions/v1/payment-gateway-webhook`,
+        ...(returnUrl ? { return_url: returnUrl } : {}),
+        ...(cancelUrl ? { cancel_url: cancelUrl } : {}),
       },
     };
 
@@ -147,7 +163,7 @@ Deno.serve(async (req) => {
     if (!paydunyaData || paydunyaData.response_code !== '00' || !paydunyaData.token) {
       return jsonResponse({
         error: 'paydunya_error',
-        message: paydunyaData?.response_text ?? paydunyaData?.description ?? 'Échec de création de la facture PayDunya.',
+        message: paydunyaData?.response_text ?? paydunyaData?.description ?? 'Échec de création de la facture de paiement.',
       }, 502);
     }
 

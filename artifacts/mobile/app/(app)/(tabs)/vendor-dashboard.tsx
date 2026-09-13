@@ -250,17 +250,33 @@ export default function VendorDashboardScreen() {
 
   useEffect(() => {
     async function resolveShopName() {
-      if (!isSupabaseConfigured || !supabase || !user?.company) return;
-      // user.company holds the company UUID (company_id); look up the display name
-      const { data } = await supabase
-        .from('companies')
-        .select('name')
-        .eq('id', user.company)
-        .single();
-      if (data?.name) setShopName(data.name);
+      if (!isSupabaseConfigured || !supabase) return;
+      // 1) Nom de boutique du vendeur (vendors.company_name) — source de
+      //    vérité du tableau de bord vendeur, jamais un UUID.
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser) {
+        const { data: vendorRow } = await supabase
+          .from('vendors')
+          .select('company_name')
+          .eq('id', authUser.id)
+          .maybeSingle();
+        if (vendorRow?.company_name) { setShopName(vendorRow.company_name); return; }
+      }
+      // 2) Société B2B liée (companies.name via company_id) — user.company
+      //    contient l'UUID, on résout le vrai nom au lieu de l'afficher brut.
+      if (user?.company) {
+        const { data } = await supabase
+          .from('companies')
+          .select('name')
+          .eq('id', user.company)
+          .maybeSingle();
+        if (data?.name) { setShopName(data.name); return; }
+      }
+      // 3) Repli sur le nom d'affichage du compte.
+      if (user?.name) setShopName(user.name);
     }
     resolveShopName();
-  }, [user?.company]);
+  }, [user?.company, user?.name]);
 
   // Products state (Supabase or local-imported in demo mode)
   const [supabaseProducts, setSupabaseProducts] = useState<LocalProduct[]>([]);
@@ -455,6 +471,26 @@ export default function VendorDashboardScreen() {
     { value: 'completed',        label: 'Livré' },
     { value: 'cancelled',        label: t('cancelled') },
   ];
+
+  // ─── Matrice de déblocage des statuts (Chantier 1) ────────────────────────
+  // Verrouille les transitions non séquentielles avec une icône 🔐 :
+  //   PENDING      → statut initial (jamais atteignable depuis un autre état)
+  //   APPROVED     → réservé à l'Approbateur (B2B) / acceptation vendeur (B2C)
+  //   SHIPPED      → verrouillé tant que status !== APPROVED (B2B) ; en B2C
+  //                  (sans approbateur), depuis pending ou approved uniquement
+  //   IN_DELIVERY  → verrouillé tant que status !== SHIPPED
+  //   DELIVERED    → verrouillé tant que status !== IN_DELIVERY
+  //   CANCELLED    → toujours sélectionnable sauf une fois DELIVERED
+  function isOrderStatusLocked(current: string, target: string, requiresApproval: boolean): boolean {
+    if (target === 'cancelled') return current === 'completed';
+    if (target === 'out_for_delivery') return current !== 'shipped';
+    if (target === 'completed') return current !== 'out_for_delivery';
+    if (target === 'shipped') {
+      if (requiresApproval) return current !== 'approved';
+      return current !== 'pending' && current !== 'approved';
+    }
+    return false;
+  }
 
   // ─── Add / Edit product modal ─────────────────────────────────────────────
   const [showAddModal,    setShowAddModal]    = useState(false);
@@ -1436,11 +1472,11 @@ export default function VendorDashboardScreen() {
       >
         <View style={styles.shopInfo}>
           <View style={styles.shopAvatar}>
-            <Text style={styles.shopAvatarText}>{user?.company?.[0] ?? 'V'}</Text>
+            <Text style={styles.shopAvatarText}>{(shopName?.[0] ?? 'V').toUpperCase()}</Text>
           </View>
           <View>
             <View style={styles.shopNameRow}>
-              <Text style={styles.shopName}>{user?.company ?? 'Ma Boutique'}</Text>
+              <Text style={styles.shopName}>{shopName}</Text>
               {(!isSupabaseConfigured || vendorKyc?.verified) && (
                 <View style={styles.verifiedBadge}>
                   <Feather name="check-circle" size={12} color="white" />
@@ -2034,7 +2070,7 @@ export default function VendorDashboardScreen() {
             )}
             <View style={{ gap: 8, marginBottom: 12 }}>
               {ORDER_STATUSES.map(s => {
-                const locked = statusOrderAwaitingApproval && (s.value === 'shipped' || s.value === 'out_for_delivery');
+                const locked = isOrderStatusLocked(statusOrder?.status ?? '', s.value, statusOrderRequiresApproval);
                 const label = statusOrderAwaitingApproval && s.value === 'approved'
                   ? 'Approuvé (→ envoie en validation B2B)'
                   : s.label;

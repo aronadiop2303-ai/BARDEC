@@ -23,7 +23,6 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { toUserMessage } from '@/lib/errors';
 import { readLocalImageBytes } from '@/lib/imageUpload';
 import { mapDbOrder } from '@/lib/orders';
-import { usePendingApprovalsCount } from '@/hooks/usePendingApprovalsCount';
 import { PhoneInput, PhoneInputValue } from '@/components/PhoneInput';
 
 // Chantier 7 (fusionné dans Profil suite correction d'architecture) — un
@@ -379,17 +378,10 @@ export default function ProfileScreen() {
   }
 
   const currentLang = LANGUAGES.find(l => l.code === language);
-  const isB2B = user?.role === 'BUYER' || user?.role === 'APPROVER';
-  // Chantier 2 — un APPROVER a son propre Dashboard dédié (Espace
-  // Approbateur, approver-dashboard.tsx) pour Bon de Commande / Approbations
-  // en attente. BUYER n'a pas cet écran séparé : depuis la correction
-  // d'architecture Chantier 7, tout son suivi B2B (métriques, accès
-  // rapides, bons de commande) est intégré directement ci-dessous dans la
-  // carte "Espace Société" plutôt que dans un onglet séparé.
+  // Chantier 5 — l'Espace Société (ID + limite de crédit Net30) est réservé
+  // au rôle Acheteur B2B (BUYER) ; un APPROVER n'a plus accès à ce bloc (son
+  // suivi vit sur l'onglet Espace Approbateur, approver-dashboard.tsx).
   const isBuyer = user?.role === 'BUYER';
-
-  const realPendingApprovals = usePendingApprovalsCount(isB2B);
-  const pendingApprovalsValue = isSupabaseConfigured ? (realPendingApprovals ?? 0) : user?.pendingApprovals;
 
   // AuthContext.user (company/companyApproved) n'est enrichi qu'au login —
   // rien ne le rafraîchit tant qu'un admin approuve une demande de
@@ -857,41 +849,6 @@ export default function ProfileScreen() {
         {user?.role && <RoleBadge role={user.role} />}
       </View>
 
-      {/* B2B info — APPROVER garde la version minimale (son vrai tableau de
-          bord vit sur l'onglet Espace Approbateur) ; BUYER, qui n'a pas
-          d'écran séparé, reçoit ici la version complète (métriques Net30,
-          accès rapides, bons de commande) suite à la fusion Chantier 7. */}
-      {isB2B && user && !isBuyer && (
-        <View style={[styles.b2bCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.b2bTitle, { color: colors.foreground }]}>Espace Société</Text>
-          {user.company && (
-            <View style={styles.b2bRow}>
-              <Feather name="briefcase" size={16} color={colors.mutedForeground} />
-              <Text style={[styles.b2bRowText, { color: colors.foreground }]}>{user.company}</Text>
-            </View>
-          )}
-          {user.creditLimit && (
-            <View style={styles.b2bRow}>
-              <Feather name="credit-card" size={16} color={colors.mutedForeground} />
-              <View>
-                <Text style={[styles.b2bRowLabel, { color: colors.mutedForeground }]}>{t('credit_limit')}</Text>
-                <Text style={[styles.b2bRowValue, { color: colors.primary }]}>
-                  ${user.creditLimit?.toLocaleString()} ({t('net30')})
-                </Text>
-              </View>
-            </View>
-          )}
-          {pendingApprovalsValue !== undefined && pendingApprovalsValue !== null && pendingApprovalsValue > 0 && (
-            <View style={[styles.b2bRow, styles.pendingRow, { backgroundColor: '#FEF3C7' }]}>
-              <Feather name="alert-circle" size={16} color="#D97706" />
-              <Text style={[styles.b2bRowText, { color: '#D97706' }]}>
-                {pendingApprovalsValue} commande(s) {t('pending_approval')}
-              </Text>
-            </View>
-          )}
-        </View>
-      )}
-
       {isBuyer && user && (
         <View style={[styles.b2bCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.b2bTitle, { color: colors.foreground }]}>Espace Société</Text>
@@ -1100,6 +1057,10 @@ export default function ProfileScreen() {
         {/* Pas de table referrals/affiliate_program en base (vérifié) —
             stub honnête plutôt qu'une fonctionnalité fabriquée. */}
         <MenuItem icon="gift" label="Programme d'affiliation" colors={colors} onPress={() => Alert.alert('Bientôt disponible', 'Le programme d\'affiliation BARDEC arrive prochainement.')} />
+        {/* Chantier 3 — Programme de parrainage, juste sous l'affiliation.
+            Icône UserPlus/Gift ; tease "Bientôt disponible" tant que le
+            backend parrainage n'est pas branché. */}
+        <MenuItem icon="user-plus" label="Programme de parrainage" colors={colors} onPress={() => Alert.alert('Bientôt disponible', 'Le programme de parrainage BARDEC arrive prochainement.')} />
 
         <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
         <Text style={[styles.menuSectionTitle, { color: colors.mutedForeground, paddingTop: 8 }]}>{t('settings')}</Text>

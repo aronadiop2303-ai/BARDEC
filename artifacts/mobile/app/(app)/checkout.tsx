@@ -1291,11 +1291,11 @@ export default function CheckoutScreen() {
               />
             </View>
             <Text style={[styles.confirmTitle, { color: colors.foreground }]}>
-              {paymentStatus === 'awaiting_verification' ? 'Commande reçue !' : t('thank_you')}
+              {paymentStatus === 'awaiting_verification' ? '🔒 Paiement sécurisé en cours de validation' : t('thank_you')}
             </Text>
             <Text style={[styles.confirmSubtitle, { color: colors.mutedForeground }]}>
               {paymentStatus === 'awaiting_verification'
-                ? 'Confirmation automatique du paiement en cours.'
+                ? 'Votre transaction est enregistrée en toute sécurité via BARDEC Pay. Votre commande sera confirmée instantanément dès la validation de votre transfert mobile. Merci d\'effectuer vos achats en toute confiance sur BARDEC.'
                 : t('order_confirmed')}
             </Text>
             <Text style={[styles.confirmOrder, { color: colors.primary }]}>{orderRef}</Text>
@@ -1316,7 +1316,7 @@ export default function CheckoutScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.confirmPayStatusTitle, { color: '#92400E' }]}>Paiement en attente de confirmation</Text>
                   <Text style={[styles.confirmPayStatusSub, { color: '#D97706' }]}>
-                    Ta commande sera automatiquement marquée payée dès que PayDunya confirme la transaction {PAYMENT_METHODS.find(p=>p.id===paymentMethod)?.label}.
+                    Ta commande sera automatiquement marquée payée dès que BARDEC Pay confirme la transaction {PAYMENT_METHODS.find(p=>p.id===paymentMethod)?.label}.
                     Si tu n'as pas terminé le paiement, retourne dans la commande pour réessayer.
                   </Text>
                 </View>

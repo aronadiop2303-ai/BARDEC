@@ -34,7 +34,7 @@ function trackingIndex(status: string): number {
 }
 
 export default function OrderDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, review } = useLocalSearchParams<{ id: string; review?: string }>();
   const colors = useColors();
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -70,6 +70,17 @@ export default function OrderDetailScreen() {
   }, [id]);
 
   useEffect(() => { fetchOrder(); }, [fetchOrder]);
+
+  // Ouverture directe de la modale d'avis quand on arrive via le bouton
+  // "Donner mon avis" de la carte de commande (/order/[id]?review=1) — ne
+  // s'ouvre que si la commande est réellement livrée (DELIVERED/COMPLETED).
+  useEffect(() => {
+    if (review === '1' && order?.status === 'completed') {
+      setReviewComment('');
+      setReviewRating(5);
+      setReviewVisible(true);
+    }
+  }, [review, order?.status]);
 
   const handleConfirmReceipt = () => {
     if (!order) return;
